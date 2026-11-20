@@ -204,19 +204,16 @@ await step('selection inside one hard-wrapped paragraph narrows to a single line
 await step('quote option: off when the selection covers whole lines, on when it is only part of them', async () => {
   await drag('across', 'testing'); // all of source line 6
   assert.equal(await page.locator('#c-qinc').isChecked(), false);
-  assert.match(await page.locator('#c-qnote').innerText(), /already shows/);
   await page.keyboard.press('Escape');
   await drag('paragraph is', 'hard'); // part of source line 5
   assert.equal(await page.locator('#c-qinc').isChecked(), true);
   await page.keyboard.press('Escape');
 });
-await step('quote option: code selections quote their source lines as a fenced block, and the quote is editable', async () => {
+await step('quote option: code selections quote their source lines as a fenced block, and the quote text is kept', async () => {
   await drag('const a', 'const b');
   assert.equal(await page.locator('#c-qinc').isChecked(), false); // GitHub already shows these lines
-  await page.locator('#c-qinc').check();
-  await page.locator('#c-qedit').click();
   assert.equal(await page.locator('#c-qtext').inputValue(), '```js\nconst a = 1;\nconst b = 2;\n```');
-  await page.locator('#c-qtext').fill('```js\nconst a = 1;\n```'); // trim to the relevant part
+  await page.evaluate(() => { document.getElementById('c-qinc').checked = true; document.getElementById('c-qtext').value = '```js\nconst a = 1;\n```'; }); // (the composer no longer exposes these; this is the state the icons set)
   await page.fill('#c-body', 'Draft with an edited quote.');
   await page.keyboard.press('Control+Enter');
   const c = await page.evaluate(() => window.__rico.state.comments.at(-1));
@@ -235,8 +232,9 @@ await step('a selection offers two margin icons; the composer opens beside the t
     return { bar: r(document.getElementById('selbar')), comp: r(document.getElementById('composer')), margin: r(document.getElementById('margin')), pt: r(p).top, pr: r(p).right, pb: r(p).bottom };
   });
   let g = await geo();
-  const selBottom = await page.evaluate(() => { const r = window.getSelection().getRangeAt(0).getClientRects(); return r[r.length - 1].bottom; });
-  assert.ok(g.bar.top >= selBottom && g.bar.top - selBottom < 16, `icons at ${g.bar.top} should sit just under the selection (bottom ${selBottom})`);
+  const up = await page.evaluate(() => window.__rico.state.sel.pt);
+  assert.ok(g.bar.top >= up.y && g.bar.top - up.y < 30, `icons at ${g.bar.top} should sit just below where the mouse was released (${up.y})`);
+  assert.ok(g.bar.left <= up.x && g.bar.right >= up.x, 'and be centred on it horizontally');
   await page.mouse.click(5, 5); // clear the selection
   await page.waitForSelector('#selbar', { state: 'hidden' });
   await dragRaw('First', 'First paragraph here.');

@@ -1229,16 +1229,20 @@ function marginSlot(range, rect) {
   return { left: m.left - wrap.left, width: m.width, top: r.top - wrap.top, wrap };
 }
 
-function showSelbar(sel) {
-  // a small pill just under the end of the selection, like Google Docs
+function showSelbar(sel, pt) {
+  // a small pill just below where the mouse was released (or the end of the selection, for keyboard selection)
   state.sel = sel;
   const wrap = docwrap.getBoundingClientRect();
-  const rects = sel.rect ? [sel.rect] : sel.range.getClientRects();
-  const last = rects[rects.length - 1] || sel.range.getBoundingClientRect();
+  if (!pt) {
+    const rects = sel.rect ? [sel.rect] : sel.range.getClientRects();
+    const last = rects[rects.length - 1] || sel.range.getBoundingClientRect();
+    pt = { x: last.right, y: last.bottom - 8 };
+  }
+  sel.pt = pt;
   selbar.hidden = false;
   const w = selbar.offsetWidth;
-  selbar.style.top = (last.bottom - wrap.top + 6) + 'px';
-  selbar.style.left = Math.max(8, Math.min(last.right - wrap.left - w / 2, wrap.width - w - 8)) + 'px';
+  selbar.style.top = (pt.y - wrap.top + 12) + 'px';
+  selbar.style.left = Math.max(8, Math.min(pt.x - wrap.left - w / 2, wrap.width - w - 8)) + 'px';
 }
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 
@@ -1326,7 +1330,7 @@ function hideComposer() {
   setSelHighlight(null);
 }
 
-function onSelect() {
+function onSelect(pt) {
   if (!state.file) return;
   const s = window.getSelection();
   if (!s || s.isCollapsed || !s.rangeCount) return;
@@ -1342,10 +1346,10 @@ function onSelect() {
   }
   if (state.pending) hideComposer(); // a fresh selection replaces an empty composer
   const sel = describeSelection(range);
-  if (sel) showSelbar(sel); else hideSelbar();
+  if (sel) showSelbar(sel, pt); else hideSelbar();
 }
 
-$('#cards').addEventListener('mouseup', () => setTimeout(onSelect, 0));
+$('#cards').addEventListener('mouseup', (e) => { const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
 $('#cards').addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') setTimeout(onSelect, 0); });
 
 function addComment() {

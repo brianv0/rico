@@ -81,8 +81,10 @@
     <div id="composer" hidden>
       <blockquote id="c-quote"></blockquote>
       <div id="c-range"></div>
-      <div class="qrow"><label><input type="checkbox" id="c-qinc"> Include quote</label><button type="button" id="c-qedit" class="linkish" aria-expanded="false">edit</button><span id="c-qnote"></span></div>
+      <div hidden><!-- what the icon chose: the composer's own state, not shown -->
+        <div class="qrow"><label><input type="checkbox" id="c-qinc"> Include quote</label><button type="button" id="c-qedit" class="linkish" aria-expanded="false">edit</button><span id="c-qnote"></span></div>
       <textarea id="c-qtext" rows="4" hidden spellcheck="false" aria-label="Quote (markdown)"></textarea>
+      </div>
       <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to add, Esc to dismiss)"></textarea>
       <div class="row"><button id="c-add" class="btn btn-primary" type="button">Add review comment</button><button id="c-cancel" class="btn" type="button">Cancel</button></div>
     </div>
