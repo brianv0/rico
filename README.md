@@ -130,8 +130,9 @@ there is no shared token. The access token lives only in an encrypted, `HttpOnly
 local server and the Worker (`src/worker.js`).
 
 1. **Create a GitHub OAuth app** (GitHub → Settings → Developer settings → OAuth Apps → New). Set the
-   *Authorization callback URL* to `https://<your-worker-host>/auth/callback` (for `wrangler dev`, make a second app with
-   `http://localhost:8787/auth/callback`).
+   *Authorization callback URL* to `https://ricorico.dev/auth/callback` (for `wrangler dev`, make a second app with
+   `http://localhost:8787/auth/callback`). The Worker is routed to `ricorico.dev` in `wrangler.toml`; the domain must be
+   a zone in your Cloudflare account.
 2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Set `OAUTH_SCOPE` to `public_repo` if Rico should
    only touch public repositories (the default `repo` is needed for private ones).
 3. Store the secrets:

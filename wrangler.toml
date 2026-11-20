@@ -2,6 +2,9 @@ name = "rico"
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
 
+# Served at https://ricorico.dev (the domain must be a zone in your Cloudflare account; deploy creates the DNS record)
+routes = [{ pattern = "ricorico.dev", custom_domain = true }]
+
 # the static app, built by `npm run build`
 [assets]
 directory = "dist"
