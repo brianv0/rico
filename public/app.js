@@ -1282,13 +1282,13 @@ function showComposer(sel) {
   $('#c-quote').textContent = sel.quote.length > 240 ? sel.quote.slice(0, 240) + '…' : sel.quote;
   const rt = rangeText(sel.start, sel.end, sel.anchor, sel.side);
   const rEl = $('#c-range');
-  rEl.textContent = rt.text + (sel.about ? ` — ${sel.about}` : '') + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');
+  rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');
   rEl.classList.toggle('warn', rt.warn);
   const inc = $('#c-qinc');
   inc.checked = sel.includeDefault;
   inc.disabled = !sel.anchor; // unanchored comments live in the summary, where the quote is the only context
   $('#c-qnote').textContent = sel.anchor ? (sel.includeDefault ? '' : 'GitHub already shows these lines') : 'required: goes in the summary';
-  $('#c-quote').classList.toggle('off', !inc.checked);
+  $('#c-quote').hidden = !inc.checked; // the quote is only shown when it will be posted
   $('#c-qtext').value = sel.quoteMd;
   $('#c-qtext').hidden = true;
   $('#c-qedit').setAttribute('aria-expanded', 'false');
@@ -1374,7 +1374,6 @@ function addComment() {
   renderFiles();
 }
 
-$('#c-qinc').addEventListener('change', () => $('#c-quote').classList.toggle('off', !$('#c-qinc').checked));
 $('#c-qedit').addEventListener('click', () => {
   const t = $('#c-qtext');
   t.hidden = !t.hidden;

@@ -403,7 +403,7 @@ await step('diagrams: clicking the hostile node (javascript: link) executes noth
   await clickIn(1, 'd2', 'x');
   assert.equal(await page.evaluate(() => window.__pwned), undefined);
   assert.equal(await page.evaluate(() => document.querySelectorAll('#doc iframe.dia-frame')[1].contentWindow.__pwned), undefined);
-  assert.match(await rangeLabel(), /node “x”/);
+  assert.match(await rangeLabel(), /^Comments on line \d+$/);
 });
 await step('diagrams: tall diagrams are height-capped and can be expanded', async () => {
   const h = () => page.evaluate(() => document.querySelector('#doc iframe.dia-frame').getBoundingClientRect().height);
@@ -427,11 +427,11 @@ await step('D2: clicking empty space in a diagram comments on the whole block an
 });
 await step('D2: clicking a node or an edge anchors to the exact source line that defines it', async () => {
   await clickIn(0, 'd2', 'github');
-  assert.equal(await rangeLabel(), 'Comments on line 7 — node “github”');
+  assert.equal(await rangeLabel(), 'Comments on line 7');
   await clickIn(0, 'd2', 'server');
-  assert.equal(await rangeLabel(), 'Comments on line 6 — node “server” (also on line 7)');
+  assert.equal(await rangeLabel(), 'Comments on line 6');
   await clickIn(0, 'd2', '(server -> github)[0]');
-  assert.equal(await page.locator('#c-range').innerText(), 'Comments on line 7 — edge “(server -> github)[0]”');
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on line 7');
   assert.equal(await page.locator('#c-qtext').inputValue(), '```d2\nserver -> github: api call\n```');
   await page.keyboard.press('Escape');
 });
@@ -446,9 +446,9 @@ await step('diagrams: an element comment is stored with what it is about, and po
 });
 await step('Mermaid: flowchart nodes and edges map to their lines', async () => {
   await clickIn(2, 'm-node', 'B');
-  assert.equal(await rangeLabel(), 'Comments on line 27 — node “B”');
+  assert.equal(await rangeLabel(), 'Comments on line 27');
   await clickIn(2, 'm-node', 'C');
-  assert.equal(await rangeLabel(), 'Comments on line 28 — node “C”');
+  assert.equal(await rangeLabel(), 'Comments on line 28');
   await clickIn(2, 'm-edge', 'B_C_0');
   assert.equal(await rangeLabel(), 'Comments on line 28 — edge “B → C”');
   await clickIn(2, 'm-edge', 'A_B_0');
@@ -456,7 +456,7 @@ await step('Mermaid: flowchart nodes and edges map to their lines', async () => 
 });
 await step('Mermaid: sequence actors and messages map to their lines', async () => {
   await clickIn(3, 'm-actor', 'R');
-  assert.equal(await rangeLabel(), 'Comments on line 34 — actor “R”');
+  assert.equal(await rangeLabel(), 'Comments on line 34');
   await clickIn(3, 'm-text', 'comment box');
   assert.equal(await rangeLabel(), 'Comments on line 36 — label “comment box”');
 });

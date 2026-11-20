@@ -224,7 +224,6 @@ textarea { resize: vertical; padding: 8px 12px; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--sel); } }
 #composer .row { display: flex; gap: 8px; margin-top: 8px; }
 #composer blockquote, .card blockquote { margin: 0 0 6px; padding: 2px 8px; border-left: 3px solid var(--border); color: var(--fg-muted); font-size: 12px; max-height: 5.2em; overflow: hidden; white-space: pre-wrap; }
-#composer blockquote.off { opacity: .45; text-decoration: line-through; }
 #c-range { margin-bottom: 6px; font-size: 12px; color: var(--fg-muted); }
 #c-range.warn { color: var(--attention); }
 .qrow { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12px; }
