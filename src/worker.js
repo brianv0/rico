@@ -3,6 +3,7 @@
 // app (dist/) is served by Workers Assets. Nothing is stored server-side.
 import { createGithub, HttpError } from './github.js';
 import { seal, open, readCookie, setCookie } from './session.js';
+import { secure } from './security.js';
 
 const SESSION = 'rico_session';
 const OAUTH = 'rico_oauth';
@@ -108,7 +109,7 @@ async function api(request, env, url) {
   return res;
 }
 
-export default {
+const worker = {
   async fetch(request, env) {
     const url = new URL(request.url);
     const p = url.pathname;
@@ -128,3 +129,6 @@ export default {
     return env.ASSETS.fetch(request); // the app; unknown paths fall back to index.html (see wrangler.toml)
   },
 };
+
+// every response, including the static app, carries the CSP / framing headers
+export default { fetch: async (request, env) => secure(await worker.fetch(request, env)) };

@@ -20,7 +20,7 @@ async function startRico(env) {
 }
 const get = (port, p, headers = {}) => new Promise((resolve, reject) => {
   http.get({ host: '127.0.0.1', port, path: p, headers }, (res) => {
-    const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => { const raw = Buffer.concat(chunks); resolve({ status: res.statusCode, body: raw.toString('utf8'), raw, type: res.headers['content-type'] }); });
+    const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => { const raw = Buffer.concat(chunks); resolve({ status: res.statusCode, headers: res.headers, body: raw.toString('utf8'), raw, type: res.headers['content-type'] }); });
   }).on('error', reject);
 });
 const post = (port, p, body, headers = { 'X-Rico': '1' }) => new Promise((resolve, reject) => {
@@ -101,6 +101,29 @@ test('static files are served and cannot escape public/', async () => {
   assert.equal((await get(port, '/lib.js')).status, 200);
   assert.equal((await get(port, '/..%2fserver.js')).status, 404);
   assert.equal((await get(port, '/%2e%2e/package.json')).status, 404);
+});
+
+test('every response carries the backstop security headers', async () => {
+  for (const p of ['/', '/style.css', '/api/pr?ref=acme/docs%237', '/api/file?x=1', '/nope']) {
+    const r = await get(port, p);
+    assert.match(r.headers['content-security-policy'], /frame-ancestors 'self'/, p);
+    assert.equal(r.headers['x-frame-options'], 'DENY', p);
+    assert.equal(r.headers['x-content-type-options'], 'nosniff', p);
+  }
+  const raw = await get(port, '/api/raw?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: 'docs/img/x.png', ref: SHA }));
+  assert.equal(raw.headers['x-frame-options'], 'DENY');
+  assert.equal(raw.headers['x-content-type-options'], 'nosniff');
+  assert.match(raw.headers['content-security-policy'], /^default-src 'none'/); // stricter than the page CSP: a navigated-to SVG stays inert
+});
+
+test('dot segments are rejected as owner/repo (fetch would collapse them out of the API path)', async () => {
+  const file = '/api/file?' + new URLSearchParams({ owner: '..', repo: 'docs', path: 'docs/plan.md', ref: SHA });
+  assert.equal((await get(port, file)).status, 400);
+  const raw = '/api/raw?' + new URLSearchParams({ owner: 'acme', repo: '..', path: 'docs/img/x.png', ref: SHA });
+  assert.equal((await get(port, raw)).status, 400);
+  assert.equal((await get(port, '/api/pr?ref=' + encodeURIComponent('../docs#7'))).status, 400);
+  assert.equal((await get(port, '/api/pr?ref=' + encodeURIComponent('https://github.com/../docs/pull/7'))).status, 400);
+  assert.equal((await get(port, '/api/pr?ref=' + encodeURIComponent('https://github.com/docs/../pull/7'))).status, 400);
 });
 
 test('without any token, API calls fail with a helpful 401', async () => {

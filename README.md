@@ -72,6 +72,11 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   are anchored to. Hover a thread to highlight its text; click highlighted text to jump to the thread; reply
   from the margin. Outdated threads are labelled. Your unposted drafts appear there too, dashed.
 - Queued comments persist in `localStorage` per PR + head commit.
+- **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; D2's WASM
+  renderer and its ELK layout worker are the only eval-shaped exceptions), `X-Frame-Options: DENY` and
+  `X-Content-Type-Options: nosniff`. A sanitizer regression cannot run script in the page, and a remote
+  site cannot frame the app to clickjack a review. `.` and `..` are never accepted as owner/repo, since
+  fetch would collapse them out of the `/repos/{owner}/{repo}/` API path.
 
 ## Tests
 ```bash

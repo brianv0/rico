@@ -963,7 +963,8 @@ $('#cards').addEventListener('click', (e) => {
   const link = e.target.closest && e.target.closest('a[href^="#"]');
   if (link && v) { // our own URL hash holds the PR, so keep fragment links in the page
     e.preventDefault();
-    const slug = decodeURIComponent(link.getAttribute('href').slice(1));
+    let slug = '';
+    try { slug = decodeURIComponent(link.getAttribute('href').slice(1)); } catch { return; } // a malformed escape goes nowhere
     v.doc.querySelector(`[data-slug="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
     return;
   }

@@ -14,6 +14,11 @@ test('parsePrRef accepts urls and short forms', () => {
   assert.equal(parsePrRef('nonsense'), null);
 });
 
+test('parsePrRef rejects dot segments (they would normalise away in the API path)', () => {
+  for (const ref of ['../docs#7', './docs#7', 'docs/..#7', 'https://github.com/../docs/pull/7', 'https://github.com/docs/../pull/7', 'https://github.com/././pull/7']) assert.equal(parsePrRef(ref), null, ref);
+  assert.deepEqual(parsePrRef('a..b/c#7'), { owner: 'a..b', repo: 'c', number: 7 }); // '..' inside a name is fine: not a path segment
+});
+
 const PATCH = [
   '@@ -1,3 +1,4 @@',
   ' # Title',
@@ -121,6 +126,8 @@ test('resolveRepoPath resolves relative targets and rejects the rest', () => {
   assert.equal(resolveRepoPath('docs/guide', '/assets/a%20b.png'), 'assets/a b.png');
   assert.equal(resolveRepoPath('', 'a.png'), 'a.png');
   assert.equal(resolveRepoPath('docs', '../../../etc/passwd'), null); // cannot climb above the repo root
+  assert.equal(resolveRepoPath('docs', '%ZZ.png'), null); // a broken %-escape returns null instead of throwing (would abort the whole render)
+  assert.equal(resolveRepoPath('docs', 'img/%E0%A4%A.png'), null);
   for (const u of ['https://x.com/a.png', '//x.com/a.png', 'data:image/png;base64,AAAA', '#frag', '']) assert.equal(resolveRepoPath('docs', u), null);
 });
 
@@ -365,6 +372,7 @@ test('prPath / parsePrPath round-trip a linkable PR location, with an optional c
   assert.deepEqual(parsePrPath('/ghe.corp.com:8443/o/r/12/'), { instance: 'ghe.corp.com:8443', owner: 'o', repo: 'r', number: 12, sha: '' });
   assert.equal(parsePrPath('/'), null);
   assert.equal(parsePrPath('/vendor/x.js'), null);
+  assert.equal(parsePrPath('/github.com/../docs/7'), null); // dot segments, as in parsePrRef
 });
 
 test('previewLines keeps short quotes whole and elides the middle of long ones', async () => {

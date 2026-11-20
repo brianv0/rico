@@ -3,7 +3,9 @@
 import { parsePrRef } from '../public/lib.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
-const NAME_RE = /^[\w.-]+$/;
+// '.' and '..' as owner/repo would normalise away in the API path (fetch collapses dot segments),
+// letting a crafted ref escape the /repos/{owner}/{repo}/ prefix.
+const NAME_RE = /^(?!\.+$)[\w.-]+$/;
 const IMG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon' };
 
 export class HttpError extends Error {
@@ -190,7 +192,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
       if (method === 'GET' && p === '/api/pr') return j(200, await apiPr(url.searchParams));
       if (method === 'GET' && p === '/api/raw') {
         const { type, data } = await apiRaw(url.searchParams);
-        return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=300', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Content-Type-Options': 'nosniff' } });
+        return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=300', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff' } });
       }
       if (method === 'GET' && p === '/api/file') return new Response(await apiFile(url.searchParams), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
       if (method === 'POST' && p === '/api/review') return j(200, await apiReview(await readBody()));

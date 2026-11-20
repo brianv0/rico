@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createGithub, HttpError } from './src/github.js';
 import { vendorFiles } from './src/vendor-map.js';
+import { SEC, secure } from './src/security.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const API = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
@@ -36,22 +37,24 @@ const VENDOR = vendorFiles(path.join(path.dirname(fileURLToPath(import.meta.url)
 
 function serveStatic(req, res) {
   const url = new URL(req.url, 'http://x');
-  let rel = decodeURIComponent(url.pathname);
+  let rel;
+  try { rel = decodeURIComponent(url.pathname); } catch { rel = url.pathname; } // malformed escapes just 404 below
   if (rel === '/') rel = '/index.html';
   const vendor = Object.hasOwn(VENDOR, rel) ? VENDOR[rel] : null;
   const file = vendor || path.normalize(path.join(ROOT, rel));
+  const stream = (f) => fs.createReadStream(f).on('error', () => res.destroy()).pipe(res); // a vanished file must not crash the server
   if ((!vendor && !file.startsWith(ROOT + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     // a linkable PR path like /github.com/o/r/7@abc1234 is the single-page app; a missing asset stays a 404
     if (!path.extname(rel) && !rel.startsWith('/api/') && !rel.startsWith('/vendor/')) {
-      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
-      fs.createReadStream(path.join(ROOT, 'index.html')).pipe(res);
+      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache', ...SEC });
+      stream(path.join(ROOT, 'index.html'));
       return;
     }
-    res.writeHead(404).end('not found');
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...SEC }).end('not found');
     return;
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-  fs.createReadStream(file).pipe(res);
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...SEC });
+  stream(file);
 }
 
 function readJson(req) {
@@ -80,7 +83,7 @@ const HOST_OK = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 const server = http.createServer(async (req, res) => {
   const send = (status, body, type = 'application/json') => {
-    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...SEC });
     res.end(typeof body === 'string' ? body : JSON.stringify(body));
   };
   try {
@@ -90,7 +93,7 @@ const server = http.createServer(async (req, res) => {
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
     if (req.method === 'POST' && req.headers['x-rico'] !== '1') throw new HttpError(403, 'missing X-Rico header');
     if (url.pathname === '/api/me') return send(200, { hosted: false }); // local: the server's own token, nothing to sign into
-    const out = await github.route(req.method, url, () => readJson(req));
+    const out = secure(await github.route(req.method, url, () => readJson(req))); // the route's own headers (e.g. /api/raw's stricter CSP) win
     res.writeHead(out.status, Object.fromEntries(out.headers));
     return res.end(Buffer.from(await out.arrayBuffer()));
     throw new HttpError(404, 'not found');

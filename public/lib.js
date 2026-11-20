@@ -5,7 +5,9 @@ export function parsePrRef(input) {
   const s = String(input || '').trim();
   let m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(s);
   if (!m) m = /^([\w.-]+)\/([\w.-]+)(?:#|\/pull\/)(\d+)$/.exec(s);
-  return m ? { owner: m[1], repo: m[2], number: Number(m[3]) } : null;
+  // '.' or '..' would normalise away in the API path (/repos/../x -> /x): never accept them as owner/repo
+  if (!m || /^\.+$/.test(m[1]) || /^\.+$/.test(m[2])) return null;
+  return { owner: m[1], repo: m[2], number: Number(m[3]) };
 }
 
 /** Shorten a long multi-line quote for display: the first `head` lines, a gap marker, the last `tail` lines. */
@@ -23,7 +25,8 @@ export function prPath({ owner, repo, number }, sha = '', instance = 'github.com
 /** Inverse of prPath. -> {instance, owner, repo, number, sha} | null */
 export function parsePrPath(pathname) {
   const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:@([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || ''));
-  return m ? { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], number: Number(m[4]), sha: m[5] || '' } : null;
+  if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null; // dot segments, as in parsePrRef
+  return { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], number: Number(m[4]), sha: m[5] || '' };
 }
 
 /**
@@ -261,7 +264,8 @@ export function resolveRepoPath(fileDir, src) {
   const parts = raw.startsWith('/') ? [] : String(fileDir || '').split('/').filter(Boolean);
   for (const seg of raw.split('/')) {
     if (!seg || seg === '.') continue;
-    if (seg === '..') { if (!parts.length) return null; parts.pop(); } else parts.push(decodeURIComponent(seg));
+    if (seg === '..') { if (!parts.length) return null; parts.pop(); continue; }
+    try { parts.push(decodeURIComponent(seg)); } catch { return null; } // a broken %-escape must not abort the whole render
   }
   return parts.length ? parts.join('/') : null;
 }
