@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -270,4 +270,41 @@ test('buildReview: a diagram element comment says what it is about, before every
   ] });
   assert.equal(r.comments[0].body, '_Re: edge “UI → Server”_\n\n```mermaid\nUI --> Server\n```\n\nsay what travels here');
   assert.equal(r.comments[1].body, 'plain');
+});
+
+test('buildFileTree: directories first, alphabetical, single-child chains collapsed', () => {
+  const f = (filename) => ({ filename });
+  const tree = buildFileTree([f('README.md'), f('docs/guide/faq.md'), f('docs/guide/start.md'), f('docs/a.md'), f('src/deep/er/x.js'), f('b.txt')]);
+  assert.deepEqual(tree.map((n) => `${n.type}:${n.name}`), ['dir:docs', 'dir:src/deep/er', 'file:b.txt', 'file:README.md']);
+  const docs = tree[0];
+  assert.deepEqual(docs.children.map((n) => `${n.type}:${n.name}`), ['dir:guide', 'file:a.md']);
+  assert.deepEqual(docs.children[0].children.map((n) => n.name), ['faq.md', 'start.md']);
+  assert.equal(tree[1].path, 'src/deep/er'); assert.equal(tree[1].children[0].path, 'src/deep/er/x.js');
+});
+
+test('statBlocks: five squares, proportional, never hides a nonzero side', () => {
+  assert.equal(statBlocks(0, 0), 'nnnnn');
+  assert.equal(statBlocks(10, 0), 'ggggg');
+  assert.equal(statBlocks(0, 7), 'rrrrr');
+  assert.match(statBlocks(3, 3), /^g+r+$/); // an even split shows both colours
+  assert.equal(statBlocks(100, 1), 'ggggr');
+  assert.equal(statBlocks(1, 100), 'grrrr');
+  for (const [a, d] of [[1, 1], [2, 9], [50, 50], [4, 0], [0, 1]]) assert.equal(statBlocks(a, d).length, 5);
+});
+
+test('diffAnchor is GitHub\'s sha256-of-path anchor', async () => {
+  assert.equal(await diffAnchor('a'), 'diff-ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb');
+});
+
+test('parsePatchRows numbers both sides and keeps hunk headers', () => {
+  const rows = parsePatchRows(['@@ -3,4 +3,5 @@ ctx', ' keep', '-gone', '+new1', '+new2', ' tail', '\\ No newline at end of file'].join('\n'));
+  assert.deepEqual(rows.map((r) => [r.type, r.old ?? null, r.new ?? null, r.text]), [
+    ['hunk', null, null, '@@ -3,4 +3,5 @@ ctx'],
+    ['ctx', 3, 3, 'keep'], ['del', 4, null, 'gone'], ['add', null, 4, 'new1'], ['add', null, 5, 'new2'], ['ctx', 5, 6, 'tail'],
+    ['meta', null, null, '\\ No newline at end of file'],
+  ]);
+  assert.deepEqual(parsePatchRows(undefined), []);
+  const two = parsePatchRows('@@ -1,1 +1,1 @@\n a\n@@ -10,1 +10,1 @@\n-b\n+c');
+  assert.deepEqual(two.filter((r) => r.type === 'add').map((r) => r.new), [10]);
+  assert.deepEqual(two.filter((r) => r.type === 'del').map((r) => r.old), [10]);
 });

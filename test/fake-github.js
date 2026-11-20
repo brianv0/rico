@@ -9,6 +9,8 @@ const DIAGRAM_PATCH = `@@ -0,0 +1,${DIAGRAM_LINES.length} @@\n` + DIAGRAM_LINES.
 const COMPLEX_LINES = COMPLEX.replace(/\n$/, '').split('\n');
 const COMPLEX_PATCH = `@@ -0,0 +1,${COMPLEX_LINES.length} @@\n` + COMPLEX_LINES.map((l) => '+' + l).join('\n');
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+// a real 1x1 PNG as a data: URL, so avatars never trigger a request
+export const AVATAR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 export const SHA = 'abc1234def5678';
 export const FILE = [
   '# Plan', '', 'First paragraph here.', '', 'Second paragraph is hard wrapped', 'across two lines for testing.', '',
@@ -20,7 +22,7 @@ export const PATCH = [
   '@@ -10,2 +12,3 @@', ' const a = 1;', '+const b = 2;', ' ```',
 ].join('\n');
 
-const C = (o) => ({ side: 'RIGHT', path: 'docs/plan.md', user: { login: 'alice' }, created_at: '2026-11-18T10:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#discussion_r' + o.id, line: null, original_line: null, ...o });
+const C = (o) => ({ side: 'RIGHT', path: 'docs/plan.md', author_association: 'MEMBER', user: { login: 'alice', avatar_url: AVATAR }, created_at: '2026-11-18T10:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#discussion_r' + o.id, line: null, original_line: null, ...o });
 export const COMMENTS = [
   C({ id: 101, line: 6, start_line: 3, original_line: 6, original_start_line: 3, body: 'Is this **too long**?' }),
   C({ id: 102, in_reply_to_id: 101, line: 6, user: { login: 'bob' }, created_at: '2026-11-19T09:00:00Z', body: 'Will trim it.' }),
@@ -39,7 +41,7 @@ export async function startFake() {
     const u = new URL(req.url, 'http://x');
     if (req.headers.authorization !== 'Bearer t') return json({ message: 'Bad credentials' }, 401);
     if (u.pathname === '/repos/acme/docs/pulls/7') {
-      return json({ title: 'Plan v2', state: 'open', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob' }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main' } });
+      return json({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 5, additions: 130, deletions: 9, comments: 3, review_comments: 6, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main' } });
     }
     if (u.pathname === '/repos/acme/docs/pulls/7/comments') return json(COMMENTS);
     const rm = /^\/repos\/acme\/docs\/pulls\/7\/comments\/(\d+)\/replies$/.exec(u.pathname);

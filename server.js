@@ -85,6 +85,8 @@ const compact = (c) => ({
   body: c.body || '',
   createdAt: c.created_at,
   url: c.html_url,
+  avatar: c.user?.avatar_url || null,
+  assoc: c.author_association || null,
 });
 
 async function apiPr(q) {
@@ -113,10 +115,22 @@ async function apiPr(q) {
     title: pull.title,
     state: pull.state,
     url: pull.html_url,
+    draft: !!pull.draft,
+    merged: !!pull.merged,
+    commits: pull.commits ?? null,
+    changedFiles: pull.changed_files ?? files.length,
+    additions: pull.additions ?? files.reduce((n, f) => n + f.additions, 0),
+    deletions: pull.deletions ?? files.reduce((n, f) => n + f.deletions, 0),
+    issueComments: pull.comments ?? 0,
+    reviewComments: pull.review_comments ?? 0,
+    createdAt: pull.created_at || null,
+    authorAvatar: pull.user?.avatar_url || null,
     author: pull.user?.login,
     headSha: pull.head.sha,
     headRef: pull.head.ref,
     baseRef: pull.base.ref,
+    // every changed file, for the file tree (GitHub shows them all); only markdown gets reviewed here
+    allFiles: files.map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions })),
     files: files
       .filter((f) => MD_RE.test(f.filename) && f.status !== 'removed')
       .map((f) => ({
@@ -173,6 +187,11 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 // Diagram renderers are optional dependencies, served from node_modules when installed.
 const NM = path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules');
 const VENDOR = {
+  '/vendor/github-markdown.css': path.join(NM, 'github-markdown-css', 'github-markdown.css'),
+  '/vendor/hljs.js': path.join(NM, '@highlightjs', 'cdn-assets', 'highlight.min.js'),
+  '/vendor/hljs-light.css': path.join(NM, '@highlightjs', 'cdn-assets', 'styles', 'github.min.css'),
+  '/vendor/hljs-dark.css': path.join(NM, '@highlightjs', 'cdn-assets', 'styles', 'github-dark.min.css'),
+  '/vendor/purify.js': path.join(NM, 'dompurify', 'dist', 'purify.min.js'),
   '/vendor/d2.js': path.join(NM, '@terrastruct', 'd2', 'dist', 'browser', 'index.js'),
   '/vendor/mermaid.js': path.join(NM, 'mermaid', 'dist', 'mermaid.min.js'),
 };

@@ -28,18 +28,22 @@ let failed = false;
 let nfail = 0;
 const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ')); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
 
-// Where is `t` on screen right now? Optionally scroll it to the middle of the window first.
+// Where is `t` on screen right now? Searches the active document's text across element boundaries
+// (syntax highlighting splits code into many spans). Optionally scrolls it to the middle first.
 const textBox = (t, scroll) => page.evaluate(([t, scroll]) => {
   const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT);
-  for (let n = w.nextNode(); n; n = w.nextNode()) {
-    const i = n.data.indexOf(t);
-    if (i < 0) continue;
-    if (scroll) n.parentElement.scrollIntoView({ block: 'center' });
-    const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + t.length);
-    const b = r.getBoundingClientRect();
-    return { l: b.left, r: b.right, y: b.top + b.height / 2 };
-  }
-  throw new Error('no text ' + t);
+  const nodes = [];
+  let full = '';
+  for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push({ n, start: full.length }); full += n.data; }
+  const i = full.indexOf(t);
+  if (i < 0) throw new Error('no text ' + t);
+  const locate = (pos) => { for (let k = nodes.length - 1; k >= 0; k--) if (nodes[k].start <= pos) return { node: nodes[k].n, off: pos - nodes[k].start }; };
+  const a = locate(i);
+  const z = locate(i + t.length - 1);
+  if (scroll) a.node.parentElement.scrollIntoView({ block: 'center' });
+  const r = document.createRange(); r.setStart(a.node, a.off); r.setEnd(z.node, z.off + 1);
+  const rects = r.getClientRects(); const first = rects[0]; const last = rects[rects.length - 1];
+  return { l: first.left, r: last.right, y: first.top + first.height / 2 };
 }, [t, scroll]);
 
 // Wait until the composer reflects *this* selection. (Focusing its textarea clears the document
@@ -177,17 +181,22 @@ await step('selection outside the diff goes to the summary', async () => {
 });
 await step('drafts show in the margin too, without overlapping', async () => {
   assert.equal(await page.locator('#margin .thread.draft').count(), 3);
-  assert.match(await page.locator('#margin .thread.draft').nth(0).innerText(), /Draft[\s\S]*Tighten this whole section/);
+  assert.match(await page.locator('#margin .thread.draft').nth(0).innerText(), /Pending[\s\S]*Tighten this whole section/);
   assert.equal(await noOverlap(), true);
 });
-await step('Submit stays reachable in a short window with several drafts queued', async () => {
+await step('the review dialog fits a short window with several pending comments (Submit stays reachable)', async () => {
   await page.setViewportSize({ width: 1400, height: 640 });
-  const r = await page.evaluate(() => { const b = document.getElementById('submit').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: innerHeight }; });
+  await page.click('#review-btn');
+  const r = await page.evaluate(() => { const b = document.getElementById('submit').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: innerHeight, n: document.querySelectorAll('#list .card').length }; });
+  assert.equal(r.n, 3);
   assert.ok(r.top >= 0 && r.bottom <= r.h, `submit at ${r.top}-${r.bottom} in a ${r.h}px window`);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#review-pop').isHidden(), true);
   await page.setViewportSize({ width: 1400, height: 900 });
 });
 await page.screenshot({ path: path.join(root, 'e2e', 'screenshot.png') });
 await step('review is posted with correct anchors', async () => {
+  await page.click('#review-btn');
   await page.fill('#summary', 'Looks good overall.');
   await page.click('#submit');
   await page.waitForSelector('#result a');
@@ -209,7 +218,7 @@ await step('narrow screens stack comments under the text', async () => {
 });
 await step('line mapping is exact for every block and range in a complex document', async () => {
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.locator('#files button', { hasText: 'docs/complex.md' }).click();
+  await page.locator('#files button[data-path="docs/complex.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/complex.md' && document.querySelector('#doc h1'));
   const res = await page.evaluate(() => {
     const doc = document.getElementById('doc'), R = window.__rico, lines = R.state.lines;
@@ -277,7 +286,7 @@ await step('diagrams: 4 render in sandboxed script-free frames, 2 broken ones sh
   const external = [];
   page.on('response', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); }); // anything that actually got an answer
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.locator('#files button', { hasText: 'docs/diagrams.md' }).click();
+  await page.locator('#files button[data-path="docs/diagrams.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
   await page.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 4 && document.querySelectorAll('#doc .dia-err').length === 2, null, { timeout: 90000 });
   assert.equal(await page.locator('#doc svg').count(), 0, 'diagram SVG lives inside the frames, never in the page');

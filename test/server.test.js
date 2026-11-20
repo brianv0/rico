@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startFake, SHA, FILE, PNG } from './fake-github.js';
+import { startFake, SHA, FILE, PNG, AVATAR } from './fake-github.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let fake;
@@ -44,6 +44,9 @@ test('GET /api/pr lists only non-removed markdown files, with patches', async ()
   assert.equal(j.headSha, SHA);
   assert.equal(j.title, 'Plan v2');
   assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md']);
+  // every changed file is sent for the file tree, markdown or not (the removed one included? no: GitHub lists it, so do we)
+  assert.deepEqual(j.allFiles.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'src/x.js', 'docs/old.md']);
+  assert.deepEqual({ d: j.draft, m: j.merged, c: j.commits, n: j.changedFiles, a: j.authorAvatar, s: j.state }, { d: false, m: false, c: 2, n: 5, a: AVATAR, s: 'open' });
   assert.match(j.files[0].patch, /^@@ -1,7 \+1,10 @@/);
 });
 
@@ -112,7 +115,7 @@ test('GET /api/pr includes markdown review comments in compact form', async () =
   assert.deepEqual(j.comments.map((c) => c.id), [101, 102, 103, 104, 105]); // src/x.js dropped
   assert.deepEqual(j.comments[0], {
     id: 101, replyTo: null, path: 'docs/plan.md', line: 6, originalLine: 6, startLine: 3, originalStartLine: 3,
-    side: 'RIGHT', user: 'alice', body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101',
+    side: 'RIGHT', user: 'alice', body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101', avatar: AVATAR, assoc: 'MEMBER',
   });
   assert.equal(j.comments[1].replyTo, 101);
   assert.equal(j.comments[2].line, null);

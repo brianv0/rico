@@ -341,3 +341,80 @@ export function findMermaidLines(source, hint) {
   }
   return null;
 }
+
+// ---------- GitHub-style page chrome helpers ----------
+
+/**
+ * Build the file tree GitHub shows: directories first, then files, both alphabetical, and chains of
+ * single-child directories collapsed into one row ("docs/guide").
+ *   -> [{type: 'dir', name, path, children} | {type: 'file', name, path, file}]
+ */
+export function buildFileTree(files) {
+  const root = { type: 'dir', name: '', path: '', children: [] };
+  for (const f of files) {
+    const parts = f.filename.split('/');
+    let node = root;
+    parts.slice(0, -1).forEach((name, i) => {
+      const p = parts.slice(0, i + 1).join('/');
+      let next = node.children.find((c) => c.type === 'dir' && c.name === name);
+      if (!next) { next = { type: 'dir', name, path: p, children: [] }; node.children.push(next); }
+      node = next;
+    });
+    node.children.push({ type: 'file', name: parts[parts.length - 1], path: f.filename, file: f });
+  }
+  const finish = (n) => {
+    n.children.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
+    for (const c of n.children) if (c.type === 'dir') finish(c);
+    for (let i = 0; i < n.children.length; i++) {
+      let c = n.children[i];
+      while (c.type === 'dir' && c.children.length === 1 && c.children[0].type === 'dir') { // docs -> guide  =>  docs/guide
+        const only = c.children[0];
+        c = { type: 'dir', name: `${c.name}/${only.name}`, path: only.path, children: only.children };
+      }
+      n.children[i] = c;
+    }
+  };
+  finish(root);
+  return root.children;
+}
+
+/** GitHub's five-square diffstat: 'g' added, 'r' removed, 'n' neutral, e.g. "gggrn". */
+export function statBlocks(additions, deletions) {
+  const total = additions + deletions;
+  if (!total) return 'nnnnn';
+  let g = Math.round((5 * additions) / total);
+  let r = Math.round((5 * deletions) / total);
+  if (additions > 0 && g === 0) g = 1;
+  if (deletions > 0 && r === 0) r = 1;
+  while (g + r > 5) { if (g >= r) g--; else r--; }
+  return 'g'.repeat(g) + 'r'.repeat(r) + 'n'.repeat(5 - g - r);
+}
+
+/** GitHub's anchor for a file in the "Files changed" page: #diff-<sha256 of the path>. */
+export async function diffAnchor(path) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(path));
+  return 'diff-' + [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Unified-diff patch -> display rows with both line numbers (the source-diff view).
+ *   {type:'hunk', text} | {type:'ctx'|'add'|'del', old, new, text} | {type:'meta', text}
+ */
+export function parsePatchRows(patch) {
+  const rows = [];
+  if (!patch) return rows;
+  let o = 0;
+  let n = 0;
+  for (const raw of String(patch).split('\n')) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (m) { o = Number(m[1]); n = Number(m[2]); rows.push({ type: 'hunk', text: raw }); continue; }
+    if (!rows.length) continue;
+    const c = raw[0];
+    if (c === '+') rows.push({ type: 'add', old: null, new: n++, text: raw.slice(1) });
+    else if (c === '-') rows.push({ type: 'del', old: o++, new: null, text: raw.slice(1) });
+    else if (c === '\\') rows.push({ type: 'meta', text: raw });
+    else if (c === ' ' || raw === '') rows.push({ type: 'ctx', old: o++, new: n++, text: raw.slice(1) });
+  }
+  while (rows.length && rows[rows.length - 1].type === 'ctx' && rows[rows.length - 1].text === '' && !/\n$/.test(String(patch)) && false) rows.pop();
+  return rows;
+}
