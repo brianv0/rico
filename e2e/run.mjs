@@ -48,20 +48,25 @@ const textBox = (t, scroll) => page.evaluate(([t, scroll]) => {
 
 // Wait until the composer reflects *this* selection. (Focusing its textarea clears the document
 // selection, so compare against the composer's own copy of the quote, not getSelection().)
-const settle = (from, to) => page.waitForFunction(([a, z]) => {
-  const p = window.__rico.state.pending;
-  return !!p && !document.getElementById('composer').hidden && p.quote.includes(a) && p.quote.includes(z);
-}, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
+const settle = async (from, to) => {
+  // the selection first offers two margin icons; the "lines" one opens the composer with the default quote choice
+  await page.waitForFunction(([a, z]) => { const p = window.__rico.state.sel; return !!p && !document.getElementById('selbar').hidden && p.quote.includes(a) && p.quote.includes(z); }, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
+  await page.click('#sb-lines');
+  await page.waitForFunction(([a, z]) => {
+    const p = window.__rico.state.pending;
+    return !!p && !document.getElementById('composer').hidden && p.quote.includes(a) && p.quote.includes(z);
+  }, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
+};
 
 // Drag from the start of `from` to the end of `to` with the real mouse (both must fit on screen).
-async function drag(from, to) {
+async function drag(from, to) { await dragRaw(from, to); await settle(from, to); }
+async function dragRaw(from, to) {
   const A = await textBox(from, true), B = await textBox(to, false);
   await page.mouse.move(A.l + 1, A.y);
   await page.mouse.down();
   await page.mouse.move((A.l + B.r) / 2, (A.y + B.y) / 2, { steps: 5 });
   await page.mouse.move(B.r - 0.5, B.y, { steps: 5 });
   await page.mouse.up();
-  await settle(from, to);
 }
 // For ranges taller than the window: click the start, scroll, then shift+click the end.
 async function shiftSelect(from, to) {
@@ -219,14 +224,35 @@ await step('quote option: code selections quote their source lines as a fenced b
   await page.locator('#margin .thread.draft', { hasText: 'edited quote' }).getByRole('button', { name: 'Delete' }).click(); // leave no trace
   assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
 });
-await step('composer floats over the selection immediately', async () => {
-  await drag('First', 'First paragraph here.');
-  assert.equal(await page.locator('#composer').isVisible(), true);
-  const [c, s] = await page.evaluate(() => [document.getElementById('composer').getBoundingClientRect().top, [...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm')).getBoundingClientRect().bottom]);
-  assert.ok(c >= s - 2 && c - s < 40, `composer at ${c}, paragraph bottom ${s}`);
+await step('a selection offers two margin icons; the composer opens beside the text, not over it; clearing the selection hides them', async () => {
+  await dragRaw('First', 'First paragraph here.');
+  await page.waitForSelector('#selbar:not([hidden])');
+  assert.equal(await page.locator('#composer').isHidden(), true, 'nothing pops up until an icon is clicked');
+  assert.equal(await page.locator('#selbar button').count(), 2);
+  const geo = () => page.evaluate(() => {
+    const r = (e) => e.getBoundingClientRect();
+    const p = [...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm'));
+    return { bar: r(document.getElementById('selbar')), comp: r(document.getElementById('composer')), margin: r(document.getElementById('margin')), pt: r(p).top, pr: r(p).right, pb: r(p).bottom };
+  });
+  let g = await geo();
+  assert.ok(g.bar.left >= g.pr - 1 && g.bar.right <= g.margin.left + 1, `icons (${g.bar.left}-${g.bar.right}) should sit in the gutter between the text (${g.pr}) and the margin (${g.margin.left})`);
+  assert.ok(Math.abs(g.bar.top - g.pt) < 30, `icons at ${g.bar.top} should sit level with the selection at ${g.pt}`);
+  await page.mouse.click(5, 5); // clear the selection
+  await page.waitForSelector('#selbar', { state: 'hidden' });
+  await dragRaw('First', 'First paragraph here.');
+  await page.waitForSelector('#selbar:not([hidden])');
+  await page.click('#sb-quote');
+  await page.waitForSelector('#composer:not([hidden])');
+  g = await geo();
+  assert.ok(g.comp.left >= g.pr - 1, `composer (left ${g.comp.left}) must not cover the text (right edge ${g.pr})`);
+  assert.equal(await page.locator('#c-qinc').isChecked(), true, 'the quote icon includes the quote');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'c-body');
   await page.fill('#c-body', 'This reads awkwardly.');
   await page.screenshot({ path: path.join(root, 'e2e', 'composer.png'), clip: { x: 280, y: 80, width: 1120, height: 360 } });
+  await page.keyboard.press('Escape');
+  // the other icon: lines only, no quote when the lines already say it all
+  await drag('First', 'First paragraph here.');
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on line 3');
   await page.keyboard.press('Escape');
 });
 await step('selection across paragraphs maps to the full line range', async () => {

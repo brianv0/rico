@@ -74,6 +74,10 @@
       <span><i class="k out"></i>outside the diff (goes in review summary)</span>
     </div>
     <div id="cards"><p class="empty intro">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p></div>
+    <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
+      <button type="button" id="sb-quote" title="Comment and quote the selected text" aria-label="Comment and quote the selected text"></button>
+      <button type="button" id="sb-lines" title="Comment on the selected lines (quotes only when it helps)" aria-label="Comment on the selected lines"></button>
+    </div>
     <div id="composer" hidden>
       <blockquote id="c-quote"></blockquote>
       <div id="c-range"></div>

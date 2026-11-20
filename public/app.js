@@ -1197,7 +1197,58 @@ function rangeText(start, end, anchor, side = 'RIGHT') {
   return { text: `You selected ${span(start, end)}; GitHub can anchor ${span(anchor.start, anchor.end)} (one hunk). The full quote is included.`, warn: true };
 }
 
-// ---------- composer (floats over the selection) ----------
+// ---------- selection icons + composer (both sit in the right margin, like Google Docs) ----------
+// Two custom glyphs: a speech bubble holding a quotation mark, and one holding a pilcrow (the text's lines, no quote).
+const BUBBLE = '<path d="M3 2.5h14A1.5 1.5 0 0 1 18.5 4v9a1.5 1.5 0 0 1-1.5 1.5H9.5L5.5 18v-3.5H3A1.5 1.5 0 0 1 1.5 13V4A1.5 1.5 0 0 1 3 2.5Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>';
+const GLYPH_QUOTE = '<path d="M6.4 6.2h2.6v2.7c0 1.4-.7 2.3-1.9 2.6l-.4-.9c.7-.3 1-.7 1-1.3H6.4Zm4.5 0h2.6v2.7c0 1.4-.7 2.3-1.9 2.6l-.4-.9c.7-.3 1-.7 1-1.3h-1.3Z" fill="currentColor"/>';
+const GLYPH_PARA = '<path d="M11.3 5.3H8.6a2 2 0 0 0 0 4h.9v2.9h1.1V6.4h.7v5.8h1.1V6.4h.5V5.3h-1.6Z" fill="currentColor"/>';
+$('#sb-quote').innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${BUBBLE}${GLYPH_QUOTE}</svg>`;
+$('#sb-lines').innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${BUBBLE}${GLYPH_PARA}</svg>`;
+const selbar = $('#selbar');
+
+function marginSlot(range, rect) {
+  // where the margin column is, relative to #main, and the top of the thing being commented on
+  const v = (state.pending && state.pending.view) || cur;
+  if (!v || v.mode !== 'rendered' || getComputedStyle(v.margin).position === 'static' || !v.margin.offsetWidth) return null;
+  const wrap = docwrap.getBoundingClientRect();
+  const m = v.margin.getBoundingClientRect();
+  const r = rect || range.getClientRects()[0] || range.getBoundingClientRect();
+  return { left: m.left - wrap.left, width: m.width, top: r.top - wrap.top, wrap };
+}
+
+function showSelbar(sel) {
+  state.sel = sel;
+  const slot = marginSlot(sel.range, sel.rect);
+  selbar.hidden = false;
+  selbar.style.left = (slot ? slot.left - 28 : 8) + 'px'; // in the gutter between the text and the threads
+  selbar.style.top = (slot ? slot.top : sel.range.getBoundingClientRect().bottom - docwrap.getBoundingClientRect().top + 6) + 'px';
+}
+function hideSelbar() { selbar.hidden = true; state.sel = null; }
+
+for (const [id, withQuote] of [['sb-quote', true], ['sb-lines', false]]) {
+  const b = $('#' + id);
+  b.addEventListener('mousedown', (e) => e.preventDefault()); // keep the text selection alive
+  b.addEventListener('click', () => {
+    const sel = state.sel;
+    if (!sel) return;
+    if (withQuote) sel.includeDefault = true; // else keep the default: a quote only when it adds information
+    hideSelbar();
+    showComposer(sel);
+  });
+}
+
+// the selection was cleared (click elsewhere, Esc, ...): the icons go away. An open composer manages itself.
+document.addEventListener('selectionchange', () => {
+  const s = window.getSelection();
+  const gone = !s || s.isCollapsed || !s.rangeCount;
+  if (state.pending) { // an empty composer closes when its selection is cleared elsewhere; a draft stays
+    if (gone && !composer.contains(document.activeElement) && !$('#c-body').value.trim() && !state.pending.about && !state.pending.rows) hideComposer();
+    return;
+  }
+  if (!selbar.hidden && gone) hideSelbar();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !selbar.hidden) { hideSelbar(); window.getSelection().removeAllRanges(); } });
+document.addEventListener('mousedown', (e) => { if (!selbar.hidden && !selbar.contains(e.target)) setTimeout(() => { const s = window.getSelection(); if (!s || s.isCollapsed) hideSelbar(); }, 0); });
 function setSelHighlight(range) {
   if (!('highlights' in CSS)) return;
   CSS.highlights.delete('rico-sel');
@@ -1229,6 +1280,14 @@ function showComposer(sel) {
 }
 
 function placeComposer(range, rect) {
+  const slot = marginSlot(range, rect);
+  if (slot) { // in the margin beside the selection, never over the text
+    composer.style.width = Math.max(260, slot.width) + 'px';
+    composer.style.left = slot.left + 'px';
+    composer.style.top = slot.top + 'px';
+    return;
+  }
+  composer.style.width = '';
   const wrap = docwrap.getBoundingClientRect();
   const rects = rect ? [rect] : range.getClientRects();
   const first = rects[0] || range.getBoundingClientRect();
@@ -1242,6 +1301,7 @@ function placeComposer(range, rect) {
 }
 
 function hideComposer() {
+  hideSelbar();
   markElement(null);
   for (const r of document.querySelectorAll('.d-sel')) r.classList.remove('d-sel');
   composer.hidden = true;
@@ -1263,8 +1323,9 @@ function onSelect() {
     composer.classList.add('pulse');
     return;
   }
+  if (state.pending) hideComposer(); // a fresh selection replaces an empty composer
   const sel = describeSelection(range);
-  if (sel) showComposer(sel);
+  if (sel) showSelbar(sel); else hideSelbar();
 }
 
 $('#cards').addEventListener('mouseup', () => setTimeout(onSelect, 0));

@@ -48,12 +48,18 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   const textRect = findText;
   const centerOf = (sel, nth = 0) => page.evaluate(([s, n]) => { const e = document.querySelectorAll(s)[n]; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, [sel, nth]);
   // Real OS-level drag with intermediate moves.
+  let shotBar = true;
   async function drag(from, to) {
     const a = await textRect(from), b = await textRect(to);
     const [x1, y1] = [a.l + 1, (a.t + a.b) / 2], [x2, y2] = [b.r - 0.5, (b.t + b.b) / 2];
     move(x1, y1); sh('xdotool mousedown 1');
     for (let i = 1; i <= 8; i++) { move(x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8); await sleep(25); }
     sh('xdotool mouseup 1'); await sleep(250);
+    // the selection offers two margin icons; click the "lines" one with the real pointer
+    await page.waitForSelector('#selbar:not([hidden])', { timeout: 3000 });
+    if (shotBar) shot('os-selbar');
+    shotBar = false;
+    click(...(await centerOf('#sb-lines'))); await sleep(250);
   }
   const type = (t) => sh(`xdotool type --delay 35 -- '${t.replace(/'/g, "'\\''")}'`);
 
