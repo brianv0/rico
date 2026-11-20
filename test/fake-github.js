@@ -6,6 +6,9 @@ export const COMPLEX = fs.readFileSync(new URL('./fixtures/complex.md', import.m
 export const DIAGRAMS = fs.readFileSync(new URL('./fixtures/diagrams.md', import.meta.url), 'utf8');
 const DIAGRAM_LINES = DIAGRAMS.replace(/\n$/, '').split('\n');
 const DIAGRAM_PATCH = `@@ -0,0 +1,${DIAGRAM_LINES.length} @@\n` + DIAGRAM_LINES.map((l) => '+' + l).join('\n');
+export const GITHUBMD = fs.readFileSync(new URL('./fixtures/github.md', import.meta.url), 'utf8');
+const GH_LINES = GITHUBMD.replace(/\n$/, '').split('\n');
+const GH_PATCH = `@@ -0,0 +1,${GH_LINES.length} @@\n` + GH_LINES.map((l) => '+' + l).join('\n');
 const COMPLEX_LINES = COMPLEX.replace(/\n$/, '').split('\n');
 const COMPLEX_PATCH = `@@ -0,0 +1,${COMPLEX_LINES.length} @@\n` + COMPLEX_LINES.map((l) => '+' + l).join('\n');
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
@@ -41,7 +44,7 @@ export async function startFake() {
     const u = new URL(req.url, 'http://x');
     if (req.headers.authorization !== 'Bearer t') return json({ message: 'Bad credentials' }, 401);
     if (u.pathname === '/repos/acme/docs/pulls/7') {
-      return json({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 5, additions: 130, deletions: 9, comments: 3, review_comments: 6, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main' } });
+      return json({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 6, additions: 130, deletions: 9, comments: 3, review_comments: 6, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main' } });
     }
     if (u.pathname === '/repos/acme/docs/pulls/7/comments') return json(COMMENTS);
     const rm = /^\/repos\/acme\/docs\/pulls\/7\/comments\/(\d+)\/replies$/.exec(u.pathname);
@@ -60,6 +63,7 @@ export async function startFake() {
         { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 0, patch: PATCH },
         { filename: 'docs/complex.md', status: 'added', additions: COMPLEX_LINES.length, deletions: 0, patch: COMPLEX_PATCH },
         { filename: 'docs/diagrams.md', status: 'added', additions: DIAGRAM_LINES.length, deletions: 0, patch: DIAGRAM_PATCH },
+        { filename: 'docs/github.md', status: 'added', additions: GH_LINES.length, deletions: 0, patch: GH_PATCH },
         { filename: 'src/x.js', status: 'modified', additions: 1, deletions: 0 },
         { filename: 'docs/old.md', status: 'removed', additions: 0, deletions: 9 },
       ]);
@@ -67,6 +71,10 @@ export async function startFake() {
     if (u.pathname === '/repos/acme/docs/contents/docs/img/x.png' && u.searchParams.get('ref') === SHA) {
       res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
       return res.end(PNG);
+    }
+    if (u.pathname === '/repos/acme/docs/contents/docs/github.md' && u.searchParams.get('ref') === SHA) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      return res.end(GITHUBMD);
     }
     if (u.pathname === '/repos/acme/docs/contents/docs/diagrams.md' && u.searchParams.get('ref') === SHA) {
       res.writeHead(200, { 'Content-Type': 'text/plain' });

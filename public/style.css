@@ -166,6 +166,11 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body [data-l].hl { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 ::highlight(rico-sel) { background-color: var(--sel); }
 
+/* GitHub-flavoured markdown details */
+.markdown-alert-title .octicon { margin-right: 8px; }
+.markdown-body .anchor { cursor: pointer; }
+.markdown-body details > summary { cursor: pointer; }
+
 /* review threads (margin) in GitHub's comment style */
 .thread { position: absolute; left: 0; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; transition: top .12s ease, box-shadow .12s, border-color .12s; }
 .thread.draft { border-color: var(--attention-border); }

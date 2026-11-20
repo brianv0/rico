@@ -18,7 +18,7 @@ const highlight = (str, lang) => {
   try { if (window.hljs && lang && window.hljs.getLanguage(lang)) return window.hljs.highlight(str, { language: lang, ignoreIllegals: true }).value; } catch { /* plain */ }
   return '';
 };
-const md = window.markdownit({ html: false, linkify: true, highlight });
+const md = window.markdownit({ html: !!window.DOMPurify, linkify: true, highlight });
 // Stamp every block with its source line range (markdown-it's token.map): data-l="start0-end0".
 md.core.ruler.push('rico_lines', (state) => {
   for (const t of state.tokens) {
@@ -31,23 +31,120 @@ md.core.ruler.push('rico_lines', (state) => {
 });
 const defaultLink = md.renderer.rules.link_open || ((tokens, i, o, _e, self) => self.renderToken(tokens, i, o));
 md.renderer.rules.link_open = (tokens, i, o, e, self) => {
-  tokens[i].attrSet('target', '_blank');
-  tokens[i].attrSet('rel', 'noopener noreferrer');
+  if (!(tokens[i].attrGet('href') || '').startsWith('#')) { // fragment links stay in the page
+    tokens[i].attrSet('target', '_blank');
+    tokens[i].attrSet('rel', 'noopener noreferrer');
+  }
   return defaultLink(tokens, i, o, e, self);
 };
 
-// Relative images come from the PR head commit via the local server.
-const defaultImage = md.renderer.rules.image || ((tokens, i, o, _e, self) => self.renderToken(tokens, i, o));
-md.renderer.rules.image = (tokens, i, o, e, self) => {
-  const t = tokens[i];
-  if (state.pr && state.file) {
-    const dir = state.file.filename.split('/').slice(0, -1).join('/');
-    const p = resolveRepoPath(dir, t.attrGet('src'));
-    if (p) t.attrSet('src', '/api/raw?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, ref: state.pr.headSha, path: p }));
+// ----- GitHub markdown features: task lists, alerts, heading anchors, table alignment, raw HTML -----
+const ALERTS = { note: ['Note', 'info'], tip: ['Tip', 'light-bulb'], important: ['Important', 'report'], warning: ['Warning', 'alert'], caution: ['Caution', 'stop'] };
+const slugify = (t) => t.toLowerCase().trim().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
+
+md.core.ruler.push('rico_github', (st) => {
+  const T = st.tokens;
+  const seen = new Map();
+  for (let i = 0; i < T.length; i++) {
+    const t = T[i];
+    // - [ ] / - [x] task list items
+    if (t.type === 'list_item_open' && T[i + 1]?.type === 'paragraph_open' && T[i + 2]?.type === 'inline') {
+      const first = T[i + 2].children[0];
+      const m = first && first.type === 'text' && /^\[([ xX])\]\s+/.exec(first.content);
+      if (m) {
+        first.content = first.content.slice(m[0].length);
+        const cb = new st.Token('html_inline', '', 0);
+        cb.content = `<input type="checkbox" class="task-list-item-checkbox" disabled${m[1] === ' ' ? '' : ' checked'}> `;
+        T[i + 2].children.unshift(cb);
+        t.attrJoin('class', 'task-list-item');
+        for (let j = i - 1; j >= 0; j--) {
+          if ((T[j].type === 'bullet_list_open' || T[j].type === 'ordered_list_open') && T[j].level === t.level - 1) { T[j].attrJoin('class', 'contains-task-list'); break; }
+        }
+      }
+    }
+    // > [!NOTE] / TIP / IMPORTANT / WARNING / CAUTION alerts
+    if (t.type === 'blockquote_open' && T[i + 1]?.type === 'paragraph_open' && T[i + 2]?.type === 'inline') {
+      const inl = T[i + 2];
+      const first = inl.children[0];
+      const m = first && first.type === 'text' && /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i.exec(first.content);
+      if (m) {
+        const kind = m[1].toLowerCase();
+        first.content = first.content.slice(m[0].length);
+        if (!first.content) inl.children.splice(0, inl.children[1]?.type === 'softbreak' ? 2 : 1);
+        let depth = 0;
+        let j = i;
+        for (; j < T.length; j++) { if (T[j].type === 'blockquote_open') depth++; if (T[j].type === 'blockquote_close' && --depth === 0) break; }
+        t.tag = 'div'; t.attrJoin('class', `markdown-alert markdown-alert-${kind}`); T[j].tag = 'div';
+        const po = new st.Token('paragraph_open', 'p', 1); po.block = true; po.attrJoin('class', 'markdown-alert-title');
+        const pi = new st.Token('inline', '', 0); pi.content = ''; pi.children = [];
+        const ic = new st.Token('html_inline', '', 0); ic.content = `${icon(ALERTS[kind][1])}${ALERTS[kind][0]}`; pi.children.push(ic);
+        const pc = new st.Token('paragraph_close', 'p', -1); pc.block = true;
+        const drop = inl.children.length ? [] : [i + 1, i + 2, i + 3]; // the marker was the whole paragraph
+        T.splice(i + 1, 0, po, pi, pc);
+        if (drop.length) T.splice(i + 4, 3);
+      }
+    }
+    // headings get GitHub's hover permalink icon
+    if (t.type === 'heading_open' && T[i + 1]?.type === 'inline') {
+      const text = T[i + 1].children.filter((c) => c.type === 'text' || c.type === 'code_inline').map((c) => c.content).join('');
+      let slug = slugify(text);
+      const n = seen.get(slug) || 0;
+      seen.set(slug, n + 1);
+      if (n) slug += `-${n}`;
+      const a = new st.Token('html_inline', '', 0);
+      a.content = `<a class="anchor" aria-label="Permalink: ${md.utils.escapeHtml(text)}" data-slug="${slug}" href="#${slug}">${icon('link', { cls: 'octicon-link' })}</a>`;
+      T[i + 1].children.unshift(a);
+      t.attrSet('data-slug', slug);
+    }
+    // markdown-it aligns table cells with style="text-align:x"; styles are stripped, so use align=
+    if (t.type === 'th_open' || t.type === 'td_open') {
+      const m = /text-align:\s*(\w+)/.exec(t.attrGet('style') || '');
+      if (m) { t.attrs = t.attrs.filter((x) => x[0] !== 'style'); t.attrSet('align', m[1]); }
+    }
   }
-  t.attrSet('loading', 'lazy');
-  return defaultImage(tokens, i, o, e, self);
+});
+
+// Raw HTML blocks pass through (sanitized below); tag the first element with its source lines so a
+// selection inside it still maps to the right place.
+md.renderer.rules.html_block = (tokens, i) => {
+  const t = tokens[i];
+  const stamped = t.map ? t.content.replace(/^(\s*<[a-zA-Z][^\s>/]*)/, `$1 data-l="${t.map[0]}-${t.map[1]}" data-k="html"`) : t.content;
+  return stamped;
 };
+
+// Relative links and images resolve against the PR's head commit, as on GitHub. This runs as a
+// sanitizer hook so it covers markdown and raw HTML alike.
+function repoUrl(kind, path, frag = '') {
+  const p = state.pr;
+  const origin = new URL(p.url).origin;
+  return `${origin}/${p.owner}/${p.repo}/${kind}/${p.headSha}/${path.split('/').map(encodeURIComponent).join('/')}${frag}`;
+}
+const fileDir = () => (state.file ? state.file.filename.split('/').slice(0, -1).join('/') : '');
+if (window.DOMPurify) {
+  window.DOMPurify.addHook('uponSanitizeElement', (node, data) => {
+    if (data.tagName === 'input') data.allowedTags.input = node.getAttribute('type') === 'checkbox' && node.hasAttribute('disabled'); // only task-list boxes
+  });
+  window.DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A' && node.hasAttribute('href')) {
+      const href = node.getAttribute('href');
+      if (!href.startsWith('#') && state.pr) {
+        const path = resolveRepoPath(fileDir(), href);
+        if (path) node.setAttribute('href', repoUrl('blob', path, href.includes('#') ? '#' + href.split('#').slice(1).join('#') : ''));
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+    if (node.tagName === 'IMG' && node.hasAttribute('src')) {
+      const path = state.pr ? resolveRepoPath(fileDir(), node.getAttribute('src')) : null;
+      if (path && /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i.test(path)) node.setAttribute('src', '/api/raw?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, ref: state.pr.headSha, path }));
+      else if (path) node.removeAttribute('src'); // not an image we can serve: do not request it
+      node.setAttribute('loading', 'lazy');
+      node.setAttribute('referrerpolicy', 'no-referrer');
+    }
+  });
+}
+const SANITIZE = { FORBID_TAGS: ['style', 'form', 'textarea', 'select', 'button', 'link', 'meta', 'base', 'iframe', 'object', 'embed'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] };
+const safeHtml = (html) => (window.DOMPurify ? window.DOMPurify.sanitize(html, SANITIZE) : html);
 
 // ```d2 and ```mermaid fences render as diagrams (client-side, optional dependencies loaded on demand);
 // the source stays one click away.
@@ -64,7 +161,7 @@ md.renderer.rules.fence = (tokens, i, o, e, self) => {
 };
 
 // Separate renderer for comment bodies (no line stamping; raw HTML stays off).
-const mdc = window.markdownit({ html: false, linkify: true, breaks: true });
+const mdc = window.markdownit({ html: !!window.DOMPurify, linkify: true, breaks: true });
 mdc.renderer.rules.link_open = md.renderer.rules.link_open;
 
 const state = {
@@ -403,7 +500,7 @@ const blockLines = (el) => {
 const overlaps = (b, s, e) => b.s <= e && b.e >= s;
 
 function renderDoc(text) {
-  doc.innerHTML = md.render(text);
+  doc.innerHTML = safeHtml(md.render(text));
   $('#legend').hidden = false;
   paintBlocks();
   renderDiagrams(cur); // async; diagrams fill in when their renderer is ready
@@ -478,7 +575,7 @@ function msgEl(c) {
   who.append(avatarEl(c.user, c.avatar), el('b', null, c.user), when);
   if (ASSOC[c.assoc]) who.append(el('span', 'badge', ASSOC[c.assoc]));
   const text = el('div', 'text markdown-body');
-  text.innerHTML = mdc.render(c.body);
+  text.innerHTML = safeHtml(mdc.render(c.body));
   d.append(who, text);
   return d;
 }
@@ -615,6 +712,13 @@ function activateAt(block) {
 }
 $('#cards').addEventListener('click', (e) => {
   const v = viewOfNode(e.target);
+  const link = e.target.closest && e.target.closest('a[href^="#"]');
+  if (link && v) { // our own URL hash holds the PR, so keep fragment links in the page
+    e.preventDefault();
+    const slug = decodeURIComponent(link.getAttribute('href').slice(1));
+    v.doc.querySelector(`[data-slug="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
+    return;
+  }
   if (!v || v.mode !== 'rendered') return;
   use(v);
   if (!window.getSelection().isCollapsed) return;

@@ -71,10 +71,11 @@ export function wordCount(text) {
 export function srcWords(line) {
   let s = String(line);
   for (;;) {
-    const next = s.replace(/^\s*(?:>|[-*+]|\d+[.)])\s+/, '').replace(/^\s*#{1,6}\s+/, '');
+    const next = s.replace(/^\s*(?:>|[-*+]|\d+[.)])\s+/, '').replace(/^\s*#{1,6}\s+/, '').replace(/^\s*\[[ xX]\]\s+/, '');
     if (next === s) break;
     s = next;
   }
+  if (/^\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i.test(s)) return 0; // alert marker line
   return wordCount(s);
 }
 

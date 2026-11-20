@@ -82,7 +82,7 @@ await page.click('#load button');
 await page.waitForSelector('#doc h1');
 
 await step('only markdown files are listed; patch-less/non-md ignored', async () => {
-  assert.equal(await page.locator('#files button').count(), 3);
+  assert.equal(await page.locator('#files button').count(), 4);
 });
 await step('blocks carry source lines and diff classes', async () => {
   const cls = await page.evaluate(() => [...document.querySelectorAll('#doc > [data-l]')].map((e) => e.tagName + ':' + e.dataset.l + ':' + e.className).join(' | '));
@@ -289,7 +289,7 @@ await step('diagrams: 4 render in sandboxed script-free frames, 2 broken ones sh
   await page.locator('#files button[data-path="docs/diagrams.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
   await page.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 4 && document.querySelectorAll('#doc .dia-err').length === 2, null, { timeout: 90000 });
-  assert.equal(await page.locator('#doc svg').count(), 0, 'diagram SVG lives inside the frames, never in the page');
+  assert.equal(await page.locator('#doc figure.dia svg').count(), 0, 'diagram SVG lives inside the frames, never in the page');
   const attrs = await page.evaluate(() => [...document.querySelectorAll('#doc iframe.dia-frame')].map((f) => ({ sandbox: f.getAttribute('sandbox'), csp: /Content-Security-Policy[^>]*default-src 'none'/.test(f.srcdoc) })));
   assert.deepEqual(attrs, Array(4).fill({ sandbox: 'allow-same-origin', csp: true }));
   const errs = await page.locator('#doc .dia-err').allInnerTexts();
@@ -392,6 +392,60 @@ await step('diagrams: without the optional dependencies the source is shown with
   assert.match(t[3], /not available[\s\S]*npm install mermaid/);
   assert.equal(await p2.locator('#doc figure.dia').first().locator('details').evaluate((d) => d.open), true);
   await p2.close();
+});
+
+await step('GitHub markdown: task lists, alerts, tables, anchors, details, relative links, sanitized HTML', async () => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.locator('#files button[data-path="docs/github.md"]').click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/github.md' && document.querySelector('#doc h1'));
+  const q = (sel) => page.locator('#doc ' + sel);
+  assert.equal(await q('input.task-list-item-checkbox').count(), 2);
+  assert.equal(await q('input.task-list-item-checkbox:checked').count(), 1);
+  assert.equal(await q('input.task-list-item-checkbox:disabled').count(), 2);
+  assert.equal(await q('ul.contains-task-list').count(), 1);
+  assert.equal(await q('.markdown-alert-note .markdown-alert-title').innerText(), 'Note');
+  assert.equal(await q('.markdown-alert-warning').count(), 1);
+  const note = await q('.markdown-alert-note').innerText();
+  assert.match(note, /Useful information/); assert.doesNotMatch(note, /\[!NOTE\]/);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#doc th')].map((t) => t.getAttribute('align'))), ['left', 'center', 'right']);
+  assert.equal(await q('details > summary').innerText(), 'Click to expand');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#doc h1, #doc h2')].map((h) => h.dataset.slug)), ['github-features', 'tasks', 'tasks-1']);
+  assert.equal(await q('h2 a.anchor').count(), 2);
+  // raw HTML is sanitized like GitHub does: nothing executes, nothing dangerous remains
+  assert.deepEqual(await page.evaluate(() => [window.__pwned2, window.__pwned3, window.__pwned4].map((x) => x === undefined)), [true, true, true]);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#doc script, #doc [onerror], #doc a[href^="javascript:"]').length), 0);
+  // relative links go to the file on GitHub at the PR's head commit; relative images load via the server
+  const link = q('a:has-text("relative link")');
+  assert.equal(await link.getAttribute('href'), `https://github.com/acme/docs/blob/${SHA}/docs/glossary.md#term`);
+  assert.equal(await link.getAttribute('target'), '_blank');
+  assert.match(await q('img[alt="relative image"]').getAttribute('src'), /^\/api\/raw\?/);
+  await page.waitForFunction(() => { const i = document.querySelector('#doc img[alt="relative image"]'); return i && i.complete && i.naturalWidth > 0; });
+  // an in-page anchor scrolls instead of rewriting the URL hash (which holds the PR)
+  const before = page.url();
+  await q('a:has-text("anchor link")').click();
+  assert.equal(page.url(), before);
+});
+await step('GitHub markdown: line mapping stays exact in the presence of boxes, alerts, anchors and raw HTML', async () => {
+  const res = await page.evaluate(() => {
+    const doc = document.getElementById('doc'); const R = window.__rico; const lines = R.state.lines;
+    const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ');
+    const words = (s) => norm(s).split(/\s+/).filter(Boolean);
+    const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]'));
+    const tn = (el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const a = []; for (let n = w.nextNode(); n; n = w.nextNode()) if (n.data.trim()) a.push(n); return a; };
+    const sel = (a, b) => { const A = tn(a), B = tn(b); if (!A.length || !B.length) return null; const r = document.createRange(); r.setStart(A[0], 0); const l = B[B.length - 1]; r.setEnd(l, l.data.length); return r; };
+    const eff = (ln, dir) => { let k = ln; while (k >= 1 && k <= lines.length && !words(lines[k - 1]).length) k += dir; return k; };
+    const bad = []; let n = 0;
+    for (let i = 0; i < leaves.length; i++) for (const j of [i, Math.min(leaves.length - 1, i + 4)]) {
+      const r = sel(leaves[i], leaves[j]); if (!r) continue; n++;
+      const d = R.describeSelection(r); if (!d) { bad.push({ i, j, why: 'null' }); continue; }
+      const w = words(r.toString());
+      if (w[0] && !words(lines[eff(d.start, 1) - 1] || '').includes(w[0])) bad.push({ i, first: w[0], d: [d.start, d.end], line: lines[d.start - 1] });
+      if (w.length && !words(lines[eff(d.end, -1) - 1] || '').includes(w[w.length - 1])) bad.push({ j, last: w[w.length - 1], d: [d.start, d.end], line: lines[d.end - 1] });
+    }
+    return { n, bad: bad.slice(0, 5) };
+  });
+  assert.ok(res.n > 20, 'only ' + res.n + ' checks');
+  assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
 });
 
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));

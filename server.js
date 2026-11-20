@@ -152,7 +152,7 @@ async function apiFile(q) {
   return gh(`/repos/${owner}/${repo}/contents/${enc}?ref=${ref}`, { accept: 'application/vnd.github.raw+json' });
 }
 
-const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif' };
+const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp', '.ico': 'image/x-icon' };
 
 // Images referenced by relative path from a markdown file, served from the PR's head commit.
 async function apiRaw(q) {

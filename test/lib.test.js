@@ -308,3 +308,12 @@ test('parsePatchRows numbers both sides and keeps hunk headers', () => {
   assert.deepEqual(two.filter((r) => r.type === 'add').map((r) => r.new), [10]);
   assert.deepEqual(two.filter((r) => r.type === 'del').map((r) => r.old), [10]);
 });
+
+test('srcWords ignores task-list boxes and alert markers, which never render as text', () => {
+  assert.equal(srcWords('- [x] Done item'), 2);
+  assert.equal(srcWords('  - [ ] Open item with more words'), 5);
+  assert.equal(srcWords('> [!NOTE]'), 0);
+  assert.equal(srcWords('> [!warning]  '), 0);
+  assert.equal(srcWords('> Useful information'), 2);
+  assert.equal(srcWords('[x] box without a list marker'), 5); // a leading box is dropped wherever it appears (harmless: it never renders)
+});
