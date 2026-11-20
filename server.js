@@ -211,6 +211,12 @@ function serveStatic(req, res) {
   const vendor = Object.hasOwn(VENDOR, rel) ? VENDOR[rel] : null;
   const file = vendor || path.normalize(path.join(ROOT, rel));
   if ((!vendor && !file.startsWith(ROOT + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    // a linkable PR path like /github.com/o/r/7@abc1234 is the single-page app; a missing asset stays a 404
+    if (!path.extname(rel) && !rel.startsWith('/api/') && !rel.startsWith('/vendor/')) {
+      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
+      fs.createReadStream(path.join(ROOT, 'index.html')).pipe(res);
+      return;
+    }
     res.writeHead(404).end('not found');
     return;
   }

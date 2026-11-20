@@ -8,6 +8,17 @@ export function parsePrRef(input) {
   return m ? { owner: m[1], repo: m[2], number: Number(m[3]) } : null;
 }
 
+/** The shareable page path for a PR: /github.com/owner/repo/7 or /github.com/owner/repo/7@abc1234 (the head commit). */
+export function prPath({ owner, repo, number }, sha = '', instance = 'github.com') {
+  return `/${instance}/${owner}/${repo}/${number}${sha ? '@' + String(sha).slice(0, 7) : ''}`;
+}
+
+/** Inverse of prPath. -> {instance, owner, repo, number, sha} | null */
+export function parsePrPath(pathname) {
+  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:@([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || ''));
+  return m ? { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], number: Number(m[4]), sha: m[5] || '' } : null;
+}
+
 /**
  * Parse a unified-diff patch (as returned by GET /pulls/:n/files) into the RIGHT-side
  * line numbers GitHub will accept review comments on.

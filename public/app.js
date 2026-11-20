@@ -1,5 +1,5 @@
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
+  parsePrRef, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -224,13 +224,25 @@ const EAGER = 8; // load this many files up front; the rest load on demand
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-async function loadPr(ref, wantFile) {
+// The address bar always names the PR (and the commit it was loaded at) and the open file, so it can be shared.
+function syncUrl(filename) {
+  if (!state.pr) return;
+  const p = state.pr;
+  const q = filename ? '?' + new URLSearchParams({ file: filename }) : '';
+  const url = prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha) + q;
+  if (location.pathname + location.search + location.hash !== url) history.replaceState(null, '', url);
+}
+
+async function loadPr(ref, wantFile, wantSha = '') {
   const parsed = parsePrRef(ref);
   if (!parsed) return status('That does not look like a GitHub PR link (try https://github.com/owner/repo/pull/123 or owner/repo#123).', true);
   status('Loading PR…');
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
+    if (wantSha && pr.headSha && !pr.headSha.startsWith(wantSha)) {
+      setTimeout(() => status(`This link was made at commit ${wantSha}; the PR is now at ${pr.headSha.slice(0, 7)}, so lines and comments may have moved.`, true), 0);
+    }
     ({ threads: state.threads, removed: state.removed, left: state.leftThreads } = groupThreads(pr.comments || []));
     restore();
     renderHeader();
@@ -244,6 +256,7 @@ async function loadPr(ref, wantFile) {
       return;
     }
     const first = pr.files.find((x) => x.filename === wantFile) || pr.files[0];
+    syncUrl(wantFile && first.filename === wantFile ? wantFile : '');
     use(views.get(first.filename)); // active before anything renders
     const eager = [first, ...pr.files.filter((f) => f !== first)].slice(0, EAGER);
     await Promise.all(eager.map((f) => loadView(views.get(f.filename)).catch((e) => status(e.message, true))));
@@ -490,7 +503,7 @@ async function openFile(filename) {
     status('');
   }
   use(v);
-  history.replaceState(null, '', '#' + new URLSearchParams({ pr: $('#pr').value, f: filename }));
+  syncUrl(filename);
   scrollToCard(filename);
   renderFiles();
 }
@@ -1499,7 +1512,13 @@ $('#rc-caret').innerHTML = icon('triangle-down');
 // ---------- boot ----------
 $('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value); });
 const h = new URLSearchParams(location.hash.slice(1));
-if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); }
+const here = parsePrPath(location.pathname);
+if (here) {
+  const ref = `${here.owner}/${here.repo}#${here.number}`;
+  $('#pr').value = here.instance === 'github.com' ? ref : '';
+  if (here.instance !== 'github.com') status(`Only github.com is supported (this link is for ${here.instance}).`, true);
+  else loadPr(ref, new URLSearchParams(location.search).get('file'), here.sha);
+} else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
 
 // test hook

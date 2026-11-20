@@ -612,6 +612,21 @@ await step('a click made while the initial load is still running is not undone w
   assert.equal(await p3.evaluate(() => document.querySelectorAll('[id="doc"]').length), 1, 'exactly one active document');
   await p3.close();
 });
+await step('linkable URL: /github.com/org/repo/PR[@commit]?file= loads the PR, follows the open file, and flags a stale commit', async () => {
+  const p4 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await p4.goto(`http://localhost:${PORT}/github.com/acme/docs/7@deadbee?file=docs%2Fcomplex.md`);
+  await p4.waitForFunction(() => window.__rico?.state.file?.filename === 'docs/complex.md', null, { timeout: 15000 });
+  assert.equal(await p4.inputValue('#pr'), 'acme/docs#7');
+  assert.match(await p4.locator('#status').innerText(), /made at commit deadbee; the PR is now at/);
+  assert.match(new URL(p4.url()).pathname, /^\/github\.com\/acme\/docs\/7@[0-9a-f]{7}$/, 'the address bar now pins the real head commit');
+  await p4.locator('#files button[data-path="docs/plan.md"]').click();
+  await p4.waitForFunction(() => location.search.includes('plan.md'));
+  assert.equal(decodeURIComponent(new URL(p4.url()).search), '?file=docs/plan.md');
+  await p4.reload(); // the URL alone restores the view
+  await p4.waitForFunction(() => window.__rico?.state.file?.filename === 'docs/plan.md', null, { timeout: 15000 });
+  assert.equal(await p4.evaluate(() => document.querySelectorAll('#doc h1').length > 0), true, 'assets load from an absolute path');
+  await p4.close();
+});
 await step('removed sections: Source diff and Rendered show the same threads', async () => {
   const c = card('docs/removed.md');
   await c.getByRole('button', { name: 'Source diff' }).click();

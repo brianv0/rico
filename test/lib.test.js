@@ -355,3 +355,14 @@ test('oldToNewMap maps only unchanged lines', () => {
   const rows = parsePatchRows('@@ -1,4 +1,4 @@\n a\n-b\n+c\n d\n e');
   assert.deepEqual([...oldToNewMap(rows)], [[1, 1], [3, 3], [4, 4]]);
 });
+
+test('prPath / parsePrPath round-trip a linkable PR location, with an optional commit', async () => {
+  const { prPath, parsePrPath } = await import('../public/lib.js');
+  const pr = { owner: 'acme', repo: 'docs', number: 7 };
+  assert.equal(prPath(pr), '/github.com/acme/docs/7');
+  assert.equal(prPath(pr, 'abcdef1234567890'), '/github.com/acme/docs/7@abcdef1');
+  assert.deepEqual(parsePrPath('/github.com/acme/docs/7@abcdef1'), { instance: 'github.com', owner: 'acme', repo: 'docs', number: 7, sha: 'abcdef1' });
+  assert.deepEqual(parsePrPath('/ghe.corp.com:8443/o/r/12/'), { instance: 'ghe.corp.com:8443', owner: 'o', repo: 'r', number: 12, sha: '' });
+  assert.equal(parsePrPath('/'), null);
+  assert.equal(parsePrPath('/vendor/x.js'), null);
+});
