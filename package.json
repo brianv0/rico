@@ -1,0 +1,24 @@
+{
+  "name": "rico",
+  "version": "0.1.0",
+  "description": "Rich comments: review rendered markdown in GitHub PRs, with comments that span paragraphs",
+  "type": "module",
+  "bin": {
+    "rico": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "e2e": "node e2e/run.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

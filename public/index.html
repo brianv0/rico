@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rico</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cpath d='M8 9h16v10H15l-5 4v-4H8z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Rico <span>rich comments</span></div>
+  <form id="load" autocomplete="off">
+    <input id="pr" type="text" spellcheck="false" placeholder="https://github.com/owner/repo/pull/123  or  owner/repo#123">
+    <button type="submit">Load PR</button>
+  </form>
+  <div id="status" role="status"></div>
+</header>
+
+<main class="layout">
+  <nav id="files" aria-label="Markdown files in this PR"></nav>
+
+  <section id="docwrap">
+    <div id="prbar"></div>
+    <div id="legend" hidden>
+      <span><i class="k chg"></i>changed</span>
+      <span><i class="k ctx"></i>commentable context</span>
+      <span><i class="k out"></i>outside the diff (goes in review summary)</span>
+    </div>
+    <article id="doc" class="md"><p class="empty">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p></article>
+    <div id="composer" hidden>
+      <blockquote id="c-quote"></blockquote>
+      <div id="c-range"></div>
+      <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to add, Esc to dismiss)"></textarea>
+      <div class="row"><button id="c-add" class="primary" type="button">Add to review</button><button id="c-cancel" type="button">Cancel</button></div>
+    </div>
+  </section>
+
+  <aside id="panel">
+    <h2>Your review <span id="count"></span></h2>
+    <div id="list"><p class="empty">No comments yet.</p></div>
+    <label for="summary">Review summary (optional)</label>
+    <textarea id="summary" rows="4" placeholder="Overall thoughts…"></textarea>
+    <label for="event">Submit as</label>
+    <select id="event">
+      <option value="COMMENT">Comment</option>
+      <option value="APPROVE">Approve</option>
+      <option value="REQUEST_CHANGES">Request changes</option>
+    </select>
+    <button id="submit" class="primary" type="button" disabled>Submit review</button>
+    <div id="result"></div>
+  </aside>
+</main>
+
+<script src="vendor/markdown-it.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
