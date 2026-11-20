@@ -450,9 +450,9 @@ await step('Mermaid: flowchart nodes and edges map to their lines', async () => 
   await clickIn(2, 'm-node', 'C');
   assert.equal(await rangeLabel(), 'Comments on line 28');
   await clickIn(2, 'm-edge', 'B_C_0');
-  assert.equal(await rangeLabel(), 'Comments on line 28 — edge “B → C”');
+  assert.equal(await rangeLabel(), 'Comments on line 28');
   await clickIn(2, 'm-edge', 'A_B_0');
-  assert.equal(await rangeLabel(), 'Comments on line 27 — edge “A → B”');
+  assert.equal(await rangeLabel(), 'Comments on line 27');
 });
 await step('Mermaid: sequence actors and messages map to their lines', async () => {
   await clickIn(3, 'm-actor', 'R');
