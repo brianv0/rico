@@ -20,5 +20,8 @@
   "license": "MIT",
   "devDependencies": {
     "playwright": "1.63.0"
+  },
+  "optionalDependencies": {
+    "@terrastruct/d2": "0.1.33"
   }
 }

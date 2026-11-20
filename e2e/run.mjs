@@ -25,26 +25,48 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 let failed = false;
 let nfail = 0;
-const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n')[0]); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
+const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ')); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
 
-// Drag from the start of `from` to the end of `to` with the real mouse.
+// Where is `t` on screen right now? Optionally scroll it to the middle of the window first.
+const textBox = (t, scroll) => page.evaluate(([t, scroll]) => {
+  const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    const i = n.data.indexOf(t);
+    if (i < 0) continue;
+    if (scroll) n.parentElement.scrollIntoView({ block: 'center' });
+    const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + t.length);
+    const b = r.getBoundingClientRect();
+    return { l: b.left, r: b.right, y: b.top + b.height / 2 };
+  }
+  throw new Error('no text ' + t);
+}, [t, scroll]);
+
+// Wait until the composer reflects *this* selection. (Focusing its textarea clears the document
+// selection, so compare against the composer's own copy of the quote, not getSelection().)
+const settle = (from, to) => page.waitForFunction(([a, z]) => {
+  const p = window.__rico.state.pending;
+  return !!p && !document.getElementById('composer').hidden && p.quote.includes(a) && p.quote.includes(z);
+}, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
+
+// Drag from the start of `from` to the end of `to` with the real mouse (both must fit on screen).
 async function drag(from, to) {
-  const pts = await page.evaluate(([a, b]) => {
-    const find = (t) => { const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const i = n.data.indexOf(t); if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + t.length); return r.getBoundingClientRect(); } } throw new Error('no text ' + t); };
-    const A = find(a), B = find(b);
-    return { x1: A.left + 1, y1: A.top + A.height / 2, x2: B.right - 0.5, y2: B.top + B.height / 2 };
-  }, [from, to]);
-  await page.mouse.move(pts.x1, pts.y1);
+  const A = await textBox(from, true), B = await textBox(to, false);
+  await page.mouse.move(A.l + 1, A.y);
   await page.mouse.down();
-  await page.mouse.move((pts.x1 + pts.x2) / 2, (pts.y1 + pts.y2) / 2, { steps: 5 });
-  await page.mouse.move(pts.x2, pts.y2, { steps: 5 });
+  await page.mouse.move((A.l + B.r) / 2, (A.y + B.y) / 2, { steps: 5 });
+  await page.mouse.move(B.r - 0.5, B.y, { steps: 5 });
   await page.mouse.up();
-  // Wait until the composer reflects *this* drag. (Focusing its textarea clears the document
-  // selection, so compare against the composer's own copy of the quote, not getSelection().)
-  await page.waitForFunction(([a, z]) => {
-    const p = window.__rico.state.pending;
-    return !!p && !document.getElementById('composer').hidden && p.quote.includes(a) && p.quote.includes(z);
-  }, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
+  await settle(from, to);
+}
+// For ranges taller than the window: click the start, scroll, then shift+click the end.
+async function shiftSelect(from, to) {
+  const A = await textBox(from, true);
+  await page.mouse.click(A.l + 1, A.y);
+  const B = await textBox(to, true);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(B.r - 0.5, B.y);
+  await page.keyboard.up('Shift');
+  await settle(from, to);
 }
 const composerText = () => page.locator('#c-range').innerText();
 const quote = () => page.evaluate(() => window.__rico.state.pending?.quote);
@@ -55,7 +77,7 @@ await page.click('#load button');
 await page.waitForSelector('#doc h1');
 
 await step('only markdown files are listed; patch-less/non-md ignored', async () => {
-  assert.equal(await page.locator('#files button').count(), 2);
+  assert.equal(await page.locator('#files button').count(), 3);
 });
 await step('blocks carry source lines and diff classes', async () => {
   const cls = await page.evaluate(() => [...document.querySelectorAll('#doc > [data-l]')].map((e) => e.tagName + ':' + e.dataset.l + ':' + e.className).join(' | '));
@@ -221,6 +243,67 @@ await step('line mapping is exact for every block and range in a complex documen
   assert.ok(res.n > 150, 'only ' + res.n + ' checks');
   assert.equal(await page.evaluate(() => document.querySelector('#doc img').naturalWidth), 1, 'relative image should load from the PR head');
   assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
+});
+await step('D2: diagrams render as images, broken ones show their error, hostile ones stay inert', async () => {
+  const external = [];
+  page.on('request', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.locator('#files button', { hasText: 'docs/diagrams.md' }).click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
+  await page.waitForFunction(() => document.querySelectorAll('#doc figure.d2 .d2-out img').length === 2 && document.querySelector('#doc .d2-err'), null, { timeout: 60000 });
+  assert.equal(await page.locator('#doc figure.d2 svg').count(), 0, 'no inline SVG: diagrams are images');
+  assert.match(await page.locator('#doc figure.d2 img').first().getAttribute('src'), /^data:image\/svg\+xml/);
+  const err = page.locator('#doc .d2-err');
+  assert.match(await err.innerText(), /does not compile/); assert.match(await err.innerText(), /line \d/);
+  assert.equal(await page.locator('#doc figure.d2').nth(1).locator('details').evaluate((d) => d.open), true, 'source opens on error');
+  await page.waitForTimeout(600);
+  assert.deepEqual(external, [], 'the hostile icon URL must never be fetched');
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('#doc a')].filter((a) => /^javascript:/i.test(a.getAttribute('href') || '')).length), 0);
+});
+await step('the removed-lines note is per file (none on a file without such threads)', async () => {
+  assert.equal(await page.locator('#margin .note').count(), 0);
+});
+await step('D2: tall diagrams are height-capped and can be expanded', async () => {
+  const h = () => page.evaluate(() => document.querySelector('#doc figure.d2 .d2-out img').getBoundingClientRect().height);
+  const small = await h();
+  assert.ok(small <= 381, 'capped at 380px, got ' + small);
+  await page.locator('#doc figure.d2 .d2-zoom').first().click();
+  const big = await h();
+  assert.ok(big > small, `expanded ${big} should exceed ${small}`);
+  await page.locator('#doc figure.d2 .d2-zoom').first().click();
+  assert.equal(Math.round(await h()), Math.round(small));
+  assert.equal(await page.locator('#composer').isHidden(), true, 'the Expand button must not open a comment');
+});
+await step('D2: clicking a diagram comments on its whole block and quotes the source as d2', async () => {
+  await page.locator('#doc figure.d2 .d2-out').first().click();
+  await page.waitForSelector('#composer:not([hidden])');
+  { const t = await page.locator('#c-range').innerText(); assert.equal(t, 'Comments on lines 5–8', 'got: ' + JSON.stringify(t)); }
+  assert.equal(await page.locator('#c-qtext').inputValue(), '```d2\nbrowser -> server: request\nserver -> github: api call\n```');
+  assert.equal(await page.locator('#c-qinc').isChecked(), false); // GitHub already shows those lines
+  await page.keyboard.press('Escape');
+});
+await step('D2: selecting inside the opened source narrows to the selected line', async () => {
+  await page.locator('#doc figure.d2').first().locator('summary').click();
+  await drag('server -> github', 'api call');
+  { const t = await page.locator('#c-range').innerText(); assert.equal(t, 'Comments on line 7', 'got: ' + JSON.stringify(t) + ' quote=' + JSON.stringify(await page.evaluate(() => window.__rico.state.pending?.quote))); }
+  await page.keyboard.press('Escape');
+});
+await step('D2: a selection across text and a diagram quotes prose then the d2 source', async () => {
+  await shiftSelect('An intro', 'Text between'); // taller than the window: click, scroll, shift+click
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on lines 3–10');
+  const md = await page.locator('#c-qtext').inputValue();
+  assert.match(md, /^> An intro paragraph before the first diagram\.\n\n```d2\nbrowser -> server: request\nserver -> github: api call\n```\n\n> Text between/);
+  await page.keyboard.press('Escape');
+});
+await step('D2: without the optional dependency the source is shown with a clear message', async () => {
+  const p2 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await p2.route('**/vendor/d2.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
+  await p2.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fdiagrams.md`);
+  await p2.waitForSelector('#doc figure.d2 .d2-err', { timeout: 15000 });
+  assert.match(await p2.locator('#doc .d2-err').first().innerText(), /not available[\s\S]*npm install @terrastruct\/d2/);
+  assert.equal(await p2.locator('#doc figure.d2').first().locator('details').evaluate((d) => d.open), true);
+  await p2.close();
 });
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
 

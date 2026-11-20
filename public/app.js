@@ -40,13 +40,24 @@ md.renderer.rules.image = (tokens, i, o, e, self) => {
   return defaultImage(tokens, i, o, e, self);
 };
 
+// ```d2 fences render as diagrams (optional dependency, loaded on demand); the source stays one click away.
+const defaultFence = md.renderer.rules.fence;
+md.renderer.rules.fence = (tokens, i, o, e, self) => {
+  const t = tokens[i];
+  if ((t.info || '').trim().split(/\s+/)[0].toLowerCase() === 'd2') {
+    return `<figure class="d2" data-l="${t.attrGet('data-l')}" data-k="d2"><div class="d2-out" title="Click to comment on this diagram"><span class="d2-wait">Rendering diagram…</span></div>`
+      + `<details class="d2-src"><summary>D2 source</summary><pre><code>${md.utils.escapeHtml(t.content)}</code></pre></details></figure>\n`;
+  }
+  return defaultFence(tokens, i, o, e, self);
+};
+
 // Separate renderer for comment bodies (no line stamping; raw HTML stays off).
 const mdc = window.markdownit({ html: false, linkify: true, breaks: true });
 mdc.renderer.rules.link_open = md.renderer.rules.link_open;
 
 const state = {
   threads: [], // existing PR review threads
-  removed: 0, // threads on removed (LEFT-side) lines we cannot place
+  removed: [], // paths of threads on removed (LEFT-side) lines we cannot place
 
   pr: null, // {owner, repo, number, headSha, files, ...}
   file: null, // current file entry
@@ -175,6 +186,7 @@ function renderDoc(text) {
   doc.innerHTML = md.render(text);
   $('#legend').hidden = false;
   paintBlocks();
+  renderD2(); // async; diagrams fill in when the renderer is ready
 }
 
 function paintBlocks() {
@@ -205,9 +217,9 @@ function groupThreads(list) {
     groups.get(r.id).msgs.push(c);
   }
   const threads = [];
-  let removed = 0;
+  const removed = [];
   for (const { root, msgs } of groups.values()) {
-    if (root.side === 'LEFT') { removed++; continue; } // line numbers refer to the base file
+    if (root.side === 'LEFT') { removed.push(root.path); continue; } // line numbers refer to the base file
     msgs.sort((a, b) => (a.id === root.id ? -1 : b.id === root.id ? 1 : Date.parse(a.createdAt) - Date.parse(b.createdAt)));
     const end = root.line ?? root.originalLine ?? 1;
     const start = Math.min(end, root.startLine ?? root.originalStartLine ?? end);
@@ -329,8 +341,9 @@ function renderMargin() {
     margin.append(it.card);
     marginItems.push(it);
   }
-  if (state.removed) {
-    const n = el('div', 'note', `${state.removed} thread${state.removed > 1 ? 's' : ''} on removed lines not shown here.`);
+  const removedHere = state.removed.filter((p) => p === path).length; // only this file's
+  if (removedHere) {
+    const n = el('div', 'note', `${removedHere} thread${removedHere > 1 ? 's' : ''} on removed lines not shown here.`);
     n.dataset.note = '1';
     margin.append(n);
   }
@@ -365,9 +378,99 @@ function activateAt(block) {
 }
 doc.addEventListener('click', (e) => {
   if (!window.getSelection().isCollapsed) return;
+  const fig = e.target.closest && e.target.closest('.d2-out');
+  if (fig) onFigureClick(fig.closest('figure'));
   const b = e.target.closest && e.target.closest('[data-l]');
   if (b) activateAt(b.querySelector('[data-l]') ? b : b);
 });
+
+// ---------- D2 diagrams ----------
+// Rendered to an <img> (data: URL): scripts, javascript: links and external icons inside the SVG are
+// inert there, so untrusted diagram source cannot do anything beyond drawing.
+let d2Promise = null;
+const d2Cache = new Map(); // source -> {url} | {errors}
+const loadD2 = () => (d2Promise ||= import('/vendor/d2.js').then((m) => new m.D2()));
+
+function d2Errors(e) {
+  try {
+    const list = JSON.parse(e.message || String(e));
+    if (Array.isArray(list)) return list.map((x) => String(x.errmsg || x).replace(/^index:/, 'line '));
+  } catch { /* not JSON */ }
+  return [String(e.message || e)];
+}
+
+function showD2(fig, res) {
+  const out = fig.querySelector('.d2-out');
+  out.textContent = '';
+  if (res.url) {
+    const img = document.createElement('img');
+    img.alt = 'D2 diagram';
+    img.src = res.url;
+    out.append(img);
+    // diagrams are capped in height so one big graph cannot push the document off-screen
+    if (!fig.querySelector('.d2-zoom')) {
+      const zoom = document.createElement('button');
+      zoom.type = 'button';
+      zoom.className = 'linkish d2-zoom';
+      zoom.textContent = 'Expand';
+      zoom.addEventListener('click', () => {
+        const big = fig.classList.toggle('big');
+        zoom.textContent = big ? 'Shrink' : 'Expand';
+        layoutMargin();
+      });
+      const tools = document.createElement('div');
+      tools.className = 'd2-tools';
+      tools.append(zoom, fig.querySelector('details'));
+      fig.append(tools);
+    }
+    return;
+  }
+  const box = document.createElement('div');
+  box.className = 'd2-err';
+  box.append(Object.assign(document.createElement('strong'), { textContent: res.unavailable ? 'Diagram rendering is not available' : 'This diagram does not compile' }));
+  const ul = document.createElement('ul');
+  for (const m of res.errors) ul.append(Object.assign(document.createElement('li'), { textContent: m }));
+  box.append(ul);
+  out.append(box);
+  fig.querySelector('details').open = true; // show the source so the problem is visible
+}
+
+async function renderD2() {
+  const figs = [...doc.querySelectorAll('figure.d2')];
+  if (!figs.length) return;
+  let d2;
+  try { d2 = await loadD2(); } catch {
+    for (const f of figs) showD2(f, { unavailable: true, errors: ['Install the optional dependency: npm install @terrastruct/d2'] });
+    return;
+  }
+  for (const fig of figs) {
+    if (!fig.isConnected) return; // the user switched files meanwhile
+    const src = fig.querySelector('pre code').textContent;
+    let res = d2Cache.get(src);
+    if (!res) {
+      try {
+        const r = await d2.compile(src);
+        const ro = r.renderOptions || {};
+        const svg = await d2.render(r.diagram, { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
+        res = { url: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
+      } catch (e) { res = { errors: d2Errors(e) }; }
+      d2Cache.set(src, res);
+    }
+    if (fig.isConnected) showD2(fig, res);
+  }
+  layoutMargin();
+}
+
+// Clicking a diagram comments on its whole block (its source lines).
+function onFigureClick(fig) {
+  if (!state.file) return;
+  if (state.pending && $('#c-body').value.trim()) return;
+  const b = blockLines(fig);
+  const fi = fenceInfo(b);
+  const range = document.createRange();
+  range.selectNode(fig);
+  showComposer(finishSelection(b.s, b.e, [{ kind: 'code', lang: 'd2', text: state.lines.slice(fi.a - 1, fi.b).join('\n') }], range));
+}
 
 // ---------- selection -> source lines ----------
 function textSpan(range) {
@@ -432,10 +535,11 @@ function segmentsFor(range) {
       let z = fi.b;
       const span = textSpan(r);
       // inside the code text itself: only the selected lines; on a rendered diagram: all of it
-      if (span && (k !== 'd2' || span.first.node.parentElement.closest('.d2-src'))) {
+      if (span && (k !== 'd2' || span.first.node.parentElement.closest('.d2-src pre code'))) {
         const la = lineAt(span.first.node, span.first.s, 'start');
         const lz = lineAt(span.last.node, span.last.e, 'end');
         if (la != null && lz != null) { a = Math.max(fi.a, Math.min(la, lz)); z = Math.min(fi.b, Math.max(la, lz)); }
+        if (z < a) { a = fi.a; z = fi.b; }
       }
       segs.push({ kind: 'code', lang: k === 'd2' ? 'd2' : fi.lang, text: state.lines.slice(a - 1, z).join('\n') });
       continue;
@@ -453,7 +557,8 @@ function segmentsFor(range) {
 function finishSelection(start, end, segments, range) {
   const quote = plainQuote(segments);
   const anchor = clampRange(start, end, state.diff.hunks);
-  const whole = coversWholeLines(quote, state.lines.slice(start - 1, end));
+  // fence markers are not content: compare against the lines a reader would actually see
+  const whole = coversWholeLines(quote, state.lines.slice(start - 1, end).filter((l) => !/^\s*(`{3,}|~{3,})/.test(l)));
   return {
     start, end, quote, segments, quoteMd: formatQuote(segments), anchor, range: range.cloneRange(),
     includeDefault: !anchor || !anchor.exact || !whole, // a quote only helps when it adds information

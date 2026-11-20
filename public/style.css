@@ -87,6 +87,18 @@ textarea { resize: vertical; }
 .md [data-l].ctx::before { background: var(--ctx); }
 .md [data-l].out::before { background: var(--out); }
 .md [data-l].has-c { background: var(--mark); box-shadow: 0 0 0 3px var(--mark); border-radius: 2px; }
+/* D2 diagrams */
+.md figure.d2 { margin: 1em 0; }
+.d2-out { cursor: pointer; padding: 8px; border: 1px solid var(--line); border-radius: 8px; overflow: auto; text-align: center; }
+.d2-out:hover { border-color: var(--accent); }
+.d2-out img { max-width: 100%; max-height: 380px; width: auto; height: auto; }
+.md figure.d2.big .d2-out img { max-height: none; }
+.d2-tools { display: flex; gap: 12px; align-items: center; margin-top: 4px; font-size: 13px; }
+.d2-wait { color: var(--muted); font-size: 13px; }
+.d2-err { text-align: left; color: var(--err); font-size: 13px; }
+.d2-err ul { margin: 4px 0 0; padding-left: 18px; }
+.d2-src { margin-top: 4px; font-size: 13px; }
+.d2-src summary { color: var(--muted); cursor: pointer; }
 ::highlight(rico-sel) { background-color: var(--sel); }
 .md [data-l].pending { background: var(--sel); }
 

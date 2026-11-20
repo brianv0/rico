@@ -19,6 +19,15 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
 - GitHub only accepts comments on lines inside the diff, and a multi-line range must sit in one hunk.
   Rico clamps to the hunk with the most overlap, tells you when it did, and quotes the full selection in the comment.
   Selections wholly outside the diff go into the review summary with a quote.
+- **Quotes.** A comment keeps GitHub's native line range; the body can also quote the relevant parts of
+  your selection: prose as a blockquote, code (and D2) as a fenced block of the source lines with its
+  language. "Include quote" defaults on only when it adds information (a partial line, a clamped range, or
+  text outside the diff) and the quote is editable before you add the comment. Long selections keep
+  their head and tail with an ellipsis.
+- **D2 diagrams.** ` + "```d2" + ` blocks render as diagrams (WASM, `@terrastruct/d2`, an *optional* dependency loaded on
+  demand; without it the source is shown). They render as images, so scripts, `javascript:` links and
+  external icons in untrusted diagram source are inert. Click a diagram to comment on its block; open
+  "D2 source" to comment on a specific line; broken diagrams show their compile errors inline.
 - Relative images are served from the PR's head commit (images only).
 - Gutter bars: green = changed, blue = commentable context, grey = outside the diff.
 - Existing review threads show in a margin beside the text (like Google Docs), aligned with the blocks they

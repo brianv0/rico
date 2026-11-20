@@ -1,6 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +43,7 @@ test('GET /api/pr lists only non-removed markdown files, with patches', async ()
   const j = JSON.parse(r.body);
   assert.equal(j.headSha, SHA);
   assert.equal(j.title, 'Plan v2');
-  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md']);
+  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md']);
   assert.match(j.files[0].patch, /^@@ -1,7 \+1,10 @@/);
 });
 
@@ -136,4 +137,17 @@ test('GET /api/raw serves repo images byte-for-byte, and only images', async () 
   assert.equal((await get(port, q({ path: 'docs/plan.md' }))).status, 400); // not an image: refuse to be a file proxy
   assert.equal((await get(port, q({ path: '../x.png' }))).status, 400);
   assert.equal((await get(port, q({ path: 'docs/img/missing.png' }))).status, 404);
+});
+
+test('GET /vendor/d2.js serves the optional D2 bundle when it is installed', { skip: !fs.existsSync(path.join(root, 'node_modules/@terrastruct/d2/dist/browser/index.js')) && 'optional dependency not installed' }, async () => {
+  const r = await get(port, '/vendor/d2.js');
+  assert.equal(r.status, 200);
+  assert.match(r.type, /javascript/);
+  assert.ok(r.raw.length > 1_000_000, 'bundle should be several MB');
+  assert.match(r.body.slice(0, 200000), /export|D2/);
+});
+
+test('other /vendor paths are not served', async () => {
+  assert.equal((await get(port, '/vendor/../server.js')).status, 404);
+  assert.equal((await get(port, '/vendor/secret.js')).status, 404);
 });

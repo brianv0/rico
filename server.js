@@ -170,12 +170,15 @@ async function apiReply(body) {
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 
+// D2 diagram rendering (WASM) is an optional dependency, served from node_modules when installed.
+const D2_BUNDLE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules', '@terrastruct', 'd2', 'dist', 'browser', 'index.js');
+
 function serveStatic(req, res) {
   const url = new URL(req.url, 'http://x');
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';
-  const file = path.normalize(path.join(ROOT, rel));
-  if (!file.startsWith(ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+  const file = rel === '/vendor/d2.js' ? D2_BUNDLE : path.normalize(path.join(ROOT, rel));
+  if ((rel !== '/vendor/d2.js' && !file.startsWith(ROOT + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.writeHead(404).end('not found');
     return;
   }
