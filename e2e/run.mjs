@@ -24,7 +24,8 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 let failed = false;
-const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n')[0]); } };
+let nfail = 0;
+const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n')[0]); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
 
 // Drag from the start of `from` to the end of `to` with the real mouse.
 async function drag(from, to) {
@@ -38,6 +39,12 @@ async function drag(from, to) {
   await page.mouse.move((pts.x1 + pts.x2) / 2, (pts.y1 + pts.y2) / 2, { steps: 5 });
   await page.mouse.move(pts.x2, pts.y2, { steps: 5 });
   await page.mouse.up();
+  // Wait until the composer reflects *this* drag. (Focusing its textarea clears the document
+  // selection, so compare against the composer's own copy of the quote, not getSelection().)
+  await page.waitForFunction(([a, z]) => {
+    const p = window.__rico.state.pending;
+    return !!p && !document.getElementById('composer').hidden && p.quote.startsWith(a) && p.quote.endsWith(z);
+  }, [from.slice(0, 4), to.slice(-3)], { timeout: 5000 });
 }
 const composerText = () => page.locator('#c-range').innerText();
 const quote = () => page.evaluate(() => window.__rico.state.pending?.quote);
@@ -126,6 +133,12 @@ await step('drafts show in the margin too, without overlapping', async () => {
   assert.equal(await page.locator('#margin .thread.draft').count(), 3);
   assert.match(await page.locator('#margin .thread.draft').nth(0).innerText(), /Draft[\s\S]*Tighten this whole section/);
   assert.equal(await noOverlap(), true);
+});
+await step('Submit stays reachable in a short window with several drafts queued', async () => {
+  await page.setViewportSize({ width: 1400, height: 640 });
+  const r = await page.evaluate(() => { const b = document.getElementById('submit').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: innerHeight }; });
+  assert.ok(r.top >= 0 && r.bottom <= r.h, `submit at ${r.top}-${r.bottom} in a ${r.h}px window`);
+  await page.setViewportSize({ width: 1400, height: 900 });
 });
 await page.screenshot({ path: path.join(root, 'e2e', 'screenshot.png') });
 await step('review is posted with correct anchors', async () => {

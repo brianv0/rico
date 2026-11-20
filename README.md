@@ -33,6 +33,15 @@ npx playwright install chromium   # once
 npm run e2e      # headless Chromium with real mouse drags against the same fake; writes e2e/*.png
 ```
 
+### Real browser, real input (Linux)
+```bash
+bash e2e/desktop/run.sh   # needs Xvfb, xdotool, ImageMagick, google-chrome
+```
+Launches a headed Chrome on a virtual screen and drives it with OS-level mouse and keyboard events
+(xdotool), screenshotting the actual screen into `e2e/desktop/out/`. It exercises hover, drag-select,
+typing, replying and clicking Submit against the fake GitHub. This caught a bug the headless tests
+missed: the Submit button was below the fold in a normal browser window.
+
 ## Known limits
 Resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
 spanning hunks is undocumented, so Rico stays within one.

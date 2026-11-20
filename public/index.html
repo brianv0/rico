@@ -23,16 +23,18 @@
     <section id="panel">
       <h2>Your review <span id="count"></span></h2>
       <div id="list"><p class="empty">No comments yet.</p></div>
-      <label for="summary">Review summary (optional)</label>
-      <textarea id="summary" rows="3" placeholder="Overall thoughts…"></textarea>
-      <label for="event">Submit as</label>
-      <select id="event">
-        <option value="COMMENT">Comment</option>
-        <option value="APPROVE">Approve</option>
-        <option value="REQUEST_CHANGES">Request changes</option>
-      </select>
-      <button id="submit" class="primary" type="button" disabled>Submit review</button>
-      <div id="result"></div>
+      <div id="submitbox">
+        <label for="summary">Review summary (optional)</label>
+        <textarea id="summary" rows="3" placeholder="Overall thoughts…"></textarea>
+        <label for="event">Submit as</label>
+        <select id="event">
+          <option value="COMMENT">Comment</option>
+          <option value="APPROVE">Approve</option>
+          <option value="REQUEST_CHANGES">Request changes</option>
+        </select>
+        <button id="submit" class="primary" type="button" disabled>Submit review</button>
+        <div id="result"></div>
+      </div>
     </section>
   </div>
 
