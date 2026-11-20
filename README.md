@@ -24,7 +24,7 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   language. "Include quote" defaults on only when it adds information (a partial line, a clamped range, or
   text outside the diff) and the quote is editable before you add the comment. Long selections keep
   their head and tail with an ellipsis.
-- **D2 diagrams.** ` + "```d2" + ` blocks render as diagrams (WASM, `@terrastruct/d2`, an *optional* dependency loaded on
+- **D2 diagrams.** `d2` code blocks render as diagrams (WASM, `@terrastruct/d2`, an *optional* dependency loaded on
   demand; without it the source is shown). They render as images, so scripts, `javascript:` links and
   external icons in untrusted diagram source are inert. Click a diagram to comment on its block; open
   "D2 source" to comment on a specific line; broken diagrams show their compile errors inline.
