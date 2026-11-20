@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const sh = (c) => execSync(c, { env: { ...process.env, DISPLAY: ':99', LC_ALL: 'C.UTF-8', LANG: 'C.UTF-8' }, encoding: 'utf8' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = (n) => sh(`import -window root ${__dirname}/out/${n}.png`);
+const readState = () => { for (let i = 0; ; i++) { try { return JSON.parse(fs.readFileSync('/tmp/fake-state.json', 'utf8')); } catch (e) { if (i > 20) throw e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } } };
 const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'ok   ' : 'FAIL ') + name + (extra ? '  ' + extra : '')); };
 
@@ -61,7 +62,8 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   check('wide window uses the side margin layout', wide === 'absolute', wide);
 
   // 1. hover a thread with the real pointer
-  move(...(await centerOf('#margin .thread', 0))); await sleep(250);
+  const cardNamed = (t) => page.evaluate((t) => { const e = [...document.querySelectorAll('#margin .thread')].find((c) => c.innerText.includes(t)); const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }, t);
+  move(...(await cardNamed('Will trim it'))); await sleep(250);
   check('hovering a thread highlights its text', (await page.locator('#doc .hl').count()) === 2);
   shot('os-hover');
   move(5, 5);
@@ -84,9 +86,9 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   type('This spans a hunk boundary.'); sh('xdotool key ctrl+Return'); await sleep(300);
 
   // 4. reply from the margin using real clicks + keyboard
-  click(...(await centerOf('#margin .thread:not(.draft) .tacts button', 0))); await sleep(250);
+  click(...(await page.evaluate(() => { const c = [...document.querySelectorAll('#margin .thread')].find((x) => x.innerText.includes('Will trim it')); const b = c.querySelector('.tacts button').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }))); await sleep(250);
   type('Agreed - will shorten it.'); sh('xdotool key ctrl+Return'); await sleep(700);
-  const replies = JSON.parse(fs.readFileSync('/tmp/fake-state.json', 'utf8')).replies;
+  const replies = readState().replies;
   check('reply reached GitHub', replies.length === 1 && replies[0].to === 101 && replies[0].body === 'Agreed - will shorten it.', JSON.stringify(replies));
   shot('os-reply');
 
@@ -96,7 +98,7 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   click(...(await centerOf('#submit')));
   await page.waitForSelector('#result a', { timeout: 5000 });
   await sleep(500);
-  const posted = JSON.parse(fs.readFileSync('/tmp/fake-state.json', 'utf8')).posted;
+  const posted = readState().posted;
   check('review posted once', posted.length === 1);
   const c = posted[0].comments;
   check('multi-line anchor 3–6 on RIGHT', c[0].start_line === 3 && c[0].line === 6 && c[0].side === 'RIGHT' && c[0].body === '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section - it repeats itself.', JSON.stringify(c[0]));

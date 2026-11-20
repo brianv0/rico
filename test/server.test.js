@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startFake, SHA, FILE, PNG, AVATAR } from './fake-github.js';
+import { startFake, SHA, FILE, PNG, AVATAR, MERGE_BASE } from './fake-github.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let fake;
@@ -43,10 +43,10 @@ test('GET /api/pr lists only non-removed markdown files, with patches', async ()
   const j = JSON.parse(r.body);
   assert.equal(j.headSha, SHA);
   assert.equal(j.title, 'Plan v2');
-  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'docs/github.md']);
+  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'docs/github.md', 'docs/removed.md']);
   // every changed file is sent for the file tree, markdown or not (the removed one included? no: GitHub lists it, so do we)
-  assert.deepEqual(j.allFiles.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'docs/github.md', 'src/x.js', 'docs/old.md']);
-  assert.deepEqual({ d: j.draft, m: j.merged, c: j.commits, n: j.changedFiles, a: j.authorAvatar, s: j.state }, { d: false, m: false, c: 2, n: 6, a: AVATAR, s: 'open' });
+  assert.deepEqual(j.allFiles.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'docs/github.md', 'docs/removed.md', 'src/x.js', 'docs/old.md']);
+  assert.deepEqual({ d: j.draft, m: j.merged, c: j.commits, n: j.changedFiles, a: j.authorAvatar, s: j.state }, { d: false, m: false, c: 2, n: 7, a: AVATAR, s: 'open' });
   assert.match(j.files[0].patch, /^@@ -1,8 \+1,10 @@/);
 });
 
@@ -112,7 +112,7 @@ test('without any token, API calls fail with a helpful 401', async () => {
 
 test('GET /api/pr includes markdown review comments in compact form', async () => {
   const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
-  assert.deepEqual(j.comments.map((c) => c.id), [101, 102, 103, 104, 105]); // src/x.js dropped
+  assert.deepEqual(j.comments.map((c) => c.id), [101, 102, 103, 104, 105, 301, 302]); // src/x.js dropped
   assert.deepEqual(j.comments[0], {
     id: 101, replyTo: null, path: 'docs/plan.md', line: 6, originalLine: 6, startLine: 3, originalStartLine: 3,
     side: 'RIGHT', user: 'alice', body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101', avatar: AVATAR, assoc: 'MEMBER',
@@ -160,4 +160,17 @@ test('GET /vendor/mermaid.js serves the optional Mermaid bundle when it is insta
   assert.equal(r.status, 200);
   assert.match(r.type, /javascript/);
   assert.ok(r.raw.length > 1_000_000, 'bundle should be several MB');
+});
+
+test('GET /api/pr reports the merge base (what GitHub diffs against), not the base branch tip', async () => {
+  const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
+  assert.equal(j.baseSha, MERGE_BASE);
+  assert.ok(j.files.every((f) => 'previous' in f));
+});
+
+test('the base version of a file can be fetched at the merge base', async () => {
+  const q = (o) => '/api/file?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: 'docs/removed.md', ref: MERGE_BASE, ...o });
+  const ok = await get(port, q({}));
+  assert.equal(ok.status, 200);
+  assert.match(ok.body, /This paragraph was removed entirely\./);
 });

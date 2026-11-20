@@ -5,21 +5,25 @@ const assert = require('node:assert/strict');
 let failed = false;
 const step = async (n, fn) => { try { await fn(); console.log('ok   ' + n); } catch (e) { failed = true; console.log('FAIL ' + n + '\n     ' + String(e.message).split('\n')[0].slice(0, 300)); } };
 const SWEEP = () => {
-  const doc = document.getElementById('doc'), R = window.__rico, lines = R.state.lines;
+  const doc = document.getElementById('doc'), R = window.__rico;
+  const oldL = R.views.get(R.state.file.filename).oldLines || []; // removed blocks are numbered in the OLD file
+  const rm = (e) => !!e.closest('.rm');
   const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ');
   const words = (s) => norm(s).split(/\s+/).filter(Boolean);
   const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]'));
   const tn = (el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const a = []; for (let n = w.nextNode(); n; n = w.nextNode()) if (n.data.trim()) a.push(n); return a; };
   const sel = (a, b) => { const A = tn(a), B = tn(b); if (!A.length || !B.length) return null; const r = document.createRange(); r.setStart(A[0], 0); const l = B[B.length - 1]; r.setEnd(l, l.data.length); return r; };
-  const eff = (ln, dir) => { let k = ln; while (k >= 1 && k <= lines.length && !words(lines[k - 1]).length) k += dir; return k; };
+  const effIn = (lines, ln, dir) => { let k = ln; while (k >= 1 && k <= lines.length && !words(lines[k - 1]).length) k += dir; return k; };
   const bad = []; let n = 0;
   const step = leaves.length > 400 ? Math.ceil(leaves.length / 400) : 1;
   for (let i = 0; i < leaves.length; i += step) for (const j of [i, Math.min(leaves.length - 1, i + 5)]) {
+    if (i !== j && (rm(leaves[i]) || rm(leaves[j]))) continue; // a range that starts or ends on removed text is a different case
+    const lines = rm(leaves[i]) ? oldL : R.state.lines;
     const r = sel(leaves[i], leaves[j]); if (!r) continue; n++;
     const d = R.describeSelection(r); if (!d) { bad.push({ i, j, why: 'null' }); continue; }
     const w = words(r.toString());
-    if (w[0] && !words(lines[eff(d.start, 1) - 1] || '').includes(w[0])) bad.push({ i, j, d: [d.start, d.end], first: w[0], line: lines[d.start - 1] });
-    if (w.length && !words(lines[eff(d.end, -1) - 1] || '').includes(w[w.length - 1])) bad.push({ i, j, d: [d.start, d.end], last: w[w.length - 1], line: lines[d.end - 1] });
+    if (w[0] && !words(lines[effIn(lines, d.start, 1) - 1] || '').includes(w[0])) bad.push({ i, j, d: [d.start, d.end], first: w[0], line: lines[d.start - 1] });
+    if (w.length && !words(lines[effIn(lines, d.end, -1) - 1] || '').includes(w[w.length - 1])) bad.push({ i, j, d: [d.start, d.end], last: w[w.length - 1], line: lines[d.end - 1] });
   }
   return { n, bad: bad.slice(0, 5), nbad: bad.length };
 };
@@ -40,9 +44,9 @@ const SWEEP = () => {
 
   // ---------------- PR 1: multi-hunk edit with real threads ----------------
   await load(1);
-  await step('PR1: 5 threads in the margin + a note for the removed-line thread', async () => {
-    assert.ok((await page.locator('#margin .thread').count()) >= 5, 'at least the five seeded threads (real reviews add more)');
-    assert.match(await page.locator('#margin .note').innerText(), /1 thread on removed lines/);
+  await step('PR1: every thread is in the margin, the left-side one beside its removed block', async () => {
+    assert.ok((await page.locator('#margin .thread').count()) >= 6, 'the six seeded threads, left-side one included (real reviews add more)');
+    assert.equal(await page.locator('#margin .note').count(), 0, 'the left-side thread now sits beside its removed block');
   });
   await step('PR1: real author names, markdown bodies and the Claude footer render', async () => {
     const t = await page.locator('#margin').innerText();
@@ -62,7 +66,7 @@ const SWEEP = () => {
   await step('PR1: cards sit beside their text and never overlap', async () => {
     assert.equal(await noOverlap(), true);
     const [cardTop, blockTop] = await page.evaluate(() => { const c = [...document.querySelectorAll('#margin .thread')].find((e) => e.innerText.includes('concrete example')); const b = [...document.querySelectorAll('#doc li')].find((e) => e.innerText.includes('Degrade gracefully')); return [c.getBoundingClientRect().top, b.getBoundingClientRect().top]; });
-    assert.ok(Math.abs(cardTop - blockTop) < 40, `card ${cardTop} vs block ${blockTop}`);
+    assert.ok(cardTop >= blockTop - 3 && cardTop - blockTop < 700, `card ${cardTop} vs block ${blockTop}`); // never above its text; pushed down only by the cards above it
   });
   await step('PR1: diff markers match the real patch (changed vs context vs outside)', async () => {
     const c = await page.evaluate(() => ({ chg: document.querySelectorAll('#doc .chg').length, ctx: document.querySelectorAll('#doc .ctx').length, out: document.querySelectorAll('#doc .out').length }));

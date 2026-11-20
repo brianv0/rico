@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -335,4 +335,23 @@ test('buildReview: comments on removed lines are posted on the LEFT side', () =>
   assert.deepEqual(r.comments[0], { path: 'a.md', line: 4, side: 'LEFT', start_line: 2, start_side: 'LEFT', body: 'why remove this?' });
   assert.equal(r.comments[1].side, 'RIGHT');
   assert.equal('start_side' in r.comments[1], false);
+});
+
+test('patchDeletions: runs of removed lines and the new line they follow', () => {
+  const rows = parsePatchRows([
+    '@@ -1,6 +1,6 @@', ' keep', '-gone one', '-gone two', '+new', ' keep2', '-lonely', ' end',
+    '@@ -30,2 +40,1 @@', '-first in hunk', ' tail',
+  ].join('\n'));
+  assert.deepEqual(patchDeletions(rows), [
+    { oldStart: 2, oldEnd: 3, afterNew: 1 },  // replaced paragraph: red goes above the new one
+    { oldStart: 5, oldEnd: 5, afterNew: 3 },  // after "keep2"
+    { oldStart: 30, oldEnd: 30, afterNew: 39 }, // first line of a later hunk: just before its first new line
+  ]);
+  assert.deepEqual(patchDeletions(parsePatchRows('@@ -1,2 +1,2 @@\n-x\n+y\n z')), [{ oldStart: 1, oldEnd: 1, afterNew: 0 }]);
+  assert.deepEqual(patchDeletions([]), []);
+});
+
+test('oldToNewMap maps only unchanged lines', () => {
+  const rows = parsePatchRows('@@ -1,4 +1,4 @@\n a\n-b\n+c\n d\n e');
+  assert.deepEqual([...oldToNewMap(rows)], [[1, 1], [3, 3], [4, 4]]);
 });

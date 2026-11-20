@@ -101,6 +101,12 @@ async function apiPr(q) {
     files.push(...batch);
     if (batch.length < 100) break;
   }
+  // The version GitHub diffs against is the merge base, not necessarily the base branch tip.
+  let baseSha = pull.base.sha;
+  try {
+    const cmp = await ghJson(`/repos/${owner}/${repo}/compare/${pull.base.sha}...${pull.head.sha}?per_page=1`);
+    if (cmp.merge_base_commit?.sha) baseSha = cmp.merge_base_commit.sha;
+  } catch { /* fall back to the base sha */ }
   const comments = [];
   for (let page = 1; page <= 30; page++) {
     const batch = await ghJson(`${base}/comments?per_page=100&page=${page}`);
@@ -127,6 +133,7 @@ async function apiPr(q) {
     authorAvatar: pull.user?.avatar_url || null,
     author: pull.user?.login,
     headSha: pull.head.sha,
+    baseSha,
     headRef: pull.head.ref,
     baseRef: pull.base.ref,
     // every changed file, for the file tree (GitHub shows them all); only markdown gets reviewed here
@@ -138,6 +145,7 @@ async function apiPr(q) {
         status: f.status,
         additions: f.additions,
         deletions: f.deletions,
+        previous: f.previous_filename || null,
         patch: f.patch ?? null,
       })),
   };

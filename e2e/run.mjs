@@ -82,41 +82,50 @@ await page.click('#load button');
 await page.waitForSelector('#doc h1');
 
 await step('only markdown files are listed; patch-less/non-md ignored', async () => {
-  assert.equal(await page.locator('#files button').count(), 4);
+  assert.equal(await page.locator('#files button').count(), 5);
 });
 await step('blocks carry source lines and diff classes', async () => {
   const cls = await page.evaluate(() => [...document.querySelectorAll('#doc > [data-l]')].map((e) => e.tagName + ':' + e.dataset.l + ':' + e.className).join(' | '));
   assert.match(cls, /P:2-3:chg/); assert.match(cls, /P:15-16:out/);
 });
 const noOverlap = () => page.evaluate(() => { const r = [...document.querySelectorAll('#margin .thread')].map((e) => e.getBoundingClientRect()).sort((a, b) => a.top - b.top); return r.every((x, i) => i === 0 || x.top >= r[i - 1].bottom - 0.5); });
-await step('existing threads appear in the margin, aligned with their text', async () => {
+// the first <p> that is not a removed block (plan.md now shows its removed subtitle above it)
+const keptP = () => page.evaluate(() => { const p = [...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm')); const r = p.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+await step('existing threads appear in the margin, aligned with their text (left-side ones beside removed blocks)', async () => {
   const cards = page.locator('#margin .thread');
-  assert.equal(await cards.count(), 2); // other.md, LEFT-side and non-markdown comments are not shown
-  const t = await cards.nth(0).innerText();
-  assert.match(t, /alice/); assert.match(t, /bob/); assert.match(t, /Will trim it/);
-  assert.equal(await cards.nth(0).locator('strong').innerText(), 'too long');
-  assert.match(await cards.nth(1).innerText(), /carol[\s\S]*Outdated/);
-  const [cardTop, pTop] = await page.evaluate(() => [document.querySelector('#margin .thread').getBoundingClientRect().top, document.querySelector('#doc p').getBoundingClientRect().top]);
-  assert.ok(Math.abs(cardTop - pTop) < 3, `card ${cardTop} vs paragraph ${pTop}`);
+  assert.equal(await cards.count(), 3); // 101 (+ reply), 103 (outdated) and 105 (left side, now beside the removed subtitle)
+  const main = cards.filter({ hasText: 'Will trim it' });
+  const t = await main.innerText();
+  assert.match(t, /alice/); assert.match(t, /bob/);
+  assert.equal(await main.locator('strong').innerText(), 'too long');
+  assert.match(await cards.filter({ hasText: 'Outdated note' }).innerText(), /carol[\s\S]*Outdated/);
+  // the thread on line 3-6 sits level with the paragraph it is about; the left-side one with the removed block
+  const tops = await page.evaluate(() => {
+    const top = (e) => e.getBoundingClientRect().top;
+    const card = (txt) => [...document.querySelectorAll('#margin .thread')].find((c) => c.innerText.includes(txt));
+    return { main: top(card('Will trim it')), p: top([...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm'))), left: top(card('On a removed line')), rm: top(document.querySelector('#doc .rm [data-l]')) }; // the removed text itself (the red box has padding around it)
+  });
+  assert.ok(Math.abs(tops.left - tops.rm) < 3, `left thread ${tops.left} vs removed block ${tops.rm}`);
+  assert.ok(tops.main >= tops.p - 3 && tops.main - tops.p < 220, `thread ${tops.main} vs paragraph ${tops.p}`); // never above its text; pushed down only by the card above it
   assert.equal(await noOverlap(), true);
-  assert.match(await page.locator('#margin .note').innerText(), /1 thread on removed lines/);
-  assert.equal(await page.locator('#doc .has-t').count(), 3); // lines 3-6 (two paragraphs) + the list item
+  assert.equal(await page.locator('#margin .note').count(), 0, 'every thread has a place now');
+  assert.equal(await page.locator('#doc .has-t').count(), 4); // the removed subtitle + lines 3-6 (two paragraphs) + the list item
 });
 await step('hovering a thread highlights its text; clicking text activates the thread', async () => {
-  await page.locator('#margin .thread').nth(0).hover();
+  await page.locator('#margin .thread', { hasText: 'Will trim it' }).hover();
   assert.equal(await page.locator('#doc p.hl').count(), 2);
   await page.mouse.move(5, 5);
-  await page.locator('#doc p').nth(0).click({ position: { x: 20, y: 8 } });
+  await page.getByText('First paragraph here.').first().click({ position: { x: 20, y: 8 } });
   assert.equal(await page.locator('#margin .thread.active').count(), 1);
 });
 await step('replying from the margin posts to GitHub and appends to the thread', async () => {
-  const card = page.locator('#margin .thread').nth(0);
+  const card = page.locator('#margin .thread', { hasText: 'Will trim it' });
   await card.getByRole('button', { name: 'Reply' }).click();
   await card.locator('textarea').fill('Agreed, thanks.');
   await page.keyboard.press('Control+Enter');
-  await page.waitForFunction(() => document.querySelectorAll('#margin .thread')[0].querySelectorAll('.msg').length === 3);
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((c) => c.innerText.includes('Will trim it') && c.querySelectorAll('.msg').length === 3));
   assert.deepEqual(fake.replies, [{ to: 101, body: 'Agreed, thanks.' }]);
-  assert.match(await page.locator('#margin .thread').nth(0).innerText(), /me[\s\S]*Agreed, thanks\./);
+  assert.match(await page.locator('#margin .thread', { hasText: 'Will trim it' }).innerText(), /me[\s\S]*Agreed, thanks\./);
   assert.equal(await noOverlap(), true);
 });
 // ---- source diff view ----
@@ -165,13 +174,12 @@ await step('source diff: "+" comments on a line, shift-click extends inside the 
   assert.equal(await range(), 'Comments on line 13');
   await page.keyboard.press('Escape');
   await num('LEFT', 2).click(); // the removed line
-  assert.equal(await range(), 'Comments on line 2 — removed line');
+  assert.equal(await range(), 'Comments on removed line 2');
   await page.fill('#c-body', 'Why was this subtitle removed?');
   await page.keyboard.press('Control+Enter');
   const last = await page.evaluate(() => window.__rico.state.comments.at(-1));
   assert.deepEqual({ side: last.side, start: last.start, end: last.end, exact: last.anchor.exact, inc: last.includeQuote }, { side: 'LEFT', start: 2, end: 2, exact: true, inc: false });
   assert.match(await c.locator('tr.d-del[data-old="2"]').locator('xpath=following-sibling::tr[1]').innerText(), /Pending[\s\S]*Why was this subtitle removed/);
-  assert.equal(await card('docs/plan.md').locator('.rico-margin .thread.draft').count(), 0, 'a left-side draft has no place in the rendered view');
   await c.locator('.thread-row .thread.draft').getByRole('button', { name: 'Delete' }).click(); // leave no trace
   assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
 });
@@ -180,7 +188,7 @@ await step('source diff: switching back to Rendered restores the document and it
   await c.getByRole('button', { name: 'Rendered' }).click();
   assert.equal(await c.locator('.rico-doc').isVisible(), true);
   assert.equal(await c.locator('.rico-src').isHidden(), true);
-  assert.equal(await c.locator('.rico-margin .thread').count(), 2);
+  assert.equal(await c.locator('.rico-margin .thread').count(), 3);
 });
 
 await step('selection inside one hard-wrapped paragraph narrows to a single line', async () => {
@@ -214,7 +222,7 @@ await step('quote option: code selections quote their source lines as a fenced b
 await step('composer floats over the selection immediately', async () => {
   await drag('First', 'First paragraph here.');
   assert.equal(await page.locator('#composer').isVisible(), true);
-  const [c, s] = await page.evaluate(() => [document.getElementById('composer').getBoundingClientRect().top, document.querySelector('#doc p').getBoundingClientRect().bottom]);
+  const [c, s] = await page.evaluate(() => [document.getElementById('composer').getBoundingClientRect().top, [...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm')).getBoundingClientRect().bottom]);
   assert.ok(c >= s - 2 && c - s < 40, `composer at ${c}, paragraph bottom ${s}`);
   assert.equal(await page.evaluate(() => document.activeElement.id), 'c-body');
   await page.fill('#c-body', 'This reads awkwardly.');
@@ -459,6 +467,131 @@ await step('diagrams: without the optional dependencies the source is shown with
   assert.match(t[3], /not available[\s\S]*npm install mermaid/);
   assert.equal(await p2.locator('#doc figure.dia').first().locator('details').evaluate((d) => d.open), true);
   await p2.close();
+});
+
+// ---- removed sections (GitHub's rich diff draws deleted blocks in red) ----
+const rangeNow = () => page.locator('#c-range').innerText();
+await step('removed sections: deleted paragraph, list item, table row, old wording and old code appear in red where they were', async () => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.locator('#files button[data-path="docs/removed.md"]').click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/removed.md' && document.querySelector('#doc h1'));
+  const order = await page.evaluate(() => [...document.querySelectorAll('#doc [data-l]')].filter((e) => !e.querySelector('[data-l]'))
+    .map((e) => (e.closest('.rm') ? '−' : '') + e.textContent.trim().replace(/\s+/g, ' ')));
+  assert.deepEqual(order, [
+    'Release notes', 'Intro paragraph that stays.',
+    '−This paragraph was removed entirely.', 'keep one', '−removed item', 'keep two', 'added item', // the paragraph before the list, the item inside it
+    'Name Value', 'a 1', '−b 2', 'c 3', // the row inside the table, right above its replacement
+    '−Old wording of the closing paragraph.', 'New wording of the closing paragraph.',
+    '−old();', 'fresh();',
+  ]);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#doc .rm')].map((e) => e.tagName)), ['DIV', 'LI', 'TR', 'DIV', 'DIV']);
+  assert.equal(await page.locator('#legend').innerText().then((t) => /removed/.test(t)), true);
+});
+await step('removed sections: red background, normal text colour, and no phantom table column', async () => {
+  const r = await page.evaluate(() => {
+    const css = (e, k) => getComputedStyle(e)[k];
+    const rm = document.querySelector('#doc .rm p, #doc .rm [data-l]'); const kept = [...document.querySelectorAll('#doc p')].find((p) => !p.closest('.rm'));
+    const table = document.querySelector('#doc table'); const row = table.rows[1]; const cell = row.cells[0];
+    return { bg: css(document.querySelector('#doc .rm'), 'backgroundColor'), color: css(rm, 'color'), keptColor: css(kept, 'color'), gap: Math.round(cell.getBoundingClientRect().left - row.getBoundingClientRect().left), cols: [...table.rows].map((x) => x.cells.length) };
+  });
+  assert.notEqual(r.bg, 'rgba(0, 0, 0, 0)');
+  assert.equal(r.color, r.keptColor, 'removed text keeps the normal text colour; only the background is red');
+  assert.ok(r.gap < 6, 'a table row must start at the table edge, not after an empty column: ' + r.gap);
+  assert.deepEqual(r.cols, [2, 2, 2, 2]);
+});
+await step('removed sections: left-side thread sits beside the removed block, the other beside its kept text', async () => {
+  assert.equal(await page.locator('#margin .thread').count(), 2);
+  assert.equal(await page.locator('#margin .note').count(), 0);
+  const y = await page.evaluate(() => {
+    const top = (e) => e.getBoundingClientRect().top;
+    const card = (t) => [...document.querySelectorAll('#margin .thread')].find((c) => c.innerText.includes(t));
+    const li = [...document.querySelectorAll('#doc li')].find((l) => l.textContent.trim() === 'keep one');
+    return { left: top(card('Why drop this paragraph')), rm: top(document.querySelector('#doc .rm [data-l]')), right: top(card('be bold')), li: top(li) };
+  });
+  assert.ok(Math.abs(y.left - y.rm) < 3, `left thread ${y.left} vs removed paragraph ${y.rm}`);
+  assert.ok(y.right >= y.li - 3, `thread on "keep one" ${y.right} vs the item ${y.li}`);
+  assert.equal(await page.locator('#doc .gone.has-t').count(), 1);
+});
+await step('removed sections: selecting removed text comments on the OLD lines (LEFT side)', async () => {
+  await drag('This paragraph', 'removed entirely');
+  assert.equal(await rangeNow(), 'Comments on removed line 5');
+  const sel = await page.evaluate(() => { const p = window.__rico.state.pending; return { side: p.side, start: p.start, end: p.end, exact: p.anchor?.exact }; });
+  assert.deepEqual(sel, { side: 'LEFT', start: 5, end: 5, exact: true });
+  assert.equal(await page.locator('#c-qinc').isChecked(), false); // GitHub already shows that line
+  await page.fill('#c-body', 'Was dropping this intentional?');
+  await page.keyboard.press('Control+Enter');
+  const c = await page.evaluate(() => window.__rico.state.comments.at(-1));
+  assert.deepEqual({ side: c.side, start: c.start, end: c.end }, { side: 'LEFT', start: 5, end: 5 });
+  assert.match(await page.locator('#margin .thread.draft').innerText(), /Pending[\s\S]*Was dropping this intentional/);
+  const near = await page.evaluate(() => Math.abs(document.querySelector('#margin .thread.draft').getBoundingClientRect().top - document.querySelector('#doc .rm [data-l]').getBoundingClientRect().top));
+  assert.ok(near < 160, 'the draft sits beside the removed paragraph (it may sit under the thread already there)');
+  assert.match(await page.locator('#list .card').first().innerText(), /removed\)/);
+  await page.locator('#margin .thread.draft').getByRole('button', { name: 'Delete' }).click();
+  assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
+});
+await step('removed sections: a selection across kept and removed text anchors to the kept lines and quotes the removal as a diff', async () => {
+  await drag('Intro paragraph', 'keep one');
+  assert.equal(await rangeNow(), 'Comments on lines 3–5 — includes removed text (quoted)');
+  assert.equal(await page.locator('#c-qinc').isChecked(), true);
+  assert.equal(await page.locator('#c-qtext').inputValue(), '> Intro paragraph that stays.\n\n```diff\n- This paragraph was removed entirely.\n```\n\n> keep one');
+  await page.fill('#c-body', 'The removed paragraph should stay.');
+  await page.keyboard.press('Control+Enter');
+  const c = await page.evaluate(() => window.__rico.state.comments.at(-1));
+  assert.deepEqual({ side: c.side, start: c.start, end: c.end, exact: c.anchor.exact, inc: c.includeQuote }, { side: 'RIGHT', start: 3, end: 5, exact: true, inc: true });
+  await page.locator('#margin .thread.draft').getByRole('button', { name: 'Delete' }).click();
+});
+await step('removed sections: removed list items and table rows are commentable on their old lines', async () => {
+  const r = await page.evaluate(() => {
+    const R = window.__rico;
+    const of = (sel) => { const rg = document.createRange(); rg.selectNodeContents(document.querySelector(sel)); const d = R.describeSelection(rg); return d && { side: d.side, start: d.start, end: d.end }; };
+    return { li: of('#doc li.rm'), tr: of('#doc tr.rm'), code: of('#doc .rm pre code') };
+  });
+  assert.deepEqual(r.li, { side: 'LEFT', start: 8, end: 8 });
+  assert.deepEqual(r.tr, { side: 'LEFT', start: 14, end: 14 });
+  assert.equal(r.code.side, 'LEFT'); assert.equal(r.code.start, 19); // the removed line inside the old fence
+});
+await step('removed sections: line mapping is exact for every block; removed blocks map onto the OLD file', async () => {
+  const res = await page.evaluate(() => {
+    const R = window.__rico; const view = R.views.get('docs/removed.md');
+    const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ');
+    const words = (t) => norm(t).split(/\s+/).filter(Boolean);
+    const leaves = [...document.querySelectorAll('#doc [data-l]')].filter((e) => !e.querySelector('[data-l]'));
+    const bad = []; let n = 0;
+    leaves.forEach((leaf, i) => {
+      const rg = document.createRange(); rg.selectNodeContents(leaf);
+      const d = R.describeSelection(rg); n++;
+      const removed = !!leaf.closest('.rm');
+      const lines = removed ? view.oldLines : R.state.lines;
+      if (!d) return bad.push({ i, why: 'null', text: leaf.textContent.slice(0, 30) });
+      if (d.side !== (removed ? 'LEFT' : 'RIGHT')) bad.push({ i, why: 'side ' + d.side });
+      const w = words(rg.toString());
+      const has = (ln, word) => { let k = ln; while (k >= 1 && !words(lines[k - 1] || '').length) k++; return words(lines[k - 1] || '').includes(word); };
+      if (w[0] && !has(d.start, w[0])) bad.push({ i, first: w[0], start: d.start, line: lines[d.start - 1] });
+    });
+    return { n, bad };
+  });
+  assert.ok(res.n >= 14, 'only ' + res.n + ' blocks');
+  assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
+});
+await step('a click made while the initial load is still running is not undone when that load finishes', async () => {
+  const p3 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await p3.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fplan.md`);
+  // complex.md is quick; removed.md is held up fetching its old version. Click the quick one while the slow one is pending.
+  await p3.waitForFunction(() => window.__rico?.views.get('docs/complex.md')?.loaded && !window.__rico.views.get('docs/removed.md')?.loaded, null, { timeout: 15000 });
+  await p3.locator('#files button[data-path="docs/complex.md"]').click();
+  assert.equal(await p3.evaluate(() => window.__rico.state.file.filename), 'docs/complex.md');
+  await p3.waitForFunction(() => [...window.__rico.views.values()].every((v) => v.loaded), null, { timeout: 15000 }); // the slow load finishes
+  await p3.waitForTimeout(500);
+  assert.equal(await p3.evaluate(() => window.__rico.state.file.filename), 'docs/complex.md', 'the file the user chose stays active');
+  assert.equal(await p3.evaluate(() => document.querySelectorAll('[id="doc"]').length), 1, 'exactly one active document');
+  await p3.close();
+});
+await step('removed sections: Source diff and Rendered show the same threads', async () => {
+  const c = card('docs/removed.md');
+  await c.getByRole('button', { name: 'Source diff' }).click();
+  assert.match(await c.locator('tr.d-del[data-old="5"]').locator('xpath=following-sibling::tr[1]').innerText(), /Why drop this paragraph/);
+  await c.getByRole('button', { name: 'Rendered' }).click();
+  assert.equal(await c.locator('.rico-margin .thread').count(), 2);
 });
 
 await step('GitHub markdown: task lists, alerts, tables, anchors, details, relative links, sanitized HTML', async () => {

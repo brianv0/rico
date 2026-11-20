@@ -27,6 +27,14 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   and dark. It also does what GitHub's renderer does: task lists, `> [!NOTE]` alerts, heading permalinks, aligned
   tables, `<details>` and other raw HTML (sanitized with DOMPurify), relative links to the file on GitHub at the
   PR's head commit, relative images served from it.
+- **Removed sections, like GitHub's rich diff.** Deleted paragraphs, list items, table rows and code blocks are drawn in
+  red, in place, from the PR's *merge-base* version (what GitHub actually diffs against), above their green replacements.
+  Comments work across the diff:
+  - select inside removed text: a **left-side** comment on the *old* file's lines;
+  - select kept or added text: a normal new-side comment;
+  - select across both: anchored to the new lines you covered (GitHub allows one side per comment), with the removed
+    text quoted as a fenced `diff` block so nothing is lost;
+  - existing left-side threads and your drafts sit beside the removed block they are about.
 - **Source diff view:** the unified diff with old and new line numbers, Primer's diff colours, hunk headers,
   existing threads inline under their lines (left-side ones under the removed line, outdated ones grouped), a hover
   **+** to comment on a line and shift-click to extend a range within the hunk. Comments on removed lines are posted on
@@ -98,8 +106,9 @@ RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review 
 ```
 
 ## Known limits
-- The rendered view shows the *new* document only. GitHub's rich diff also draws removed paragraphs in red; here
-  removed lines are visible in the Source diff view.
+- Removed blocks are whole blocks: a paragraph with one changed line shows the full old paragraph in red above the new
+  one (no word-level highlighting). A removed list item or table row is placed back in its list or table; everything
+  else becomes a standalone block. If the old file can't be fetched, removals are still visible in the Source diff.
 - Resolved/unresolved thread state isn't shown (the REST API doesn't expose it; it would need GraphQL).
 - GitHub doesn't document whether a multi-line comment may span hunks, so Rico stays within one (and says so).
 - The Conversation, Commits and Checks tabs open on GitHub; Rico only reviews files.

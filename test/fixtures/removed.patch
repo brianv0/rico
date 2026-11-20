@@ -1,0 +1,24 @@
+@@ -2,19 +2,17 @@
+ 
+ Intro paragraph that stays.
+ 
+-This paragraph was removed entirely.
+-
+ - keep one
+-- removed item
+ - keep two
++- added item
+ 
+ | Name | Value |
+ |------|-------|
+ | a    | 1     |
+-| b    | 2     |
++| c    | 3     |
+ 
+-Old wording of the closing paragraph.
++New wording of the closing paragraph.
+ 
+ ```js
+-old();
++fresh();
+ ```

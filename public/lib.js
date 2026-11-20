@@ -409,7 +409,7 @@ export function parsePatchRows(patch) {
   let n = 0;
   for (const raw of String(patch).split('\n')) {
     const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
-    if (m) { o = Number(m[1]); n = Number(m[2]); rows.push({ type: 'hunk', text: raw }); continue; }
+    if (m) { o = Number(m[1]); n = Number(m[2]); rows.push({ type: 'hunk', text: raw, oldStart: o, newStart: n }); continue; }
     if (!rows.length) continue;
     const c = raw[0];
     if (c === '+') rows.push({ type: 'add', old: null, new: n++, text: raw.slice(1) });
@@ -435,4 +435,34 @@ export function patchHunkRanges(rows) {
     if (r.new != null) cur.right = cur.right ? { start: cur.right.start, end: r.new } : { start: r.new, end: r.new };
   }
   return out;
+}
+
+/**
+ * Where did the removed lines sit? Runs of consecutive removed lines, each with the new-file line
+ * they follow (0 = before the first line), so a removed block can be drawn where it used to be.
+ *   -> [{oldStart, oldEnd, afterNew}]
+ */
+export function patchDeletions(rows) {
+  const out = [];
+  let lastNew = 0;
+  let run = null;
+  for (const r of rows) {
+    if (r.type === 'hunk') { lastNew = Math.max(0, (r.newStart || 1) - 1); run = null; continue; }
+    if (r.type === 'del') {
+      if (run) run.oldEnd = r.old;
+      else { run = { oldStart: r.old, oldEnd: r.old, afterNew: lastNew }; out.push(run); }
+      continue;
+    }
+    if (r.type === 'meta') continue;
+    run = null;
+    lastNew = r.new;
+  }
+  return out;
+}
+
+/** Old line number -> new line number for the unchanged (context) lines of a patch. */
+export function oldToNewMap(rows) {
+  const m = new Map();
+  for (const r of rows) if (r.type === 'ctx') m.set(r.old, r.new);
+  return m;
 }

@@ -12,5 +12,6 @@ const rico = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'inherit
 const stop = () => { rico.kill(); process.exit(0); };
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, stop);
 process.on('exit', () => rico.kill());
-setInterval(() => fs.writeFileSync('/tmp/fake-state.json', JSON.stringify({ posted: fake.posted, replies: fake.replies })), 150);
+// write atomically (temp file + rename) so a reader never sees a half-written file
+setInterval(() => { fs.writeFileSync('/tmp/fake-state.json.tmp', JSON.stringify({ posted: fake.posted, replies: fake.replies })); fs.renameSync('/tmp/fake-state.json.tmp', '/tmp/fake-state.json'); }, 150);
 console.log('backend up');

@@ -125,7 +125,7 @@ textarea { resize: vertical; padding: 8px 12px; }
 #main { position: relative; flex: 1; min-width: 0; padding-bottom: 120px; }
 #legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; font-size: 12px; color: var(--fg-muted); }
 #legend .k { display: inline-block; width: 3px; height: 12px; margin-right: 6px; vertical-align: -2px; border-radius: 2px; }
-.k.chg { background: var(--chg); } .k.ctx { background: var(--ctx); } .k.out { background: var(--out); }
+.k.del { background: var(--danger); } .k.chg { background: var(--chg); } .k.ctx { background: var(--ctx); } .k.out { background: var(--out); }
 
 /* file cards */
 .file-card { margin: 0 0 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; scroll-margin-top: calc(var(--toolbar-h) + 52px); }
@@ -166,6 +166,21 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body [data-l].has-t { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 2px; }
 .markdown-body [data-l].hl { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 ::highlight(rico-sel) { background-color: var(--sel); }
+
+/* removed blocks, drawn from the old version like GitHub's rich diff */
+.markdown-body .rm { margin: 8px 0; padding: 4px 12px; background: var(--diff-del-bg); border-left: 3px solid var(--danger); border-radius: 6px; }
+.markdown-body .rm > :first-child { margin-top: 0; } .markdown-body .rm > :last-child { margin-bottom: 0; }
+.markdown-body li.rm { margin: 2px 0; padding: 0 8px; }
+.markdown-body tr.rm td, .markdown-body tr.rm th { background: var(--diff-del-bg); }
+/* A ::before on a table row is wrapped in an anonymous empty cell (a phantom first column), so rows
+   carry their change bar as an inset shadow on the first cell instead. */
+.markdown-body tr[data-l]::before { content: none !important; }
+.markdown-body tr[data-l].chg > :first-child { box-shadow: inset 3px 0 0 var(--chg); }
+.markdown-body tr[data-l].ctx > :first-child { box-shadow: inset 3px 0 0 var(--ctx); }
+.markdown-body tr[data-l].out > :first-child { box-shadow: inset 3px 0 0 var(--out); }
+.markdown-body tr.rm > :first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.markdown-body .rm [data-l]::before { display: none; }
+.markdown-body [data-l].gone.has-t, .markdown-body [data-l].gone.has-c { box-shadow: 0 0 0 3px var(--mark); }
 
 /* GitHub-flavoured markdown details */
 .markdown-alert-title .octicon { margin-right: 8px; }

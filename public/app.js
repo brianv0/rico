@@ -4,7 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
-import { patchHunkRanges } from './lib.js';
+import { patchHunkRanges, patchDeletions, oldToNewMap } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
 // The page shows every changed markdown file as a card (like GitHub). All the selection / anchoring /
@@ -247,8 +247,8 @@ async function loadPr(ref, wantFile) {
     use(views.get(first.filename)); // active before anything renders
     const eager = [first, ...pr.files.filter((f) => f !== first)].slice(0, EAGER);
     await Promise.all(eager.map((f) => loadView(views.get(f.filename)).catch((e) => status(e.message, true))));
-    use(views.get(first.filename));
-    if (wantFile) scrollToCard(first.filename);
+    // Do NOT force the first file active again here: the user may have opened another file while these loads ran.
+    if (wantFile && cur === views.get(first.filename)) scrollToCard(first.filename);
     renderFiles();
   } catch (e) {
     status(e.message, true);
@@ -461,6 +461,15 @@ async function loadView(v) {
       v.lines = text.split(/\r?\n/);
       v.diff = parsePatch(v.file.patch);
       v.rows = parsePatchRows(v.file.patch);
+      v.oldText = null;
+      v.oldLines = null;
+      if (state.pr.baseSha && v.rows.some((r) => r.type === 'del')) { // removed blocks are drawn from the old version
+        try {
+          const q2 = new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, path: v.file.previous || v.file.filename, ref: state.pr.baseSha });
+          v.oldText = await api('/api/file?' + q2);
+          v.oldLines = v.oldText.split(/\r?\n/);
+        } catch { /* a bonus: without the old file the Source diff still shows removals */ }
+      }
       v.doc.textContent = '';
       v.loaded = true;
       withView(v, () => renderDoc(text));
@@ -607,7 +616,7 @@ function onLineClick(v, cell, shift) {
   showComposer({
     start, end, side, quote: text, segments, quoteMd: formatQuote(segments), anchor: { start, end, exact: true },
     includeDefault: false, // GitHub already shows these lines
-    range, rows, view: v, about: side === 'LEFT' ? 'removed line' + (start === end ? '' : 's') : '',
+    range, rows, view: v, about: '',
     rect: { left: rect.left, right: last.right, top: rect.top, bottom: last.bottom, width: last.right - rect.left, height: last.bottom - rect.top },
   });
 }
@@ -615,15 +624,69 @@ function onLineClick(v, cell, shift) {
 
 
 // ---------- rendering the document ----------
+// Removed blocks (GitHub's red blocks) are drawn from the OLD file, so their data-l is in old line numbers.
+const isRemoved = (el) => !!(el && el.closest && el.closest('.rm'));
+const linesOf = (el) => (isRemoved(el) ? (cur && cur.oldLines) || [] : state.lines);
 const blockLines = (el) => {
   const [a, b] = el.dataset.l.split('-').map(Number);
-  return trimBlock(state.lines, a, b);
+  return trimBlock(linesOf(el), a, b);
 };
 const overlaps = (b, s, e) => b.s <= e && b.e >= s;
+const leafBlocks = (root) => [...root.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]'));
+
+// Put the blocks that were removed back where they were, in red, like GitHub's rich diff.
+function renderRemoved(v) {
+  if (!v.oldText) return;
+  const runs = patchDeletions(v.rows);
+  if (!runs.length) return;
+  const old = el('div');
+  old.innerHTML = safeHtml(md.render(v.oldText));
+  const oldLeaves = leafBlocks(old).map((e) => { const [a, z] = e.dataset.l.split('-').map(Number); return { e, b: trimBlock(v.oldLines, a, z) }; });
+  const newLeaves = leafBlocks(v.doc).map((e) => ({ e, b: blockLines(e) }));
+  const used = new Set();
+  for (const run of runs) {
+    const mine = oldLeaves.filter((l) => !used.has(l.e) && overlaps(l.b, run.oldStart, run.oldEnd));
+    mine.forEach((l) => used.add(l.e));
+    const ti = newLeaves.findIndex((l) => l.b.e >= run.afterNew + 1); // the first block that comes after the removal
+    const target = ti >= 0 ? newLeaves[ti] : null;
+    const prev = ti > 0 ? newLeaves[ti - 1] : ti < 0 ? newLeaves[newLeaves.length - 1] || null : null;
+    for (const l of mine) placeRemoved(v, old, l.e, target, prev, run.afterNew);
+  }
+}
+
+function placeRemoved(v, oldRoot, L, target, prev, afterNew) {
+  const isDia = L.matches('figure.dia');
+  let clone;
+  if (isDia) { // a removed diagram is shown as its source
+    const pre = el('pre');
+    const code = el('code');
+    code.dataset.l = L.dataset.l;
+    code.dataset.k = 'fence';
+    code.textContent = L.querySelector('pre code').textContent;
+    pre.append(code);
+    clone = pre;
+  } else clone = L.cloneNode(true);
+  const kind = L.tagName;
+  if (!isDia && (kind === 'LI' || kind === 'TR')) { // an item or a row goes back inside its list or table
+    clone.classList.add('rm');
+    clone.title = 'Removed in this PR';
+    if (target && target.e.tagName === kind && target.e.parentNode) { target.e.parentNode.insertBefore(clone, target.e); return; }
+    if (prev && prev.e.tagName === kind && prev.b.e === afterNew && prev.e.parentNode) { prev.e.parentNode.insertBefore(clone, prev.e.nextSibling); return; }
+  }
+  let inner = clone; // otherwise a standalone block, wrapped in clones of its old ancestors (list, table, blockquote…)
+  if (!isDia) for (let a = L.parentElement; a && a !== oldRoot; a = a.parentElement) { const c = a.cloneNode(false); c.append(inner); inner = c; }
+  const wrap = el('div', 'rm');
+  wrap.title = 'Removed in this PR';
+  wrap.append(inner);
+  let top = target && target.e;
+  while (top && top.parentNode !== v.doc) top = top.parentNode;
+  v.doc.insertBefore(wrap, top || null);
+}
 
 function renderDoc(text) {
   doc.innerHTML = safeHtml(md.render(text));
   $('#legend').hidden = false;
+  renderRemoved(cur);
   paintBlocks();
   renderDiagrams(cur); // async; diagrams fill in when their renderer is ready
 }
@@ -631,9 +694,15 @@ function renderDoc(text) {
 function paintBlocks() {
   const wholeFileAdded = state.file.status === 'added';
   for (const el of doc.querySelectorAll('[data-l]')) {
-    el.classList.remove('chg', 'ctx', 'out', 'has-c', 'has-t', 'hl', 'pending');
+    el.classList.remove('chg', 'ctx', 'out', 'gone', 'has-c', 'has-t', 'hl', 'pending');
     if (el.querySelector('[data-l]')) continue; // only leaf blocks get markers
     const b = blockLines(el);
+    if (isRemoved(el)) { // old-numbered: only left-side comments and threads concern it
+      el.classList.add('gone');
+      if (state.comments.some((c) => c.path === state.file.filename && c.side === 'LEFT' && overlaps(b, c.start, c.end))) el.classList.add('has-c');
+      if (state.leftThreads.some((t) => t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-t');
+      continue;
+    }
     let changed = false;
     for (let l = b.s; l <= b.e && !changed; l++) changed = state.diff.added.has(l);
     if (changed && !wholeFileAdded) el.classList.add('chg');
@@ -781,16 +850,31 @@ function renderMargin() {
   marginItems = cur.marginItems = [];
   if (!state.file) return;
   const path = state.file.filename;
-  const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]')).map((e) => ({ e, b: blockLines(e) }));
+  const all = leafBlocks(doc).map((e) => ({ e, b: blockLines(e), rm: isRemoved(e) }));
+  const newLeaves = all.filter((l) => !l.rm);
+  const oldLeaves = all.filter((l) => l.rm);
+  const oldToNew = oldToNewMap(cur.rows);
   const raw = [
-    ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id })),
-    ...state.comments.filter((c) => c.path === path && c.side !== 'LEFT').map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id })),
+    ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'RIGHT' })),
+    ...state.leftThreads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'LEFT' })),
+    ...state.comments.filter((c) => c.path === path).map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id, side: c.side === 'LEFT' ? 'LEFT' : 'RIGHT' })),
   ];
+  let unplaced = 0;
   for (const it of raw) {
-    let blocks = leaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e);
-    if (!blocks.length && leaves.length) { // outdated lines that no longer exist: nearest block
-      const dist = (l) => (l.b.e < it.start ? it.start - l.b.e : l.b.s - it.end);
-      blocks = [leaves.reduce((a, b) => (dist(b) < dist(a) ? b : a)).e];
+    let blocks;
+    if (it.side === 'LEFT') {
+      blocks = oldLeaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e); // beside the removed block it is about
+      if (!blocks.length) { // a comment on an unchanged old line: its new-file counterpart
+        const n = oldToNew.get(it.end);
+        if (n) blocks = newLeaves.filter((l) => overlaps(l.b, n, n)).map((l) => l.e);
+      }
+      if (!blocks.length) { unplaced++; continue; }
+    } else {
+      blocks = newLeaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e);
+      if (!blocks.length && newLeaves.length) { // outdated lines that no longer exist: nearest block
+        const dist = (l) => (l.b.e < it.start ? it.start - l.b.e : l.b.s - it.end);
+        blocks = [newLeaves.reduce((a, b) => (dist(b) < dist(a) ? b : a)).e];
+      }
     }
     it.blocks = blocks;
     it.card.addEventListener('mouseenter', () => it.blocks.forEach((b) => b.classList.add('hl')));
@@ -798,9 +882,8 @@ function renderMargin() {
     margin.append(it.card);
     marginItems.push(it);
   }
-  const removedHere = state.removed.filter((p) => p === path).length; // only this file's
-  if (removedHere) {
-    const n = el('div', 'note', `${removedHere} thread${removedHere > 1 ? 's' : ''} on removed lines not shown here (see Source diff).`);
+  if (unplaced) { // the old file was unavailable, or the line is not part of what is shown
+    const n = el('div', 'note', `${unplaced} thread${unplaced > 1 ? 's' : ''} on removed lines not shown here (see Source diff).`);
     n.dataset.note = '1';
     margin.append(n);
   }
@@ -984,34 +1067,37 @@ function onDiagramClick(fig, hit, frame) {
 }
 
 // ---------- selection -> source lines ----------
-function textSpan(range) {
+// Every non-blank piece of text the range covers, in order.
+function spanNodes(range) {
   const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
-  let first = null;
-  let last = null;
+  const out = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     if (!range.intersectsNode(n)) continue;
     let s = n === range.startContainer ? range.startOffset : 0;
     let e = n === range.endContainer ? range.endOffset : n.data.length;
     while (s < e && /\s/.test(n.data[s])) s++;
     while (e > s && /\s/.test(n.data[e - 1])) e--;
-    if (e <= s) continue;
-    if (!first) first = { node: n, s, e };
-    last = { node: n, s, e };
+    if (e > s) out.push({ node: n, s, e });
   }
-  return first ? { first, last } : null;
+  return out;
+}
+function textSpan(range) {
+  const all = spanNodes(range);
+  return all.length ? { first: all[0], last: all[all.length - 1] } : null;
 }
 
 function lineAt(node, offset, which) {
   const block = node.parentElement && node.parentElement.closest('[data-l]');
   if (!block || !doc.contains(block)) return null;
   const bounds = blockLines(block);
+  const lines = linesOf(block); // removed blocks are numbered in the old file
   if (block.dataset.k === 'diagram' && !node.parentElement.closest('.dia-src pre code')) return which === 'start' ? bounds.s : bounds.e;
   const codeEl = block.dataset.k === 'diagram' ? block.querySelector('.dia-src pre code') : block;
   const r = document.createRange();
   r.setStart(codeEl, 0);
   r.setEnd(node, offset);
   const before = r.toString();
-  return locateLine(state.lines, bounds, {
+  return locateLine(lines, bounds, {
     which,
     fence: block.dataset.k === 'fence' || block.dataset.k === 'diagram',
     renderedTotal: wordCount(block.textContent),
@@ -1022,16 +1108,16 @@ function lineAt(node, offset, which) {
 }
 
 // Fenced code: language and the source lines between the fences.
-function fenceInfo(b) {
-  const open = state.lines[b.s - 1] || '';
+function fenceInfo(b, lines = state.lines) {
+  const open = lines[b.s - 1] || '';
   const m = /^\s*(`{3,}|~{3,})\s*([^\s`]*)/.exec(open);
-  const closed = b.e > b.s && /^\s*(`{3,}|~{3,})\s*$/.test(state.lines[b.e - 1] || '');
+  const closed = b.e > b.s && /^\s*(`{3,}|~{3,})\s*$/.test(lines[b.e - 1] || '');
   return m ? { lang: m[2], a: b.s + 1, b: closed ? b.e - 1 : b.e } : { lang: '', a: b.s, b: b.e };
 }
 
 // The relevant parts of a selection, one segment per block it touches, in order.
 // Prose is the selected text; code (fences, indented code, D2) is the source lines themselves.
-function segmentsFor(range) {
+function segmentsFor(range, opts = {}) {
   const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]') && range.intersectsNode(e));
   const segs = [];
   for (const el of leaves) {
@@ -1040,8 +1126,14 @@ function segmentsFor(range) {
     if (range.compareBoundaryPoints(Range.START_TO_START, r) > 0) r.setStart(range.startContainer, range.startOffset);
     if (range.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(range.endContainer, range.endOffset);
     const k = el.dataset.k;
+    const lines = linesOf(el);
+    if (opts.mixed && isRemoved(el)) { // the selection spans removed and kept text: show what was removed as a diff
+      const b = blockLines(el);
+      segs.push({ kind: 'code', lang: 'diff', text: lines.slice(b.s - 1, b.e).map((l) => `- ${l}`).join('\n') });
+      continue;
+    }
     if (k === 'fence' || k === 'diagram' || el.tagName === 'PRE') {
-      const fi = fenceInfo(blockLines(el));
+      const fi = fenceInfo(blockLines(el), lines);
       let a = fi.a;
       let z = fi.b;
       const span = textSpan(r);
@@ -1052,7 +1144,7 @@ function segmentsFor(range) {
         if (la != null && lz != null) { a = Math.max(fi.a, Math.min(la, lz)); z = Math.min(fi.b, Math.max(la, lz)); }
         if (z < a) { a = fi.a; z = fi.b; }
       }
-      segs.push({ kind: 'code', lang: k === 'diagram' ? el.dataset.lang : fi.lang, text: state.lines.slice(a - 1, z).join('\n') });
+      segs.push({ kind: 'code', lang: k === 'diagram' ? el.dataset.lang : fi.lang, text: lines.slice(a - 1, z).join('\n') });
       continue;
     }
     let text;
@@ -1065,32 +1157,44 @@ function segmentsFor(range) {
   return segs.filter((x) => x.text.trim());
 }
 
-function finishSelection(start, end, segments, range) {
+function finishSelection(start, end, segments, range, opts = {}) {
+  const side = opts.side === 'LEFT' ? 'LEFT' : 'RIGHT';
+  const lines = side === 'LEFT' ? (cur.oldLines || []) : state.lines;
   const quote = plainQuote(segments);
-  const anchor = clampRange(start, end, state.diff.hunks);
+  // a comment must sit on lines inside the diff, on one side: old-file lines for LEFT, new-file lines for RIGHT
+  const ranges = side === 'LEFT' ? patchHunkRanges(cur.rows).map((h) => h.left).filter(Boolean) : state.diff.hunks;
+  const anchor = clampRange(start, end, ranges);
   // fence markers are not content: compare against the lines a reader would actually see
-  const whole = coversWholeLines(quote, state.lines.slice(start - 1, end).filter((l) => !/^\s*(`{3,}|~{3,})/.test(l)));
+  const whole = coversWholeLines(quote, lines.slice(start - 1, end).filter((l) => !/^\s*(`{3,}|~{3,})/.test(l)));
+  const touchesRemoved = !!opts.touchesRemoved;
   return {
-    start, end, quote, segments, quoteMd: formatQuote(segments), anchor, range: range.cloneRange(),
-    includeDefault: !anchor || !anchor.exact || !whole, // a quote only helps when it adds information
+    start, end, side, quote, segments, quoteMd: formatQuote(segments), anchor, range: range.cloneRange(), touchesRemoved,
+    includeDefault: !anchor || !anchor.exact || !whole || touchesRemoved, // a quote only helps when it adds information
   };
 }
 
+// A selection is anchored to ONE side of the diff. Inside removed text it is a LEFT (old-file) comment; anything that
+// includes kept or added text anchors to the new-file lines it covers, and removed text in between is quoted as a diff.
 function describeSelection(range) {
-  const span = textSpan(range);
-  if (!span) return null;
-  const a = lineAt(span.first.node, span.first.s, 'start');
-  const b = lineAt(span.last.node, span.last.e, 'end');
-  if (a == null || b == null) return null;
-  return finishSelection(Math.min(a, b), Math.max(a, b), segmentsFor(range), range);
+  const sideOf = (n) => { const b = n.parentElement && n.parentElement.closest('[data-l]'); return b && doc.contains(b) ? (isRemoved(b) ? 'LEFT' : 'RIGHT') : null; };
+  const mapped = spanNodes(range).filter((x) => sideOf(x.node));
+  if (!mapped.length) return null;
+  const right = mapped.filter((x) => sideOf(x.node) === 'RIGHT');
+  const use = right.length ? right : mapped;
+  const a = lineAt(use[0].node, use[0].s, 'start');
+  const z = lineAt(use[use.length - 1].node, use[use.length - 1].e, 'end');
+  if (a == null || z == null) return null;
+  const mixed = right.length > 0 && mapped.length > right.length;
+  const side = right.length ? 'RIGHT' : 'LEFT';
+  return finishSelection(Math.min(a, z), Math.max(a, z), segmentsFor(range, { mixed }), range, { side, touchesRemoved: mixed });
 }
 
-function rangeText(start, end, anchor) {
-  const span = start === end ? `line ${start}` : `lines ${start}–${end}`;
-  if (!anchor) return { text: `${span} — outside the diff, so this goes into the review summary (quoted).`, warn: true };
-  const aspan = anchor.start === anchor.end ? `line ${anchor.start}` : `lines ${anchor.start}–${anchor.end}`;
-  if (anchor.exact) return { text: `Comments on ${aspan}`, warn: false };
-  return { text: `You selected ${span}; GitHub can anchor ${aspan} (one hunk). The full quote is included.`, warn: true };
+function rangeText(start, end, anchor, side = 'RIGHT') {
+  const noun = side === 'LEFT' ? 'removed line' : 'line';
+  const span = (x, y) => (x === y ? `${noun} ${x}` : `${noun}s ${x}–${y}`);
+  if (!anchor) return { text: `${span(start, end)} — outside the diff, so this goes into the review summary (quoted).`, warn: true };
+  if (anchor.exact) return { text: `Comments on ${span(anchor.start, anchor.end)}`, warn: false };
+  return { text: `You selected ${span(start, end)}; GitHub can anchor ${span(anchor.start, anchor.end)} (one hunk). The full quote is included.`, warn: true };
 }
 
 // ---------- composer (floats over the selection) ----------
@@ -1104,9 +1208,9 @@ function showComposer(sel) {
   sel.view = sel.view || cur;
   state.pending = sel;
   $('#c-quote').textContent = sel.quote.length > 240 ? sel.quote.slice(0, 240) + '…' : sel.quote;
-  const rt = rangeText(sel.start, sel.end, sel.anchor);
+  const rt = rangeText(sel.start, sel.end, sel.anchor, sel.side);
   const rEl = $('#c-range');
-  rEl.textContent = rt.text + (sel.about ? ` — ${sel.about}` : '');
+  rEl.textContent = rt.text + (sel.about ? ` — ${sel.about}` : '') + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');
   rEl.classList.toggle('warn', rt.warn);
   const inc = $('#c-qinc');
   inc.checked = sel.includeDefault;
