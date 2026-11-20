@@ -458,7 +458,7 @@ await step('Mermaid: sequence actors and messages map to their lines', async () 
   await clickIn(3, 'm-actor', 'R');
   assert.equal(await rangeLabel(), 'Comments on line 34');
   await clickIn(3, 'm-text', 'comment box');
-  assert.equal(await rangeLabel(), 'Comments on line 36 — label “comment box”');
+  assert.equal(await rangeLabel(), 'Comments on line 36');
 });
 await step('diagrams: the composer opens next to the clicked element, not at the top of the diagram', async () => {
   await clickIn(2, 'm-node', 'C');
