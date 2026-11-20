@@ -18,7 +18,23 @@
 </header>
 
 <main class="layout">
-  <nav id="files" aria-label="Markdown files in this PR"></nav>
+  <div id="side">
+    <nav id="files" aria-label="Markdown files in this PR"></nav>
+    <section id="panel">
+      <h2>Your review <span id="count"></span></h2>
+      <div id="list"><p class="empty">No comments yet.</p></div>
+      <label for="summary">Review summary (optional)</label>
+      <textarea id="summary" rows="3" placeholder="Overall thoughts…"></textarea>
+      <label for="event">Submit as</label>
+      <select id="event">
+        <option value="COMMENT">Comment</option>
+        <option value="APPROVE">Approve</option>
+        <option value="REQUEST_CHANGES">Request changes</option>
+      </select>
+      <button id="submit" class="primary" type="button" disabled>Submit review</button>
+      <div id="result"></div>
+    </section>
+  </div>
 
   <section id="docwrap">
     <div id="prbar"></div>
@@ -27,7 +43,10 @@
       <span><i class="k ctx"></i>commentable context</span>
       <span><i class="k out"></i>outside the diff (goes in review summary)</span>
     </div>
-    <article id="doc" class="md"><p class="empty">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p></article>
+    <div class="docrow">
+      <article id="doc" class="md"><p class="empty">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p></article>
+      <div id="margin" aria-label="Comments"></div>
+    </div>
     <div id="composer" hidden>
       <blockquote id="c-quote"></blockquote>
       <div id="c-range"></div>
@@ -35,21 +54,6 @@
       <div class="row"><button id="c-add" class="primary" type="button">Add to review</button><button id="c-cancel" type="button">Cancel</button></div>
     </div>
   </section>
-
-  <aside id="panel">
-    <h2>Your review <span id="count"></span></h2>
-    <div id="list"><p class="empty">No comments yet.</p></div>
-    <label for="summary">Review summary (optional)</label>
-    <textarea id="summary" rows="4" placeholder="Overall thoughts…"></textarea>
-    <label for="event">Submit as</label>
-    <select id="event">
-      <option value="COMMENT">Comment</option>
-      <option value="APPROVE">Approve</option>
-      <option value="REQUEST_CHANGES">Request changes</option>
-    </select>
-    <button id="submit" class="primary" type="button" disabled>Submit review</button>
-    <div id="result"></div>
-  </aside>
 </main>
 
 <script src="vendor/markdown-it.min.js"></script>

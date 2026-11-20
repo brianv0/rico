@@ -19,6 +19,9 @@ Paste a PR URL (or `owner/repo#123`). Your token stays on the local server and n
   Rico clamps to the hunk with the most overlap, tells you when it did, and quotes the full selection in the comment.
   Selections wholly outside the diff go into the review summary with a quote.
 - Gutter bars: green = changed, blue = commentable context, grey = outside the diff.
+- Existing review threads show in a margin beside the text (like Google Docs), aligned with the blocks they
+  are anchored to. Hover a thread to highlight its text; click highlighted text to jump to the thread; reply
+  from the margin. Outdated threads are labelled. Your unposted drafts appear there too, dashed.
 - Queued comments persist in `localStorage` per PR + head commit.
 
 ## Tests
@@ -29,5 +32,5 @@ npm run e2e      # headless Chromium with real mouse drags against the same fake
 ```
 
 ## Known limits
-Relative images don't resolve; existing PR comments aren't shown yet; whether GitHub accepts a range
+Relative images don't resolve; resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
 spanning hunks is undocumented, so Rico stays within one.

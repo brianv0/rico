@@ -6,6 +6,7 @@ const $ = (s) => document.querySelector(s);
 const doc = $('#doc');
 const docwrap = $('#docwrap');
 const composer = $('#composer');
+const margin = $('#margin');
 
 const md = window.markdownit({ html: false, linkify: true });
 // Stamp every block with its source line range (markdown-it's token.map): data-l="start0-end0".
@@ -25,7 +26,14 @@ md.renderer.rules.link_open = (tokens, i, o, e, self) => {
   return defaultLink(tokens, i, o, e, self);
 };
 
+// Separate renderer for comment bodies (no line stamping; raw HTML stays off).
+const mdc = window.markdownit({ html: false, linkify: true, breaks: true });
+mdc.renderer.rules.link_open = md.renderer.rules.link_open;
+
 const state = {
+  threads: [], // existing PR review threads
+  removed: 0, // threads on removed (LEFT-side) lines we cannot place
+
   pr: null, // {owner, repo, number, headSha, files, ...}
   file: null, // current file entry
   lines: [],
@@ -74,6 +82,7 @@ async function loadPr(ref, wantFile) {
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
+    ({ threads: state.threads, removed: state.removed } = groupThreads(pr.comments || []));
     restore();
     renderPrBar();
     renderFiles();
@@ -157,7 +166,7 @@ function renderDoc(text) {
 function paintBlocks() {
   const wholeFileAdded = state.file.status === 'added';
   for (const el of doc.querySelectorAll('[data-l]')) {
-    el.classList.remove('chg', 'ctx', 'out', 'has-c', 'pending');
+    el.classList.remove('chg', 'ctx', 'out', 'has-c', 'has-t', 'hl', 'pending');
     if (el.querySelector('[data-l]')) continue; // only leaf blocks get markers
     const b = blockLines(el);
     let changed = false;
@@ -166,8 +175,185 @@ function paintBlocks() {
     else if (state.diff.hunks.some((h) => overlaps(b, h.start, h.end))) el.classList.add('ctx');
     else el.classList.add('out');
     if (state.comments.some((c) => c.path === state.file.filename && overlaps(b, c.start, c.end))) el.classList.add('has-c');
+    if (state.threads.some((t) => t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-t');
   }
+  renderMargin();
 }
+
+// ---------- existing review threads + drafts in the margin ----------
+function groupThreads(list) {
+  const byId = new Map(list.map((c) => [c.id, c]));
+  const rootOf = (c) => { let r = c; for (let i = 0; r.replyTo && byId.has(r.replyTo) && i < 50; i++) r = byId.get(r.replyTo); return r; };
+  const groups = new Map();
+  for (const c of list) {
+    const r = rootOf(c);
+    if (!groups.has(r.id)) groups.set(r.id, { root: r, msgs: [] });
+    groups.get(r.id).msgs.push(c);
+  }
+  const threads = [];
+  let removed = 0;
+  for (const { root, msgs } of groups.values()) {
+    if (root.side === 'LEFT') { removed++; continue; } // line numbers refer to the base file
+    msgs.sort((a, b) => (a.id === root.id ? -1 : b.id === root.id ? 1 : Date.parse(a.createdAt) - Date.parse(b.createdAt)));
+    const end = root.line ?? root.originalLine ?? 1;
+    const start = Math.min(end, root.startLine ?? root.originalStartLine ?? end);
+    threads.push({ id: root.id, path: root.path, start, end, msgs, outdated: root.line == null, fileLevel: root.line == null && root.originalLine == null });
+  }
+  return { threads, removed };
+}
+
+const hue = (str) => [...str].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) % 360, 7);
+function ago(iso) {
+  const d = (Date.now() - Date.parse(iso)) / 1000;
+  if (!(d >= 0)) return '';
+  for (const [n, sec] of [['y', 31536000], ['mo', 2592000], ['d', 86400], ['h', 3600], ['m', 60]]) if (d >= sec) return `${Math.floor(d / sec)}${n} ago`;
+  return 'just now';
+}
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+function msgEl(c) {
+  const d = el('div', 'msg');
+  const who = el('div', 'who');
+  const av = el('span', 'av', (c.user[0] || '?').toUpperCase());
+  av.style.background = `hsl(${hue(c.user)} 55% 42%)`;
+  const when = el('a', null, ago(c.createdAt));
+  if (/^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; }
+  who.append(av, el('b', null, c.user), when);
+  const text = el('div', 'text');
+  text.innerHTML = mdc.render(c.body);
+  d.append(who, text);
+  return d;
+}
+
+function threadCard(th) {
+  const card = el('div', 'thread' + (th.outdated ? ' outdated' : ''));
+  card.dataset.id = th.id;
+  th.msgs.forEach((m, i) => {
+    const d = msgEl(m);
+    if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : 'Outdated'));
+    card.append(d);
+  });
+  const acts = el('div', 'tacts');
+  const replyBtn = el('button', null, 'Reply');
+  replyBtn.type = 'button';
+  replyBtn.addEventListener('click', () => {
+    const form = el('div', 'reply');
+    const ta = el('textarea');
+    ta.rows = 2; ta.placeholder = 'Reply… (Ctrl/Cmd+Enter to send)';
+    const row = el('div', 'row');
+    const send = el('button', 'primary', 'Reply'); send.type = 'button';
+    const cancel = el('button', null, 'Cancel'); cancel.type = 'button';
+    const err = el('div', 'err');
+    const doSend = async () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try {
+        const res = await api('/api/reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Rico': '1' },
+          body: JSON.stringify({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number, commentId: th.id, text }),
+        }).then(JSON.parse);
+        th.msgs.push(res);
+        renderMargin();
+      } catch (e) { err.textContent = e.message; send.disabled = false; }
+    };
+    send.addEventListener('click', doSend);
+    cancel.addEventListener('click', () => { form.remove(); replyBtn.hidden = false; layoutMargin(); });
+    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSend(); } if (e.key === 'Escape') cancel.click(); });
+    row.append(send, cancel);
+    form.append(ta, row, err);
+    replyBtn.hidden = true;
+    acts.before(form);
+    ta.focus();
+    layoutMargin();
+  });
+  acts.append(replyBtn);
+  card.append(acts);
+  return card;
+}
+
+function draftCard(c) {
+  const card = el('div', 'thread draft');
+  const who = el('div', 'who');
+  who.append(el('b', null, 'You'), el('span', 'badge', 'Draft — not posted yet'));
+  const text = el('div', 'text', c.body);
+  text.style.whiteSpace = 'pre-wrap';
+  const acts = el('div', 'tacts');
+  const del = el('button', null, 'Delete'); del.type = 'button';
+  del.addEventListener('click', () => deleteComment(c.id));
+  acts.append(del);
+  card.append(who, text, acts);
+  return card;
+}
+
+function deleteComment(id) {
+  state.comments = state.comments.filter((x) => x.id !== id);
+  save(); paintBlocks(); renderPanel(); renderFiles();
+}
+
+let marginItems = [];
+function renderMargin() {
+  margin.textContent = '';
+  marginItems = [];
+  if (!state.file) return;
+  const path = state.file.filename;
+  const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]')).map((e) => ({ e, b: blockLines(e) }));
+  const raw = [
+    ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id })),
+    ...state.comments.filter((c) => c.path === path).map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id })),
+  ];
+  for (const it of raw) {
+    let blocks = leaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e);
+    if (!blocks.length && leaves.length) { // outdated lines that no longer exist: nearest block
+      const dist = (l) => (l.b.e < it.start ? it.start - l.b.e : l.b.s - it.end);
+      blocks = [leaves.reduce((a, b) => (dist(b) < dist(a) ? b : a)).e];
+    }
+    it.blocks = blocks;
+    it.card.addEventListener('mouseenter', () => it.blocks.forEach((b) => b.classList.add('hl')));
+    it.card.addEventListener('mouseleave', () => it.blocks.forEach((b) => b.classList.remove('hl')));
+    margin.append(it.card);
+    marginItems.push(it);
+  }
+  if (state.removed) {
+    const n = el('div', 'note', `${state.removed} thread${state.removed > 1 ? 's' : ''} on removed lines not shown here.`);
+    n.dataset.note = '1';
+    margin.append(n);
+  }
+  layoutMargin();
+}
+
+function layoutMargin() {
+  const wide = !matchMedia('(max-width: 1150px)').matches;
+  const note = margin.querySelector('[data-note]');
+  if (!wide) { margin.style.height = ''; for (const it of marginItems) it.card.style.top = ''; if (note) note.style.top = ''; return; }
+  const base = margin.getBoundingClientRect().top;
+  const placed = marginItems
+    .map((it) => ({ it, want: it.blocks.length ? it.blocks[0].getBoundingClientRect().top - base : 0 }))
+    .sort((a, b) => a.want - b.want);
+  let y = 0;
+  for (const { it, want } of placed) {
+    const top = Math.max(want, y);
+    it.card.style.top = top + 'px';
+    y = top + it.card.offsetHeight + 8;
+  }
+  if (note) { note.style.top = y + 'px'; y += note.offsetHeight + 8; }
+  margin.style.height = Math.max(y, doc.offsetHeight) + 'px';
+}
+
+function activateAt(block) {
+  const it = marginItems.find((m) => m.blocks.includes(block));
+  if (!it) return;
+  marginItems.forEach((m) => m.card.classList.remove('active'));
+  it.card.classList.add('active');
+  it.card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  setTimeout(() => it.card.classList.remove('active'), 1800);
+}
+doc.addEventListener('click', (e) => {
+  if (!window.getSelection().isCollapsed) return;
+  const b = e.target.closest && e.target.closest('[data-l]');
+  if (b) activateAt(b.querySelector('[data-l]') ? b : b);
+});
 
 // ---------- selection -> source lines ----------
 function textSpan(range) {
@@ -307,7 +493,10 @@ $('#c-body').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); }
   if (e.key === 'Escape') { hideComposer(); window.getSelection().removeAllRanges(); }
 });
-window.addEventListener('resize', () => { if (state.pending) placeComposer(state.pending.range); });
+window.addEventListener('resize', () => { layoutMargin(); if (state.pending) placeComposer(state.pending.range); });
+let raf = 0;
+new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(layoutMargin); }).observe(doc);
+document.fonts?.ready.then(layoutMargin);
 
 // ---------- review panel ----------
 function renderPanel() {
@@ -353,10 +542,7 @@ function renderPanel() {
     });
     const del = document.createElement('button');
     del.type = 'button'; del.textContent = 'Delete';
-    del.addEventListener('click', () => {
-      state.comments = state.comments.filter((x) => x.id !== c.id);
-      save(); paintBlocks(); renderPanel(); renderFiles();
-    });
+    del.addEventListener('click', () => deleteComment(c.id));
     acts.append(edit, del);
     card.append(where, q, note, body, acts);
     list.append(card);
@@ -409,4 +595,4 @@ if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f'))
 renderPanel();
 
 // test hook
-window.__rico = { state, describeSelection };
+window.__rico = { state, describeSelection, groupThreads };

@@ -105,3 +105,24 @@ test('without any token, API calls fail with a helpful 401', async () => {
   assert.equal(r.status, 401);
   assert.match(JSON.parse(r.body).error, /GITHUB_TOKEN/);
 });
+
+test('GET /api/pr includes markdown review comments in compact form', async () => {
+  const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
+  assert.deepEqual(j.comments.map((c) => c.id), [101, 102, 103, 104, 105]); // src/x.js dropped
+  assert.deepEqual(j.comments[0], {
+    id: 101, replyTo: null, path: 'docs/plan.md', line: 6, originalLine: 6, startLine: 3, originalStartLine: 3,
+    side: 'RIGHT', user: 'alice', body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101',
+  });
+  assert.equal(j.comments[1].replyTo, 101);
+  assert.equal(j.comments[2].line, null);
+});
+
+test('POST /api/reply replies to a thread and validates input', async () => {
+  const ok = await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: 101, text: 'Thanks!' });
+  assert.equal(ok.status, 200);
+  assert.equal(JSON.parse(ok.body).replyTo, 101);
+  assert.deepEqual(fake.replies.at(-1), { to: 101, body: 'Thanks!' });
+  assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: 101, text: '  ' })).status, 400);
+  assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: '101', text: 'x' })).status, 400);
+  assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: 101, text: 'x' }, {})).status, 403);
+});

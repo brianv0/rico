@@ -12,15 +12,38 @@ export const PATCH = [
   '@@ -10,2 +12,3 @@', ' const a = 1;', '+const b = 2;', ' ```',
 ].join('\n');
 
-/** Start the fake. Returns {port, posted: [], close()}; `posted` collects POSTed review bodies. */
+const C = (o) => ({ side: 'RIGHT', path: 'docs/plan.md', user: { login: 'alice' }, created_at: '2026-11-18T10:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#discussion_r' + o.id, line: null, original_line: null, ...o });
+export const COMMENTS = [
+  C({ id: 101, line: 6, start_line: 3, original_line: 6, original_start_line: 3, body: 'Is this **too long**?' }),
+  C({ id: 102, in_reply_to_id: 101, line: 6, user: { login: 'bob' }, created_at: '2026-11-19T09:00:00Z', body: 'Will trim it.' }),
+  C({ id: 103, line: null, original_line: 9, user: { login: 'carol' }, body: 'Outdated note on the list.' }),
+  C({ id: 104, path: 'other.md', line: 1, body: 'Different file.' }),
+  C({ id: 105, side: 'LEFT', line: 2, body: 'On a removed line.' }),
+  C({ id: 106, path: 'src/x.js', line: 1, body: 'Not markdown.' }),
+];
+
+/** Start the fake. Returns {port, posted: [], replies: [], close()}; `posted` collects POSTed review bodies. */
 export async function startFake() {
   const posted = [];
+  const replies = [];
   const server = http.createServer((req, res) => {
     const json = (o, s = 200) => { res.writeHead(s, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     const u = new URL(req.url, 'http://x');
     if (req.headers.authorization !== 'Bearer t') return json({ message: 'Bad credentials' }, 401);
     if (u.pathname === '/repos/acme/docs/pulls/7') {
       return json({ title: 'Plan v2', state: 'open', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob' }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main' } });
+    }
+    if (u.pathname === '/repos/acme/docs/pulls/7/comments') return json(COMMENTS);
+    const rm = /^\/repos\/acme\/docs\/pulls\/7\/comments\/(\d+)\/replies$/.exec(u.pathname);
+    if (rm && req.method === 'POST') {
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => {
+        const body = JSON.parse(b);
+        replies.push({ to: Number(rm[1]), ...body });
+        json(C({ id: 900 + replies.length, in_reply_to_id: Number(rm[1]), line: 6, user: { login: 'me' }, created_at: '2026-11-20T12:00:00Z', body: body.body }));
+      });
+      return;
     }
     if (u.pathname === '/repos/acme/docs/pulls/7/files') {
       return json([
@@ -47,5 +70,5 @@ export async function startFake() {
     json({ message: 'Not Found ' + u.pathname }, 404);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  return { port: server.address().port, posted, close: () => new Promise((r) => server.close(r)) };
+  return { port: server.address().port, posted, replies, close: () => new Promise((r) => server.close(r)) };
 }

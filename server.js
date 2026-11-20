@@ -71,6 +71,21 @@ function repoParams(q) {
   return { owner, repo };
 }
 
+const compact = (c) => ({
+  id: c.id,
+  replyTo: c.in_reply_to_id ?? null,
+  path: c.path,
+  line: c.line ?? null,
+  originalLine: c.original_line ?? null,
+  startLine: c.start_line ?? null,
+  originalStartLine: c.original_start_line ?? null,
+  side: c.side || 'RIGHT',
+  user: c.user?.login || 'ghost',
+  body: c.body || '',
+  createdAt: c.created_at,
+  url: c.html_url,
+});
+
 async function apiPr(q) {
   const ref = parsePrRef(q.get('ref'));
   if (!ref) throw new HttpError(400, 'Could not parse that as a GitHub PR (try https://github.com/owner/repo/pull/123 or owner/repo#123).');
@@ -83,10 +98,17 @@ async function apiPr(q) {
     files.push(...batch);
     if (batch.length < 100) break;
   }
+  const comments = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await ghJson(`${base}/comments?per_page=100&page=${page}`);
+    comments.push(...batch);
+    if (batch.length < 100) break;
+  }
   return {
     owner,
     repo,
     number,
+    comments: comments.filter((c) => MD_RE.test(c.path || '')).map(compact),
     title: pull.title,
     state: pull.state,
     url: pull.html_url,
@@ -121,6 +143,14 @@ async function apiReview(body) {
   if (!['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(review?.event)) throw new HttpError(400, 'bad event');
   const out = await ghJson(`/repos/${owner}/${repo}/pulls/${number}/reviews`, { method: 'POST', body: review });
   return { id: out.id, url: out.html_url, state: out.state };
+}
+
+async function apiReply(body) {
+  const { owner, repo, number, commentId, text } = body || {};
+  if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number) || !Number.isInteger(commentId)) throw new HttpError(400, 'bad request');
+  if (typeof text !== 'string' || !text.trim() || text.length > 65536) throw new HttpError(400, 'empty or too long reply');
+  const out = await ghJson(`/repos/${owner}/${repo}/pulls/${number}/comments/${commentId}/replies`, { method: 'POST', body: { body: text } });
+  return compact(out);
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -176,6 +206,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/pr') return send(200, await apiPr(url.searchParams));
     if (req.method === 'GET' && url.pathname === '/api/file') return send(200, await apiFile(url.searchParams), 'text/plain; charset=utf-8');
     if (req.method === 'POST' && url.pathname === '/api/review') return send(200, await apiReview(await readJson(req)));
+    if (req.method === 'POST' && url.pathname === '/api/reply') return send(200, await apiReply(await readJson(req)));
     throw new HttpError(404, 'not found');
   } catch (e) {
     send(e.status || 500, { error: e.message || String(e) });
