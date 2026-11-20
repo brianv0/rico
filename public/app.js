@@ -1288,7 +1288,7 @@ function showComposer(sel) {
   inc.checked = sel.includeDefault;
   inc.disabled = !sel.anchor; // unanchored comments live in the summary, where the quote is the only context
   $('#c-qnote').textContent = sel.anchor ? (sel.includeDefault ? '' : 'GitHub already shows these lines') : 'required: goes in the summary';
-  $('#c-quote').hidden = !inc.checked; // the quote is only shown when it will be posted
+  $('#c-quote').hidden = !inc.checked && !sel.about; // a diagram element's source is always shown: you can't see the raw text you are commenting on
   $('#c-qtext').value = sel.quoteMd;
   $('#c-qtext').hidden = true;
   $('#c-qedit').setAttribute('aria-expanded', 'false');
