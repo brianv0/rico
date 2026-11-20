@@ -1059,6 +1059,14 @@ function onDiagramClick(fig, hit, frame) {
     const first = hit.lines[0];
     start = Math.max(fi.a, Math.min(fi.b, fi.a + first.s));
     end = Math.max(start, Math.min(fi.b, fi.a + first.e));
+    if (fig.dataset.lang === 'd2' && hit.kind === 'node') { // a container node owns its whole { ... } block, not just its first line
+      let depth = 0;
+      for (let n = start; n <= fi.b; n++) {
+        const l = (state.lines[n - 1] || '').replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '');
+        for (const c of l) { if (c === '{') depth++; else if (c === '}') depth--; }
+        if (depth <= 0) { end = Math.max(end, n); break; }
+      }
+    }
     const others = [...new Set(hit.lines.slice(1).map((l) => fi.a + l.s))].filter((n) => n !== start);
     about = `${hit.kind} “${hit.label}”${others.length ? ` (also on line${others.length > 1 ? 's' : ''} ${others.join(', ')})` : ''}`;
     if (frame) {
@@ -1073,6 +1081,7 @@ function onDiagramClick(fig, hit, frame) {
   range.selectNode(fig);
   const sel = finishSelection(start, end, [{ kind: 'code', lang: fig.dataset.lang, text: state.lines.slice(cs - 1, ce).join('\n') }], range);
   sel.about = about;
+  sel.diagram = true;
   sel.aboutShort = hit ? `${hit.kind} “${hit.label}”` : '';
   sel.rect = rect;
   showComposer(sel);
@@ -1295,7 +1304,7 @@ function showComposer(sel) {
   inc.checked = sel.includeDefault;
   inc.disabled = !sel.anchor; // unanchored comments live in the summary, where the quote is the only context
   $('#c-qnote').textContent = sel.anchor ? (sel.includeDefault ? '' : 'GitHub already shows these lines') : 'required: goes in the summary';
-  $('#c-quote').hidden = !inc.checked && !sel.about; // a diagram element's source is always shown: you can't see the raw text you are commenting on
+  $('#c-quote').hidden = !inc.checked && !sel.diagram; // a diagram element's source is always shown: you can't see the raw text you are commenting on
   $('#c-qtext').value = sel.quoteMd;
   $('#c-qtext').hidden = true;
   $('#c-qedit').setAttribute('aria-expanded', 'false');

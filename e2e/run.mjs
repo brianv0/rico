@@ -622,7 +622,7 @@ await step('linkable URL: /github.com/org/repo/PR[@commit]?file= loads the PR, f
   assert.equal(decodeURIComponent(new URL(p4.url()).search), '?file=docs/plan.md');
   await p4.reload(); // the URL alone restores the view
   await p4.waitForFunction(() => window.__rico?.state.file?.filename === 'docs/plan.md', null, { timeout: 15000 });
-  assert.equal(await p4.evaluate(() => document.querySelectorAll('#doc h1').length > 0), true, 'assets load from an absolute path');
+  await p4.waitForSelector('#doc h1', { timeout: 10000 }); // the page and its assets loaded from the absolute paths
   await p4.close();
 });
 await step('removed sections: Source diff and Rendered show the same threads', async () => {
