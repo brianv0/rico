@@ -55,7 +55,7 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
     move(x1, y1); sh('xdotool mousedown 1');
     for (let i = 1; i <= 8; i++) { move(x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8); await sleep(25); }
     sh('xdotool mouseup 1'); await sleep(250);
-    // the selection offers two margin icons; click the "lines" one with the real pointer
+    // the selection offers two icons under it; click the "lines" one with the real pointer
     await page.waitForSelector('#selbar:not([hidden])', { timeout: 3000 });
     if (shotBar) shot('os-selbar');
     shotBar = false;

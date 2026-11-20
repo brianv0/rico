@@ -1217,11 +1217,15 @@ function marginSlot(range, rect) {
 }
 
 function showSelbar(sel) {
+  // a small pill just under the end of the selection, like Google Docs
   state.sel = sel;
-  const slot = marginSlot(sel.range, sel.rect);
+  const wrap = docwrap.getBoundingClientRect();
+  const rects = sel.rect ? [sel.rect] : sel.range.getClientRects();
+  const last = rects[rects.length - 1] || sel.range.getBoundingClientRect();
   selbar.hidden = false;
-  selbar.style.left = (slot ? slot.left - 28 : 8) + 'px'; // in the gutter between the text and the threads
-  selbar.style.top = (slot ? slot.top : sel.range.getBoundingClientRect().bottom - docwrap.getBoundingClientRect().top + 6) + 'px';
+  const w = selbar.offsetWidth;
+  selbar.style.top = (last.bottom - wrap.top + 6) + 'px';
+  selbar.style.left = Math.max(8, Math.min(last.right - wrap.left - w / 2, wrap.width - w - 8)) + 'px';
 }
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 

@@ -235,8 +235,8 @@ await step('a selection offers two margin icons; the composer opens beside the t
     return { bar: r(document.getElementById('selbar')), comp: r(document.getElementById('composer')), margin: r(document.getElementById('margin')), pt: r(p).top, pr: r(p).right, pb: r(p).bottom };
   });
   let g = await geo();
-  assert.ok(g.bar.left >= g.pr - 1 && g.bar.right <= g.margin.left + 1, `icons (${g.bar.left}-${g.bar.right}) should sit in the gutter between the text (${g.pr}) and the margin (${g.margin.left})`);
-  assert.ok(Math.abs(g.bar.top - g.pt) < 30, `icons at ${g.bar.top} should sit level with the selection at ${g.pt}`);
+  const selBottom = await page.evaluate(() => { const r = window.getSelection().getRangeAt(0).getClientRects(); return r[r.length - 1].bottom; });
+  assert.ok(g.bar.top >= selBottom && g.bar.top - selBottom < 16, `icons at ${g.bar.top} should sit just under the selection (bottom ${selBottom})`);
   await page.mouse.click(5, 5); // clear the selection
   await page.waitForSelector('#selbar', { state: 'hidden' });
   await dragRaw('First', 'First paragraph here.');
