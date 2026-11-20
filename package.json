@@ -9,6 +9,9 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js",
+    "build": "node scripts/build.mjs",
+    "dev:cf": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
     "e2e": "node e2e/run.mjs"
   },
   "engines": {
@@ -23,7 +26,8 @@
   "license": "MIT",
   "devDependencies": {
     "@primer/octicons": "^19.42.0",
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "wrangler": "^4.166.0"
   },
   "optionalDependencies": {
     "@terrastruct/d2": "0.1.33",

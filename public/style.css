@@ -283,3 +283,9 @@ textarea { resize: vertical; padding: 8px 12px; }
   #side { position: static; flex: none; width: 100%; max-height: none; }
   .file-body { padding: 16px; }
 }
+
+/* who is signed in (hosted mode) */
+#who { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-muted); }
+#who img { width: 24px; height: 24px; border-radius: 50%; }
+#who .btn { padding: 2px 10px; font-size: 12px; }
+#status a { color: inherit; font-weight: 600; text-decoration: underline; }

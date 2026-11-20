@@ -1,0 +1,20 @@
+name = "rico"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# the static app, built by `npm run build`
+[assets]
+directory = "dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"   # /github.com/owner/repo/7 serves the app
+run_worker_first = ["/api/*", "/auth/*"]
+
+[vars]
+# Not secret. The OAuth app's client id (Settings > Developer settings > OAuth Apps).
+GITHUB_CLIENT_ID = ""
+# "repo" is needed to comment on private repositories; use "public_repo" to limit Rico to public ones.
+OAUTH_SCOPE = "repo"
+
+# Secrets (never commit them):
+#   npx wrangler secret put GITHUB_CLIENT_SECRET
+#   npx wrangler secret put SESSION_SECRET     # any long random string, e.g. `openssl rand -base64 32`

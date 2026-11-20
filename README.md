@@ -120,3 +120,29 @@ RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review 
 ## Development
 `public/icons.js` is generated from `@primer/octicons` (`node scripts/gen-icons.mjs`); the vendored page styles and
 highlighting come from `github-markdown-css`, `@highlightjs/cdn-assets` and `dompurify`, served from `node_modules`.
+
+
+## Deploy to Cloudflare
+
+Rico also runs as a hosted app on Cloudflare Workers. People sign in with **GitHub OAuth** and review as themselves;
+there is no shared token. The access token lives only in an encrypted, `HttpOnly` cookie (AES-GCM, key derived from
+`SESSION_SECRET`), and nothing is stored on the server. The same code serves the app: `src/github.js` is shared by the
+local server and the Worker (`src/worker.js`).
+
+1. **Create a GitHub OAuth app** (GitHub → Settings → Developer settings → OAuth Apps → New). Set the
+   *Authorization callback URL* to `https://<your-worker-host>/auth/callback` (for `wrangler dev`, make a second app with
+   `http://localhost:8787/auth/callback`).
+2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Set `OAUTH_SCOPE` to `public_repo` if Rico should
+   only touch public repositories (the default `repo` is needed for private ones).
+3. Store the secrets:
+   ```bash
+   npx wrangler secret put GITHUB_CLIENT_SECRET
+   npx wrangler secret put SESSION_SECRET   # any long random string: openssl rand -base64 32
+   ```
+4. Deploy:
+   ```bash
+   npm install && npm run deploy
+   ```
+
+`npm run dev:cf` runs the Worker locally (`wrangler dev`, with the same variables in a `.dev.vars` file). Changing
+`SESSION_SECRET` signs everyone out. Locally, `npm start` is unchanged and uses your own token.

@@ -184,10 +184,18 @@ let cur = null; // the active view
 
 
 // ---------- status / api ----------
+let needSignin = false;
+const signinUrl = () => '/auth/login?return=' + encodeURIComponent(location.pathname + location.search);
 function status(msg, err = false) {
   const el = $('#status');
   el.textContent = msg || '';
   el.classList.toggle('err', !!err);
+  if (err && needSignin && !document.querySelector('#who a')) { // hosted: the session is missing or was revoked
+    const a = el.appendChild(el.ownerDocument.createElement('a'));
+    a.href = signinUrl();
+    a.textContent = ' Sign in with GitHub';
+  }
+  needSignin = false;
 }
 
 async function api(path, opts) {
@@ -195,10 +203,28 @@ async function api(path, opts) {
   const text = await res.text();
   if (!res.ok) {
     let m = text;
-    try { m = JSON.parse(text).error || m; } catch { /* plain text */ }
+    try { const j = JSON.parse(text); m = j.error || m; if (j.signin) needSignin = true; } catch { /* plain text */ }
     throw new Error(m);
   }
   return text;
+}
+
+// hosted mode shows who is signed in; locally the server's own token is used and there is nothing to sign into
+async function showWho() {
+  const who = $('#who');
+  try {
+    const res = await fetch('/api/me');
+    const me = await res.json().catch(() => ({}));
+    if (res.ok && me.hosted) {
+      who.innerHTML = `${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : ''}<span>${esc(me.login)}</span>`;
+      const out = who.appendChild(el('button', 'btn', 'Sign out'));
+      out.type = 'button';
+      out.addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }); location.reload(); });
+    } else if (res.status === 401 && me.signin) {
+      const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
+      a.href = signinUrl();
+    }
+  } catch { /* offline: leave it empty */ }
 }
 
 // ---------- persistence ----------
@@ -1539,6 +1565,7 @@ if (here) {
   else loadPr(ref, new URLSearchParams(location.search).get('file'), here.sha);
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
+showWho();
 
 // test hook
 window.__rico = { state, views, use, openFile, describeSelection, groupThreads };

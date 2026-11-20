@@ -1,0 +1,116 @@
+// The Cloudflare Worker, run in-process with a stubbed `fetch` standing in for GitHub.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../src/worker.js';
+import { seal, open } from '../src/session.js';
+
+const env = { GITHUB_CLIENT_ID: 'cid', GITHUB_CLIENT_SECRET: 'csecret', SESSION_SECRET: 'sekrit', ASSETS: { fetch: async (r) => new Response('asset:' + new URL(r.url).pathname) } };
+const ORIGIN = 'https://rico.example.dev';
+const calls = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, opts = {}) => {
+  const u = new URL(String(url));
+  calls.push({ url: u.toString(), opts });
+  if (u.pathname === '/login/oauth/access_token') {
+    const b = JSON.parse(opts.body);
+    return Response.json(b.code === 'good' ? { access_token: 'gho_usertoken' } : { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' });
+  }
+  if (u.hostname === 'api.github.com' && u.pathname === '/user') {
+    return opts.headers.Authorization === 'Bearer gho_usertoken' ? Response.json({ login: 'octo', avatar_url: 'a' }) : Response.json({ message: 'Bad credentials' }, { status: 401 });
+  }
+  if (u.hostname === 'api.github.com' && u.pathname === '/repos/o/r/pulls/1/reviews') return Response.json({ id: 9, html_url: 'h', state: 'COMMENTED' });
+  return Response.json({ message: 'Not Found' }, { status: 404 });
+};
+test.after(() => { globalThis.fetch = realFetch; });
+
+const req = (p, init = {}) => new Request(ORIGIN + p, init);
+const cookieOf = (res, name) => { const c = res.headers.getSetCookie().find((x) => x.startsWith(name + '=')); return c ? c.split(';')[0] : null; };
+
+async function signIn() {
+  const l = await worker.fetch(req('/auth/login?return=/github.com/o/r/1?file=a.md'), env);
+  const state = new URL(l.headers.get('Location')).searchParams.get('state');
+  const flow = cookieOf(l, 'rico_oauth');
+  const cb = await worker.fetch(req(`/auth/callback?code=good&state=${state}`, { headers: { Cookie: flow } }), env);
+  return { l, cb, cookie: cookieOf(cb, 'rico_session') };
+}
+
+test('sessions are sealed: round-trip, tamper-proof, expiring, key-bound', async () => {
+  const s = await seal('k', { t: 'tok' }, 1000);
+  assert.equal((await open('k', s)).t, 'tok');
+  assert.equal(await open('other', s), null);
+  assert.equal(await open('k', s.slice(0, -2) + (s.endsWith('AA') ? 'BB' : 'AA')), null);
+  assert.equal(await open('k', await seal('k', { t: 'x' }, -1)), null);
+  assert.equal(await open('k', 'garbage'), null);
+  assert.ok(!s.includes('tok'), 'the token is not readable in the cookie');
+});
+
+test('login redirects to GitHub with client id, callback url, scope and a state', async () => {
+  const { l } = await signIn();
+  assert.equal(l.status, 302);
+  const u = new URL(l.headers.get('Location'));
+  assert.equal(u.origin + u.pathname, 'https://github.com/login/oauth/authorize');
+  assert.equal(u.searchParams.get('client_id'), 'cid');
+  assert.equal(u.searchParams.get('redirect_uri'), ORIGIN + '/auth/callback');
+  assert.equal(u.searchParams.get('scope'), 'repo');
+  assert.match(l.headers.getSetCookie()[0], /rico_oauth=.*HttpOnly.*SameSite=Lax.*Secure/);
+});
+
+test('callback: valid code signs in, stores the token only in an encrypted HttpOnly cookie, and returns to the page', async () => {
+  const { cb, cookie } = await signIn();
+  assert.equal(cb.status, 302);
+  assert.equal(cb.headers.get('Location'), '/github.com/o/r/1?file=a.md');
+  assert.ok(cookie && !cookie.includes('gho_usertoken'));
+  assert.match(cb.headers.getSetCookie().find((c) => c.startsWith('rico_session=')), /HttpOnly/);
+  const sent = JSON.parse(calls.findLast((c) => c.url.endsWith('/login/oauth/access_token')).opts.body);
+  assert.deepEqual([sent.client_id, sent.client_secret, sent.code], ['cid', 'csecret', 'good']);
+});
+
+test('callback rejects a wrong or missing state, a bad code, and an offsite return path', async () => {
+  const l = await worker.fetch(req('/auth/login?return=//evil.example'), env);
+  const state = new URL(l.headers.get('Location')).searchParams.get('state');
+  const flow = cookieOf(l, 'rico_oauth');
+  assert.equal((await worker.fetch(req('/auth/callback?code=good&state=nope', { headers: { Cookie: flow } }), env)).status, 400);
+  assert.equal((await worker.fetch(req(`/auth/callback?code=good&state=${state}`), env)).status, 400, 'no state cookie (CSRF)');
+  assert.equal((await worker.fetch(req(`/auth/callback?code=bad&state=${state}`, { headers: { Cookie: flow } }), env)).status, 400);
+  const ok = await worker.fetch(req(`/auth/callback?code=good&state=${state}`, { headers: { Cookie: flow } }), env);
+  assert.equal(ok.headers.get('Location'), '/', '//evil.example is not an acceptable return path');
+});
+
+test('api: signed out is a 401 with signin:true; signed in reaches GitHub with the user token', async () => {
+  const out = await worker.fetch(req('/api/me'), env);
+  assert.equal(out.status, 401);
+  assert.equal((await out.json()).signin, true);
+  const { cookie } = await signIn();
+  const me = await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), env);
+  assert.deepEqual(await me.json(), { login: 'octo', avatar: 'a', hosted: true });
+  assert.equal(calls.findLast((c) => c.url.endsWith('/user')).opts.headers.Authorization, 'Bearer gho_usertoken');
+});
+
+test('api: a forged or tampered session cookie is just signed out; a revoked token asks to sign in again', async () => {
+  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=AAAA' } }), env)).status, 401);
+  const revoked = await seal(env.SESSION_SECRET, { t: 'gho_revoked' }, 1e6);
+  const res = await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=' + revoked } }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).signin, true);
+});
+
+test('api POSTs need the X-Rico header and a same-origin Origin', async () => {
+  const { cookie } = await signIn();
+  const body = JSON.stringify({ owner: 'o', repo: 'r', number: 1, review: { event: 'COMMENT', body: 'x' } });
+  const post = (h) => worker.fetch(req('/api/review', { method: 'POST', body, headers: { Cookie: cookie, ...h } }), env);
+  assert.equal((await post({})).status, 403);
+  assert.equal((await post({ 'X-Rico': '1', Origin: 'https://evil.example' })).status, 403);
+  const ok = await post({ 'X-Rico': '1', Origin: ORIGIN });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).id, 9);
+});
+
+test('logout clears the session; missing configuration is reported; everything else is the static app', async () => {
+  const out = await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }), env);
+  assert.match(out.headers.get('Set-Cookie'), /rico_session=;.*Max-Age=0/);
+  assert.equal((await worker.fetch(req('/auth/logout', { method: 'POST' }), env)).status, 403);
+  const bad = await worker.fetch(req('/api/me'), { ...env, GITHUB_CLIENT_SECRET: '' });
+  assert.equal(bad.status, 500);
+  assert.match((await bad.json()).error, /GITHUB_CLIENT_SECRET/);
+  assert.equal(await (await worker.fetch(req('/github.com/o/r/1'), env)).text(), 'asset:/github.com/o/r/1');
+});
