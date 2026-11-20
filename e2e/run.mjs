@@ -327,6 +327,15 @@ await step('D2: clicking a node or an edge anchors to the exact source line that
   assert.equal(await page.locator('#c-qtext').inputValue(), '```d2\nserver -> github: api call\n```');
   await page.keyboard.press('Escape');
 });
+await step('diagrams: an element comment is stored with what it is about, and posts it to GitHub', async () => {
+  await clickIn(0, 'd2', 'github');
+  await page.fill('#c-body', 'Draft about the github node.');
+  await page.keyboard.press('Control+Enter');
+  const c = await page.evaluate(() => window.__rico.state.comments.at(-1));
+  assert.equal(c.about, 'node “github”'); assert.equal(c.start, 7);
+  await page.locator('#margin .thread.draft', { hasText: 'github node' }).getByRole('button', { name: 'Delete' }).click(); // leave no trace
+  assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
+});
 await step('Mermaid: flowchart nodes and edges map to their lines', async () => {
   await clickIn(2, 'm-node', 'B');
   assert.equal(await rangeLabel(), 'Comments on line 27 — node “B”');

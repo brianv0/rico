@@ -262,3 +262,12 @@ test('findMermaidLines: sequence actors and messages', () => {
   assert.deepEqual(findMermaidLines(src, { kind: 'text', text: 'select' }), { s: 3, e: 3 }); // falls back to substring
   assert.equal(findMermaidLines(src, null), null);
 });
+
+test('buildReview: a diagram element comment says what it is about, before everything else', () => {
+  const r = buildReview({ commitId: 'x', event: 'COMMENT', comments: [
+    { path: 'a.md', start: 44, end: 44, quote: 'q', body: 'say what travels here', about: 'edge “UI → Server”', quoteMd: '```mermaid\nUI --> Server\n```', includeQuote: true, anchor: { start: 44, end: 44, exact: true } },
+    { path: 'a.md', start: 44, end: 44, quote: 'q', body: 'plain', anchor: { start: 44, end: 44, exact: true } },
+  ] });
+  assert.equal(r.comments[0].body, '_Re: edge “UI → Server”_\n\n```mermaid\nUI --> Server\n```\n\nsay what travels here');
+  assert.equal(r.comments[1].body, 'plain');
+});

@@ -207,6 +207,7 @@ export function buildReview({ comments, summary, event, commitId }) {
     const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
     if (c.anchor) {
       const parts = [];
+      if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
       if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
       // comments saved before the quote option existed carry no flag: quote only when not exact
       const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;

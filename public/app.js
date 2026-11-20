@@ -508,6 +508,7 @@ function onDiagramClick(fig, hit, frame) {
   range.selectNode(fig);
   const sel = finishSelection(start, end, [{ kind: 'code', lang: fig.dataset.lang, text: state.lines.slice(cs - 1, ce).join('\n') }], range);
   sel.about = about;
+  sel.aboutShort = hit ? `${hit.kind} “${hit.label}”` : '';
   sel.rect = rect;
   showComposer(sel);
   markElement(hit ? hit.el : null);
@@ -699,6 +700,7 @@ function addComment() {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     path: state.file.filename,
     start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
+    about: p.aboutShort || '', // diagram element, so the comment says what it is about on GitHub
     includeQuote: p.anchor ? $('#c-qinc').checked : true,
     quoteMd: $('#c-qtext').value.trim(), // markdown actually posted; the user may have edited it
   });
