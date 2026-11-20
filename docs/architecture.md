@@ -83,7 +83,6 @@ The browser only talks to the local server.
 | `/api/raw` | GET | An image at the head commit |
 | `/api/review` | POST | Create a review with inline comments |
 | `/api/reply` | POST | Reply to an existing thread |
-| `/api/health` | GET | Liveness probe for supervisors |
 
 A review payload looks like this:
 
