@@ -42,6 +42,23 @@ Launches a headed Chrome on a virtual screen and drives it with OS-level mouse a
 typing, replying and clicking Submit against the fake GitHub. This caught a bug the headless tests
 missed: the Submit button was below the fold in a normal browser window.
 
+### Against real GitHub
+`brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape:
+
+| PR | Covers |
+|----|--------|
+| [#1](https://github.com/brianv0/rico/pull/1) | one doc edited in several hunks; real threads incl. multi-line, left-side, 3-message, and an outdated one |
+| [#2](https://github.com/brianv0/rico/pull/2) | a new file with a relative PNG, plus a modified file |
+| [#3](https://github.com/brianv0/rico/pull/3) | rename + edit, a pure rename (no patch at all), a deletion |
+| [#4](https://github.com/brianv0/rico/pull/4) | a 2,000-line document (scale) |
+
+```bash
+npm start                         # with GITHUB_TOKEN set
+node e2e/real/check-prs.cjs       # read-only: 21 checks across all four PRs, posts nothing
+REAL_PR=1 bash e2e/desktop/run.sh # real Chrome + OS input on PR #1; dry run
+RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review to PR #1
+```
+
 ## Known limits
 Resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
 spanning hunks is undocumented, so Rico stays within one.
