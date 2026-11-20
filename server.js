@@ -35,7 +35,7 @@ function token() {
   return (cachedToken = t);
 }
 
-async function gh(apiPath, { method = 'GET', body, accept } = {}) {
+async function gh(apiPath, { method = 'GET', body, accept, binary = false } = {}) {
   const res = await fetch(API + apiPath, {
     method,
     headers: {
@@ -47,7 +47,8 @@ async function gh(apiPath, { method = 'GET', body, accept } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const text = await res.text();
+  const buf = binary && res.ok ? Buffer.from(await res.arrayBuffer()) : null;
+  const text = binary && res.ok ? '' : await res.text();
   if (!res.ok) {
     let msg = text;
     try {
@@ -59,7 +60,7 @@ async function gh(apiPath, { method = 'GET', body, accept } = {}) {
     }
     throw new HttpError(res.status === 401 || res.status === 403 || res.status === 404 || res.status === 422 ? res.status : 502, `GitHub: ${msg}`);
   }
-  return text;
+  return binary ? buf : text;
 }
 
 const ghJson = async (p, o) => JSON.parse(await gh(p, o));
@@ -137,6 +138,20 @@ async function apiFile(q) {
   return gh(`/repos/${owner}/${repo}/contents/${enc}?ref=${ref}`, { accept: 'application/vnd.github.raw+json' });
 }
 
+const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif' };
+
+// Images referenced by relative path from a markdown file, served from the PR's head commit.
+async function apiRaw(q) {
+  const { owner, repo } = repoParams(q);
+  const file = q.get('path') || '';
+  const ref = q.get('ref') || '';
+  const type = IMG[path.extname(file).toLowerCase()];
+  if (!file || file.includes('..') || !/^[0-9a-f]{7,64}$/i.test(ref) || !type) throw new HttpError(400, 'bad path/ref (images only)');
+  const enc = file.split('/').map(encodeURIComponent).join('/');
+  const data = await gh(`/repos/${owner}/${repo}/contents/${enc}?ref=${ref}`, { accept: 'application/vnd.github.raw+json', binary: true });
+  return { type, data };
+}
+
 async function apiReview(body) {
   const { owner, repo, number, review } = body || {};
   if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number)) throw new HttpError(400, 'bad request');
@@ -204,6 +219,11 @@ const server = http.createServer(async (req, res) => {
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
     if (req.method === 'POST' && req.headers['x-rico'] !== '1') throw new HttpError(403, 'missing X-Rico header');
     if (req.method === 'GET' && url.pathname === '/api/pr') return send(200, await apiPr(url.searchParams));
+    if (req.method === 'GET' && url.pathname === '/api/raw') {
+      const { type, data } = await apiRaw(url.searchParams);
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'private, max-age=300', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Content-Type-Options': 'nosniff' });
+      return res.end(data);
+    }
     if (req.method === 'GET' && url.pathname === '/api/file') return send(200, await apiFile(url.searchParams), 'text/plain; charset=utf-8');
     if (req.method === 'POST' && url.pathname === '/api/review') return send(200, await apiReview(await readJson(req)));
     if (req.method === 'POST' && url.pathname === '/api/reply') return send(200, await apiReply(await readJson(req)));

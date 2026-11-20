@@ -11,6 +11,7 @@ npm start                    # http://localhost:4317
 ```
 
 Paste a PR URL (or `owner/repo#123`). Your token stays on the local server and never reaches the browser.
+Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
 
 ## How it works
 - markdown-it stamps every rendered block with its source line range (`token.map`).
@@ -18,6 +19,7 @@ Paste a PR URL (or `owner/repo#123`). Your token stays on the local server and n
 - GitHub only accepts comments on lines inside the diff, and a multi-line range must sit in one hunk.
   Rico clamps to the hunk with the most overlap, tells you when it did, and quotes the full selection in the comment.
   Selections wholly outside the diff go into the review summary with a quote.
+- Relative images are served from the PR's head commit (images only).
 - Gutter bars: green = changed, blue = commentable context, grey = outside the diff.
 - Existing review threads show in a margin beside the text (like Google Docs), aligned with the blocks they
   are anchored to. Hover a thread to highlight its text; click highlighted text to jump to the thread; reply
@@ -32,5 +34,5 @@ npm run e2e      # headless Chromium with real mouse drags against the same fake
 ```
 
 ## Known limits
-Relative images don't resolve; resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
+Resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
 spanning hunks is undocumented, so Rico stays within one.

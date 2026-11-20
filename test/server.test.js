@@ -4,7 +4,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startFake, SHA, FILE } from './fake-github.js';
+import { startFake, SHA, FILE, PNG } from './fake-github.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let fake;
@@ -19,7 +19,7 @@ async function startRico(env) {
 }
 const get = (port, p, headers = {}) => new Promise((resolve, reject) => {
   http.get({ host: '127.0.0.1', port, path: p, headers }, (res) => {
-    let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve({ status: res.statusCode, body: b }));
+    const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => { const raw = Buffer.concat(chunks); resolve({ status: res.statusCode, body: raw.toString('utf8'), raw, type: res.headers['content-type'] }); });
   }).on('error', reject);
 });
 const post = (port, p, body, headers = { 'X-Rico': '1' }) => new Promise((resolve, reject) => {
@@ -42,7 +42,7 @@ test('GET /api/pr lists only non-removed markdown files, with patches', async ()
   const j = JSON.parse(r.body);
   assert.equal(j.headSha, SHA);
   assert.equal(j.title, 'Plan v2');
-  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md']);
+  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md']);
   assert.match(j.files[0].patch, /^@@ -1,7 \+1,10 @@/);
 });
 
@@ -125,4 +125,15 @@ test('POST /api/reply replies to a thread and validates input', async () => {
   assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: 101, text: '  ' })).status, 400);
   assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: '101', text: 'x' })).status, 400);
   assert.equal((await post(port, '/api/reply', { owner: 'acme', repo: 'docs', number: 7, commentId: 101, text: 'x' }, {})).status, 403);
+});
+
+test('GET /api/raw serves repo images byte-for-byte, and only images', async () => {
+  const q = (o) => '/api/raw?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: 'docs/img/x.png', ref: SHA, ...o });
+  const ok = await get(port, q({}));
+  assert.equal(ok.status, 200);
+  assert.equal(ok.type, 'image/png');
+  assert.deepEqual(ok.raw, PNG);
+  assert.equal((await get(port, q({ path: 'docs/plan.md' }))).status, 400); // not an image: refuse to be a file proxy
+  assert.equal((await get(port, q({ path: '../x.png' }))).status, 400);
+  assert.equal((await get(port, q({ path: 'docs/img/missing.png' }))).status, 404);
 });

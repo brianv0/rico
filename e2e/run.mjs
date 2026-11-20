@@ -48,7 +48,7 @@ await page.click('#load button');
 await page.waitForSelector('#doc h1');
 
 await step('only markdown files are listed; patch-less/non-md ignored', async () => {
-  assert.equal(await page.locator('#files button').count(), 1);
+  assert.equal(await page.locator('#files button').count(), 2);
 });
 await step('blocks carry source lines and diff classes', async () => {
   const cls = await page.evaluate(() => [...document.querySelectorAll('#doc > [data-l]')].map((e) => e.tagName + ':' + e.dataset.l + ':' + e.className).join(' | '));
@@ -148,7 +148,45 @@ await step('narrow screens stack comments under the text', async () => {
   const [docBottom, cardTop, pos] = await page.evaluate(() => [document.getElementById('doc').getBoundingClientRect().bottom, document.querySelector('#margin .thread').getBoundingClientRect().top, getComputedStyle(document.querySelector('#margin .thread')).position]);
   assert.equal(pos, 'static'); assert.ok(cardTop >= docBottom - 1, `${cardTop} vs ${docBottom}`);
 });
-await step('no page errors', async () => assert.deepEqual(errors, []));
+await step('line mapping is exact for every block and range in a complex document', async () => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.locator('#files button', { hasText: 'docs/complex.md' }).click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/complex.md' && document.querySelector('#doc h1'));
+  const res = await page.evaluate(() => {
+    const doc = document.getElementById('doc'), R = window.__rico, lines = R.state.lines;
+    const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ');
+    const words = (s) => norm(s).split(/\s+/).filter(Boolean);
+    const hasWord = (line, w) => words(line).includes(w);
+    const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]'));
+    const tn = (el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const a = []; for (let n = w.nextNode(); n; n = w.nextNode()) if (n.data.trim()) a.push(n); return a; };
+    const sel = (a, b) => { const A = tn(a), B = tn(b); if (!A.length || !B.length) return null; const r = document.createRange(); r.setStart(A[0], 0); const l = B[B.length - 1]; r.setEnd(l, l.data.length); return r; };
+    const bad = []; let n = 0;
+    const check = (i, j) => {
+      const r = sel(leaves[i], leaves[j]); if (!r) return;
+      const d = R.describeSelection(r); n++;
+      if (!d) return bad.push({ i, j, why: 'null' });
+      const w = words(r.toString()); const fw = w[0], lw = w[w.length - 1];
+      const [s0, s1] = leaves[i].dataset.l.split('-').map(Number), [e0, e1] = leaves[j].dataset.l.split('-').map(Number);
+      const p = [];
+      if (d.start < s0 + 1 || d.start > s1) p.push('start outside first block');
+      if (d.end < e0 + 1 || d.end > e1) p.push('end outside last block');
+      // skip punctuation-only lines (e.g. a closing brace) at the edges when matching words
+      const eff = (ln, dir) => { let k = ln; while (k >= 1 && k <= lines.length && !words(lines[k - 1]).length) k += dir; return k; };
+      const ks = eff(d.start, 1), ke = eff(d.end, -1);
+      if (fw && !hasWord(lines[ks - 1] || '', fw)) p.push(`first "${fw}" not on L${d.start}: ${lines[d.start - 1]}`);
+      if (lw && !hasWord(lines[ke - 1] || '', lw)) p.push(`last "${lw}" not on L${d.end}: ${lines[d.end - 1]}`);
+      if (p.length) bad.push({ tag: leaves[i].tagName, i, j, d: [d.start, d.end], p });
+    };
+    for (let i = 0; i < leaves.length; i++) { check(i, i); for (let j = i + 1; j < Math.min(leaves.length, i + 8); j++) check(i, j); }
+    const tags = new Set(leaves.map((e) => e.tagName + (e.dataset.k || '')));
+    return { n, tags: [...tags], bad: bad.slice(0, 6) };
+  });
+  for (const t of ['PRE', 'CODEfence', 'TR', 'LI', 'P', 'H2']) assert.ok(res.tags.includes(t) || t === 'PRE', 'fixture lacks ' + t);
+  assert.ok(res.n > 150, 'only ' + res.n + ' checks');
+  assert.equal(await page.evaluate(() => document.querySelector('#doc img').naturalWidth), 1, 'relative image should load from the PR head');
+  assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
+});
+await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
 
 await browser.close(); srv.kill(); await fake.close();
 process.exit(failed ? 1 : 0);

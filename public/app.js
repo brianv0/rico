@@ -1,5 +1,5 @@
 import {
-  parsePrRef, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
 } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
@@ -24,6 +24,19 @@ md.renderer.rules.link_open = (tokens, i, o, e, self) => {
   tokens[i].attrSet('target', '_blank');
   tokens[i].attrSet('rel', 'noopener noreferrer');
   return defaultLink(tokens, i, o, e, self);
+};
+
+// Relative images come from the PR head commit via the local server.
+const defaultImage = md.renderer.rules.image || ((tokens, i, o, _e, self) => self.renderToken(tokens, i, o));
+md.renderer.rules.image = (tokens, i, o, e, self) => {
+  const t = tokens[i];
+  if (state.pr && state.file) {
+    const dir = state.file.filename.split('/').slice(0, -1).join('/');
+    const p = resolveRepoPath(dir, t.attrGet('src'));
+    if (p) t.attrSet('src', '/api/raw?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, ref: state.pr.headSha, path: p }));
+  }
+  t.attrSet('loading', 'lazy');
+  return defaultImage(tokens, i, o, e, self);
 };
 
 // Separate renderer for comment bodies (no line stamping; raw HTML stays off).

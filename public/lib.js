@@ -154,3 +154,19 @@ export function buildReview({ comments, summary, event, commitId }) {
   if (body) out.body = body;
   return out;
 }
+
+/**
+ * Resolve a markdown image/link target to a repo-root-relative path, or null when it is not
+ * a relative repo path (absolute URL, protocol-relative, data:, #anchor).
+ *   fileDir: directory of the markdown file, e.g. "docs/guide" ("" for the repo root)
+ */
+export function resolveRepoPath(fileDir, src) {
+  const raw = String(src || '').split(/[?#]/)[0];
+  if (!raw || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(src)) return null;
+  const parts = raw.startsWith('/') ? [] : String(fileDir || '').split('/').filter(Boolean);
+  for (const seg of raw.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') { if (!parts.length) return null; parts.pop(); } else parts.push(decodeURIComponent(seg));
+  }
+  return parts.length ? parts.join('/') : null;
+}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -112,4 +112,14 @@ test('buildReview single-line comment has no start_line', () => {
   });
   assert.equal('start_line' in r.comments[0], false);
   assert.equal('body' in r, false);
+});
+
+test('resolveRepoPath resolves relative targets and rejects the rest', () => {
+  assert.equal(resolveRepoPath('docs/guide', 'img/a.png'), 'docs/guide/img/a.png');
+  assert.equal(resolveRepoPath('docs/guide', './a.png'), 'docs/guide/a.png');
+  assert.equal(resolveRepoPath('docs/guide', '../a.png?raw=1#x'), 'docs/a.png');
+  assert.equal(resolveRepoPath('docs/guide', '/assets/a%20b.png'), 'assets/a b.png');
+  assert.equal(resolveRepoPath('', 'a.png'), 'a.png');
+  assert.equal(resolveRepoPath('docs', '../../../etc/passwd'), null); // cannot climb above the repo root
+  for (const u of ['https://x.com/a.png', '//x.com/a.png', 'data:image/png;base64,AAAA', '#frag', '']) assert.equal(resolveRepoPath('docs', u), null);
 });
