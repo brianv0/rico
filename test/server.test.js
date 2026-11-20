@@ -47,7 +47,7 @@ test('GET /api/pr lists only non-removed markdown files, with patches', async ()
   // every changed file is sent for the file tree, markdown or not (the removed one included? no: GitHub lists it, so do we)
   assert.deepEqual(j.allFiles.map((f) => f.filename), ['docs/plan.md', 'docs/complex.md', 'docs/diagrams.md', 'docs/github.md', 'src/x.js', 'docs/old.md']);
   assert.deepEqual({ d: j.draft, m: j.merged, c: j.commits, n: j.changedFiles, a: j.authorAvatar, s: j.state }, { d: false, m: false, c: 2, n: 6, a: AVATAR, s: 'open' });
-  assert.match(j.files[0].patch, /^@@ -1,7 \+1,10 @@/);
+  assert.match(j.files[0].patch, /^@@ -1,8 \+1,10 @@/);
 });
 
 test('GET /api/pr rejects unparseable refs and surfaces GitHub 404s', async () => {

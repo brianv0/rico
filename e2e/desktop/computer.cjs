@@ -31,7 +31,20 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   const S = (x, y) => [Math.round(x + off[0]), Math.round(y + off[1])];
   const move = (x, y) => sh(`xdotool mousemove ${S(x, y).join(' ')}`);
   const click = (x, y) => { move(x, y); sh('xdotool click 1'); };
-  const textRect = (t) => page.evaluate((t) => { const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const i = n.data.indexOf(t); if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + t.length); const b = r.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; } } return null; }, t);
+  // Find text across element boundaries (syntax highlighting splits code into many spans).
+  const findText = (t) => page.evaluate((t) => {
+    const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT);
+    const nodes = []; let full = '';
+    for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push({ n, start: full.length }); full += n.data; }
+    const i = full.indexOf(t);
+    if (i < 0) return null;
+    const loc = (pos) => { for (let k = nodes.length - 1; k >= 0; k--) if (nodes[k].start <= pos) return { node: nodes[k].n, off: pos - nodes[k].start }; };
+    const a = loc(i), z = loc(i + t.length - 1);
+    const r = document.createRange(); r.setStart(a.node, a.off); r.setEnd(z.node, z.off + 1);
+    const rs = r.getClientRects(); const f = rs[0], l = rs[rs.length - 1];
+    return { l: f.left, r: l.right, t: l.top, b: l.bottom };
+  }, t);
+  const textRect = findText;
   const centerOf = (sel, nth = 0) => page.evaluate(([s, n]) => { const e = document.querySelectorAll(s)[n]; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, [sel, nth]);
   // Real OS-level drag with intermediate moves.
   async function drag(from, to) {
@@ -79,14 +92,15 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
 
   // 5. submit the review with a real click
   await page.evaluate(() => window.scrollTo(0, 0));
+  click(...(await centerOf('#review-btn'))); await page.waitForSelector('#review-pop:not([hidden])'); await sleep(200); // GitHub's flow: Review changes, then Submit
   click(...(await centerOf('#submit')));
   await page.waitForSelector('#result a', { timeout: 5000 });
   await sleep(500);
   const posted = JSON.parse(fs.readFileSync('/tmp/fake-state.json', 'utf8')).posted;
   check('review posted once', posted.length === 1);
   const c = posted[0].comments;
-  check('multi-line anchor 3–6 on RIGHT', c[0].start_line === 3 && c[0].line === 6 && c[0].side === 'RIGHT' && c[0].body === 'Tighten this whole section - it repeats itself.', JSON.stringify(c[0]));
-  check('clamped anchor 9–10 carries the quote', c[1].start_line === 9 && c[1].line === 10 && /^> item two/.test(c[1].body), JSON.stringify(c[1]).slice(0, 160));
+  check('multi-line anchor 3–6 on RIGHT', c[0].start_line === 3 && c[0].line === 6 && c[0].side === 'RIGHT' && c[0].body === '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section - it repeats itself.', JSON.stringify(c[0]));
+  check('clamped anchor 9–10 carries the header, the prose quote and the code as a fenced block', c[1].start_line === 9 && c[1].line === 10 && c[1].body === '_Selected lines 9–12; anchored to lines 9–10._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nThis spans a hunk boundary.', JSON.stringify(c[1]).slice(0, 200));
   shot('os-submitted');
 
   console.log(results.every(Boolean) ? 'ALL OK' : 'SOME FAILED');

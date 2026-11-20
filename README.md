@@ -1,8 +1,8 @@
 # Rico — rich comments
 
-Review the *rendered* markdown of a GitHub PR in your browser. Select any text, even across
-several paragraphs, and a comment box appears over the selection. Comments are posted as a real
-PR review (`line` / `start_line` / `side` on the official REST API).
+Review a GitHub PR's markdown the way it will be read, in a page built to look like GitHub's **Files changed**.
+Select any text, even across several paragraphs, and a comment box appears over the selection. Comments are posted
+as a real PR review (`line` / `start_line` / `side` on the official REST API).
 
 ```bash
 export GITHUB_TOKEN=...      # or just be logged in with `gh auth login`
@@ -12,6 +12,27 @@ npm start                    # http://localhost:4317
 
 Paste a PR URL (or `owner/repo#123`). Your token stays on the local server and never reaches the browser.
 Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
+
+## Looks like GitHub
+- **Page chrome:** PR title and number, Open / Draft / Merged / Closed badge, "X wants to merge N commits into
+  *base* from *head*", the Conversation / Commits / Checks / Files changed tabs with counts (the others link to
+  GitHub), a sticky toolbar with the totals, and the green **Review changes** button with its pending-comment count.
+- **Review changes dialog:** "Finish your review" with a summary, Comment / Approve / Request changes, and your
+  pending comments; Submit posts them as one review.
+- **File tree** of *every* changed file (folders collapse and single-child chains merge like GitHub's), with
+  status icons, comment counts, a filter, and "viewed" progress. Non-markdown files link to their diff on GitHub.
+- **Stacked file cards** with a sticky header: collapse, copy path, `+N −N` and the five-square diffstat, a
+  **Viewed** checkbox (collapses the file, remembered in this browser), and a **Rendered / Source diff** toggle.
+- **Rendered view** uses GitHub's own markdown CSS (`github-markdown-css`) and highlight.js's GitHub themes, light
+  and dark. It also does what GitHub's renderer does: task lists, `> [!NOTE]` alerts, heading permalinks, aligned
+  tables, `<details>` and other raw HTML (sanitized with DOMPurify), relative links to the file on GitHub at the
+  PR's head commit, relative images served from it.
+- **Source diff view:** the unified diff with old and new line numbers, Primer's diff colours, hunk headers,
+  existing threads inline under their lines (left-side ones under the removed line, outdated ones grouped), a hover
+  **+** to comment on a line and shift-click to extend a range within the hunk. Comments on removed lines are posted on
+  the `LEFT` side.
+- Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
+  markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 
 ## How it works
 - markdown-it stamps every rendered block with its source line range (`token.map`).
@@ -55,8 +76,9 @@ bash e2e/desktop/run.sh   # needs Xvfb, xdotool, ImageMagick, google-chrome
 ```
 Launches a headed Chrome on a virtual screen and drives it with OS-level mouse and keyboard events
 (xdotool), screenshotting the actual screen into `e2e/desktop/out/`. It exercises hover, drag-select,
-typing, replying and clicking Submit against the fake GitHub. This caught a bug the headless tests
-missed: the Submit button was below the fold in a normal browser window.
+typing, replying, opening Review changes and clicking Submit against the fake GitHub. It has caught two bugs the
+headless tests missed: Submit hidden below the fold in a normal window, and the review dialog running off the bottom of
+the screen when the page was scrolled to the top.
 
 ### Against real GitHub
 `brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape:
@@ -70,11 +92,20 @@ missed: the Submit button was below the fold in a normal browser window.
 
 ```bash
 npm start                         # with GITHUB_TOKEN set
-node e2e/real/check-prs.cjs       # read-only: 21 checks across all four PRs, posts nothing
+node e2e/real/check-prs.cjs       # read-only: 20 checks across all four PRs, posts nothing
 REAL_PR=1 bash e2e/desktop/run.sh # real Chrome + OS input on PR #1; dry run
 RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review to PR #1
 ```
 
 ## Known limits
-Resolved/unresolved thread state isn't shown (needs GraphQL); threads on removed lines are only counted; whether GitHub accepts a range
-spanning hunks is undocumented, so Rico stays within one.
+- The rendered view shows the *new* document only. GitHub's rich diff also draws removed paragraphs in red; here
+  removed lines are visible in the Source diff view.
+- Resolved/unresolved thread state isn't shown (the REST API doesn't expose it; it would need GraphQL).
+- GitHub doesn't document whether a multi-line comment may span hunks, so Rico stays within one (and says so).
+- The Conversation, Commits and Checks tabs open on GitHub; Rico only reviews files.
+- No expandable hidden context between hunks in the Source diff view yet, no emoji shortcodes or footnotes.
+- Mermaid element mapping covers flowcharts and sequence diagrams; other types comment on the whole block.
+
+## Development
+`public/icons.js` is generated from `@primer/octicons` (`node scripts/gen-icons.mjs`); the vendored page styles and
+highlighting come from `github-markdown-css`, `@highlightjs/cdn-assets` and `dompurify`, served from `node_modules`.

@@ -119,6 +119,70 @@ await step('replying from the margin posts to GitHub and appends to the thread',
   assert.match(await page.locator('#margin .thread').nth(0).innerText(), /me[\s\S]*Agreed, thanks\./);
   assert.equal(await noOverlap(), true);
 });
+// ---- source diff view ----
+const card = (path) => page.locator(`.file-card[data-path="${path}"]`);
+await step('source diff: unified diff with both line numbers, hunks and GitHub diff colours', async () => {
+  const c = card('docs/plan.md');
+  await c.getByRole('button', { name: 'Source diff' }).click();
+  assert.equal(await c.locator('.rico-src .d-add').count(), 4);
+  assert.equal(await c.locator('.rico-src .d-del').count(), 1);
+  assert.equal(await c.locator('.rico-src .d-hunk').count(), 2);
+  const del = c.locator('.d-del').first();
+  assert.equal(await del.locator('.d-num[data-side="LEFT"]').innerText(), '2'); // a removed line has only an old number
+  assert.equal(await del.locator('.d-num[data-side="RIGHT"]').innerText(), '');
+  const add = c.locator('.d-add').first();
+  assert.equal(await add.locator('.d-num[data-side="RIGHT"]').innerText(), '3'); // an added line has only a new number
+  const bg = (loc) => loc.evaluate((e) => getComputedStyle(e).backgroundColor);
+  assert.notEqual(await bg(add.locator('.d-code')), 'rgba(0, 0, 0, 0)'); assert.notEqual(await bg(del.locator('.d-code')), 'rgba(0, 0, 0, 0)');
+  assert.notEqual(await bg(add.locator('.d-code')), await bg(del.locator('.d-code')), 'additions and deletions are coloured differently');
+  assert.equal(await c.locator('.rico-doc').isHidden(), true);
+  assert.equal(await c.getByRole('button', { name: 'Source diff' }).getAttribute('aria-pressed'), 'true');
+});
+await step('source diff: existing threads sit under their lines, left-side ones under the removed line', async () => {
+  const c = card('docs/plan.md');
+  const under = (sel) => c.locator(sel).locator('xpath=following-sibling::tr[1]');
+  assert.equal(await under('tr.d-row[data-new="6"]').getAttribute('class'), 'thread-row');
+  assert.match(await under('tr.d-row[data-new="6"]').innerText(), /alice[\s\S]*Will trim it/);
+  assert.match(await under('tr.d-del[data-old="2"]').innerText(), /On a removed line/);
+  assert.match(await c.locator('.src-note').innerText(), /1 outdated thread/);
+});
+await step('source diff: "+" comments on a line, shift-click extends inside the hunk, removed lines use the LEFT side', async () => {
+  const c = card('docs/plan.md');
+  const num = (side, line) => c.locator(`.d-num[data-side="${side}"][data-line="${line}"]`);
+  const range = () => page.locator('#c-range').innerText();
+  await num('RIGHT', 3).hover();
+  await num('RIGHT', 3).locator('.d-plus').click();
+  await page.waitForSelector('#composer:not([hidden])');
+  assert.equal(await range(), 'Comments on line 3');
+  assert.equal(await page.locator('#doc .d-sel, .d-sel').count(), 1);
+  await page.keyboard.press('Escape');
+  await num('RIGHT', 5).click(); await page.keyboard.press('Escape');
+  await num('RIGHT', 6).click({ modifiers: ['Shift'] });
+  assert.equal(await range(), 'Comments on lines 5–6');
+  assert.equal(await page.locator('.d-sel').count(), 2);
+  await page.keyboard.press('Escape');
+  await num('RIGHT', 13).click({ modifiers: ['Shift'] }); // another hunk: a range cannot cross it, so this starts fresh
+  assert.equal(await range(), 'Comments on line 13');
+  await page.keyboard.press('Escape');
+  await num('LEFT', 2).click(); // the removed line
+  assert.equal(await range(), 'Comments on line 2 — removed line');
+  await page.fill('#c-body', 'Why was this subtitle removed?');
+  await page.keyboard.press('Control+Enter');
+  const last = await page.evaluate(() => window.__rico.state.comments.at(-1));
+  assert.deepEqual({ side: last.side, start: last.start, end: last.end, exact: last.anchor.exact, inc: last.includeQuote }, { side: 'LEFT', start: 2, end: 2, exact: true, inc: false });
+  assert.match(await c.locator('tr.d-del[data-old="2"]').locator('xpath=following-sibling::tr[1]').innerText(), /Pending[\s\S]*Why was this subtitle removed/);
+  assert.equal(await card('docs/plan.md').locator('.rico-margin .thread.draft').count(), 0, 'a left-side draft has no place in the rendered view');
+  await c.locator('.thread-row .thread.draft').getByRole('button', { name: 'Delete' }).click(); // leave no trace
+  assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
+});
+await step('source diff: switching back to Rendered restores the document and its margin threads', async () => {
+  const c = card('docs/plan.md');
+  await c.getByRole('button', { name: 'Rendered' }).click();
+  assert.equal(await c.locator('.rico-doc').isVisible(), true);
+  assert.equal(await c.locator('.rico-src').isHidden(), true);
+  assert.equal(await c.locator('.rico-margin .thread').count(), 2);
+});
+
 await step('selection inside one hard-wrapped paragraph narrows to a single line', async () => {
   await drag('across', 'testing');
   assert.equal(await composerText(), 'Comments on line 6');
@@ -186,6 +250,7 @@ await step('drafts show in the margin too, without overlapping', async () => {
 });
 await step('the review dialog fits a short window with several pending comments (Submit stays reachable)', async () => {
   await page.setViewportSize({ width: 1400, height: 640 });
+  await page.evaluate(() => window.scrollTo(0, 0)); // the toolbar is not stuck here, so the dialog starts low on the screen
   await page.click('#review-btn');
   const r = await page.evaluate(() => { const b = document.getElementById('submit').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: innerHeight, n: document.querySelectorAll('#list .card').length }; });
   assert.equal(r.n, 3);

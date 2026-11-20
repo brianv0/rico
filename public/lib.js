@@ -214,10 +214,11 @@ export function buildReview({ comments, summary, event, commitId }) {
       const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
       if (include && quote) parts.push(quote);
       parts.push(c.body);
-      const item = { path: c.path, line: c.anchor.end, side: 'RIGHT', body: parts.join('\n\n') };
+      const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
+      const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
       if (c.anchor.start < c.anchor.end) {
         item.start_line = c.anchor.start;
-        item.start_side = 'RIGHT';
+        item.start_side = side;
       }
       inline.push(item);
     } else {
@@ -418,4 +419,20 @@ export function parsePatchRows(patch) {
   }
   while (rows.length && rows[rows.length - 1].type === 'ctx' && rows[rows.length - 1].text === '' && !/\n$/.test(String(patch)) && false) rows.pop();
   return rows;
+}
+
+/**
+ * Per hunk, the contiguous line ranges on each side: a multi-line review comment must stay inside one.
+ *   -> [{left: {start, end} | null, right: {start, end} | null}]
+ */
+export function patchHunkRanges(rows) {
+  const out = [];
+  let cur = null;
+  for (const r of rows) {
+    if (r.type === 'hunk') { cur = { left: null, right: null }; out.push(cur); continue; }
+    if (!cur || r.type === 'meta') continue;
+    if (r.old != null) cur.left = cur.left ? { start: cur.left.start, end: r.old } : { start: r.old, end: r.old };
+    if (r.new != null) cur.right = cur.right ? { start: cur.right.start, end: r.new } : { start: r.new, end: r.new };
+  }
+  return out;
 }

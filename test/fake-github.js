@@ -20,9 +20,9 @@ export const FILE = [
   '- item one', '- item two', '', '```js', 'const a = 1;', 'const b = 2;', '```', '', 'Far away paragraph outside the diff.', '',
 ].join('\n');
 export const PATCH = [
-  '@@ -1,7 +1,10 @@', ' # Plan', ' ', '+First paragraph here.', ' ', '+Second paragraph is hard wrapped',
+  '@@ -1,8 +1,10 @@', ' # Plan', '-Old subtitle that was removed', ' ', '+First paragraph here.', ' ', '+Second paragraph is hard wrapped',
   '+across two lines for testing.', ' ', ' - item one', ' - item two', ' ',
-  '@@ -10,2 +12,3 @@', ' const a = 1;', '+const b = 2;', ' ```',
+  '@@ -11,2 +12,3 @@', ' const a = 1;', '+const b = 2;', ' ```',
 ].join('\n');
 
 const C = (o) => ({ side: 'RIGHT', path: 'docs/plan.md', author_association: 'MEMBER', user: { login: 'alice', avatar_url: AVATAR }, created_at: '2026-11-18T10:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#discussion_r' + o.id, line: null, original_line: null, ...o });
@@ -60,7 +60,7 @@ export async function startFake() {
     }
     if (u.pathname === '/repos/acme/docs/pulls/7/files') {
       return json([
-        { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 0, patch: PATCH },
+        { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 1, patch: PATCH },
         { filename: 'docs/complex.md', status: 'added', additions: COMPLEX_LINES.length, deletions: 0, patch: COMPLEX_PATCH },
         { filename: 'docs/diagrams.md', status: 'added', additions: DIAGRAM_LINES.length, deletions: 0, patch: DIAGRAM_PATCH },
         { filename: 'docs/github.md', status: 'added', additions: GH_LINES.length, deletions: 0, patch: GH_PATCH },

@@ -33,10 +33,23 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   const S = (x, y) => [Math.round(x + off[0]), Math.round(y + off[1])];
   const move = (x, y) => sh(`xdotool mousemove ${S(x, y).join(' ')}`);
   const click = (x, y) => { move(x, y); sh('xdotool click 1'); };
-  const textRect = (t) => page.evaluate((t) => { const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const i = n.data.indexOf(t); if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + t.length); const b = r.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; } } return null; }, t);
+  // Find text across element boundaries (syntax highlighting splits code into many spans).
+  const findText = (t) => page.evaluate((t) => {
+    const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT);
+    const nodes = []; let full = '';
+    for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push({ n, start: full.length }); full += n.data; }
+    const i = full.indexOf(t);
+    if (i < 0) return null;
+    const loc = (pos) => { for (let k = nodes.length - 1; k >= 0; k--) if (nodes[k].start <= pos) return { node: nodes[k].n, off: pos - nodes[k].start }; };
+    const a = loc(i), z = loc(i + t.length - 1);
+    const r = document.createRange(); r.setStart(a.node, a.off); r.setEnd(z.node, z.off + 1);
+    const rs = r.getClientRects(); const f = rs[0], l = rs[rs.length - 1];
+    return { l: f.left, r: l.right, t: l.top, b: l.bottom };
+  }, t);
+  const textRect = findText;
   const centerOf = (sel, nth = 0) => page.evaluate(([s, n]) => { const e = document.querySelectorAll(s)[n]; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, [sel, nth]);
   // Real OS-level drag with intermediate moves.
-  const scrollTo = (t) => page.evaluate((t) => { const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) if (n.data.includes(t)) { n.parentElement.scrollIntoView({ block: 'center' }); return; } }, t);
+  const scrollTo = (t) => page.evaluate((t) => { const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT); let full = ''; const nodes = []; for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push({ n, start: full.length }); full += n.data; } const i = full.indexOf(t); if (i < 0) return; for (let k = nodes.length - 1; k >= 0; k--) if (nodes[k].start <= i) { nodes[k].n.parentElement.scrollIntoView({ block: 'center' }); return; } }, t);
   // Click at the start, scroll, then shift+click at the end: how a person selects more than a screenful.
   async function shiftSelect(from, to) {
     await scrollTo(from); await sleep(250);
@@ -78,6 +91,7 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
 
   if (!process.env.RICO_POST) { console.log('dry run: NOT submitting (set RICO_POST=1 to post a real review to the test PR)'); console.log(results.every(Boolean) ? 'ALL OK (dry)' : 'SOME FAILED'); await browser.close(); return; }
   // add a summary and submit with real clicks
+  click(...(await centerOf('#review-btn'))); await page.waitForSelector('#review-pop:not([hidden])'); await sleep(200);
   click(...(await centerOf('#summary'))); type('Second real run: a clamped cross-hunk comment and an unanchorable one.');
   click(...(await centerOf('#submit')));
   await page.waitForSelector('#result a', { timeout: 30000 });

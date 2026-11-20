@@ -41,7 +41,7 @@ const SWEEP = () => {
   // ---------------- PR 1: multi-hunk edit with real threads ----------------
   await load(1);
   await step('PR1: 5 threads in the margin + a note for the removed-line thread', async () => {
-    assert.equal(await page.locator('#margin .thread').count(), 5);
+    assert.ok((await page.locator('#margin .thread').count()) >= 5, 'at least the five seeded threads (real reviews add more)');
     assert.match(await page.locator('#margin .note').innerText(), /1 thread on removed lines/);
   });
   await step('PR1: real author names, markdown bodies and the Claude footer render', async () => {
@@ -90,7 +90,7 @@ const SWEEP = () => {
   await step('PR2: line mapping exact (tables, fences, lists)', async () => {
     const r = await page.evaluate(SWEEP); assert.equal(r.nbad, 0, JSON.stringify(r.bad));
   });
-  await page.locator('#files button', { hasText: 'getting-started.md' }).click();
+  await page.locator('#files button[data-path$="getting-started.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file.filename.endsWith('getting-started.md'));
   await step('PR2: second file (modified) opens with its own diff', async () => {
     assert.ok(await page.locator('#doc .chg').count() > 0);
@@ -99,11 +99,10 @@ const SWEEP = () => {
   // ---------------- PR 3: rename / pure rename / delete ----------------
   await load(3);
   await step('PR3: lists renamed + pure-renamed files, not the deleted one', async () => {
-    const names = await page.locator('#files button').allInnerTexts();
-    const joined = names.join('|');
+    const joined = (await page.locator('#files button').evaluateAll((bs) => bs.map((b) => b.dataset.path))).join('|');
     assert.match(joined, /reference\/glossary\.md/); assert.match(joined, /guide\/quickstart\.md/); assert.doesNotMatch(joined, /old-notes/);
   });
-  await page.locator('#files button', { hasText: 'quickstart.md' }).click();
+  await page.locator('#files button[data-path$="quickstart.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file.filename.endsWith('quickstart.md'));
   await step('PR3: pure rename (no patch) renders, every block is "outside the diff"', async () => {
     const c = await page.evaluate(() => ({ chg: document.querySelectorAll('#doc .chg').length, ctx: document.querySelectorAll('#doc .ctx').length, out: document.querySelectorAll('#doc .out').length }));
@@ -113,7 +112,7 @@ const SWEEP = () => {
     const d = await page.evaluate(() => { const li = document.querySelector('#doc p'); const w = document.createTreeWalker(li, NodeFilter.SHOW_TEXT); const n = w.nextNode(); const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, Math.min(10, n.length)); const x = window.__rico.describeSelection(r); return { anchor: x.anchor }; });
     assert.equal(d.anchor, null);
   });
-  await page.locator('#files button', { hasText: 'glossary.md' }).click();
+  await page.locator('#files button[data-path$="glossary.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file.filename.endsWith('glossary.md'));
   await step('PR3: renamed+edited file shows its real thread', async () => {
     await page.waitForTimeout(300);

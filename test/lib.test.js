@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -316,4 +316,23 @@ test('srcWords ignores task-list boxes and alert markers, which never render as 
   assert.equal(srcWords('> [!warning]  '), 0);
   assert.equal(srcWords('> Useful information'), 2);
   assert.equal(srcWords('[x] box without a list marker'), 5); // a leading box is dropped wherever it appears (harmless: it never renders)
+});
+
+test('patchHunkRanges: contiguous per-side ranges for each hunk', () => {
+  const rows = parsePatchRows(['@@ -1,4 +1,5 @@', ' a', '-b', '+c', '+d', ' e', '@@ -20,2 +30,1 @@', '-x', ' y'].join('\n'));
+  assert.deepEqual(patchHunkRanges(rows), [
+    { left: { start: 1, end: 3 }, right: { start: 1, end: 4 } },
+    { left: { start: 20, end: 21 }, right: { start: 30, end: 30 } },
+  ]);
+  assert.deepEqual(patchHunkRanges([]), []);
+});
+
+test('buildReview: comments on removed lines are posted on the LEFT side', () => {
+  const r = buildReview({ commitId: 'x', event: 'COMMENT', comments: [
+    { path: 'a.md', side: 'LEFT', start: 2, end: 4, quote: 'q', body: 'why remove this?', anchor: { start: 2, end: 4, exact: true } },
+    { path: 'a.md', start: 9, end: 9, quote: 'q', body: 'default side', anchor: { start: 9, end: 9, exact: true } },
+  ] });
+  assert.deepEqual(r.comments[0], { path: 'a.md', line: 4, side: 'LEFT', start_line: 2, start_side: 'LEFT', body: 'why remove this?' });
+  assert.equal(r.comments[1].side, 'RIGHT');
+  assert.equal('start_side' in r.comments[1], false);
 });

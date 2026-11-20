@@ -4,6 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
+import { patchHunkRanges } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
 // The page shows every changed markdown file as a card (like GitHub). All the selection / anchoring /
@@ -166,7 +167,8 @@ mdc.renderer.rules.link_open = md.renderer.rules.link_open;
 
 const state = {
   threads: [], // existing PR review threads
-  removed: [], // paths of threads on removed (LEFT-side) lines we cannot place
+  removed: [], // paths of threads on removed (LEFT-side) lines: not placeable in the rendered view
+  leftThreads: [], // those threads, shown under their lines in the source diff
 
   pr: null, // {owner, repo, number, headSha, files, ...}
   file: null, // current file entry
@@ -229,7 +231,7 @@ async function loadPr(ref, wantFile) {
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
-    ({ threads: state.threads, removed: state.removed } = groupThreads(pr.comments || []));
+    ({ threads: state.threads, removed: state.removed, left: state.leftThreads } = groupThreads(pr.comments || []));
     restore();
     renderHeader();
     renderPanel();
@@ -446,7 +448,8 @@ const viewOfNode = (n) => {
   const c = e && e.closest && e.closest('.file-card');
   return c ? views.get(c.dataset.path) || null : null;
 };
-const refreshAll = () => { for (const v of views.values()) if (v.loaded) withView(v, paintBlocks); };
+const refreshView = (v) => { if (v.mode === 'source') renderSource(v); else withView(v, renderMargin); };
+const refreshAll = () => { for (const v of views.values()) if (v.loaded) { if (v.mode === 'source') renderSource(v); else withView(v, paintBlocks); } };
 const scrollToCard = (path) => views.get(path)?.card.scrollIntoView({ block: 'start' });
 
 async function loadView(v) {
@@ -484,13 +487,132 @@ async function openFile(filename) {
 }
 
 function setMode(v, mode) {
+  hideComposer();
   v.mode = mode;
   v.card.classList.toggle('src', mode === 'source');
   for (const b of v.card.querySelectorAll('.seg button')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
   if (mode === 'source') renderSource(v);
   else withView(v, layoutMargin);
 }
-function renderSource() { /* source diff view: added below */ }
+// ----- source diff view -----
+const mdLine = (text) => {
+  try { if (window.hljs) return window.hljs.highlight(text, { language: 'markdown', ignoreIllegals: true }).value; } catch { /* plain */ }
+  return esc(text);
+};
+
+function renderSource(v) {
+  const wrap = v.src;
+  wrap.textContent = '';
+  if (!v.rows.length) {
+    wrap.append(el('div', 'src-empty', v.file.status === 'renamed' ? 'File renamed without changes.' : 'No textual diff is available for this file.'));
+    return;
+  }
+  withView(v, () => {
+    const path = v.file.filename;
+    const all = [...state.threads, ...state.leftThreads].filter((t) => t.path === path);
+    const placed = new Set();
+    const table = el('table', 'diff-table');
+    const tb = el('tbody');
+    const cols = el('colgroup'); // explicit widths: the first row is a one-cell hunk header, which would otherwise split the columns evenly
+    for (const w of [56, 56, 22, 0]) { const c = el('col'); if (w) c.style.width = `${w}px`; cols.append(c); }
+    table.append(cols, tb);
+    v.srcRows = [];
+    const threadRow = (cards) => {
+      const tr = el('tr', 'thread-row');
+      const td = el('td');
+      td.colSpan = 4;
+      td.append(...cards);
+      tr.append(td);
+      return tr;
+    };
+    const numCell = (side, line, plus) => {
+      const td = el('td', 'd-num');
+      td.dataset.side = side;
+      if (line != null) {
+        td.dataset.line = line;
+        td.append(String(line));
+        if (plus) {
+          const b = el('button', 'd-plus', '+');
+          b.type = 'button';
+          b.setAttribute('aria-label', `Add a comment to ${side === 'LEFT' ? 'removed ' : ''}line ${line}`);
+          td.append(b);
+        }
+      }
+      return td;
+    };
+    for (const r of v.rows) {
+      if (r.type === 'hunk') {
+        const tr = el('tr', 'd-hunk');
+        const td = el('td');
+        td.colSpan = 4;
+        td.textContent = r.text;
+        tr.append(td);
+        tb.append(tr);
+        continue;
+      }
+      if (r.type === 'meta') { const tr = el('tr', 'd-meta'); const td = el('td'); td.colSpan = 4; td.textContent = r.text; tr.append(td); tb.append(tr); continue; }
+      const tr = el('tr', `d-row d-${r.type}`);
+      tr.dataset.old = r.old ?? '';
+      tr.dataset.new = r.new ?? '';
+      const mark = el('td', 'd-mark', r.type === 'add' ? '+' : r.type === 'del' ? '−' : '');
+      const code = el('td', 'd-code');
+      code.innerHTML = mdLine(r.text);
+      tr.append(numCell('LEFT', r.old, r.type === 'del'), numCell('RIGHT', r.new, r.type !== 'del'), mark, code);
+      tb.append(tr);
+      v.srcRows.push(tr);
+      // existing threads and pending comments sit directly under the line they are about
+      const side = r.type === 'del' ? 'LEFT' : 'RIGHT';
+      const line = side === 'LEFT' ? r.old : r.new;
+      const here = all.filter((t) => !t.outdated && t.side === side && t.end === line);
+      const drafts = state.comments.filter((c) => c.path === path && (c.side || 'RIGHT') === side && c.end === line);
+      // context lines exist on both sides: a LEFT thread on a context line sits under it too
+      const ctxLeft = r.type === 'ctx' ? all.filter((t) => !t.outdated && t.side === 'LEFT' && t.end === r.old) : [];
+      const ctxLeftDrafts = r.type === 'ctx' ? state.comments.filter((c) => c.path === path && c.side === 'LEFT' && c.end === r.old) : [];
+      const cards = [...here, ...ctxLeft].map((t) => { placed.add(t.id); return threadCard(t); });
+      cards.push(...[...drafts, ...ctxLeftDrafts].map((c) => draftCard(c)));
+      if (cards.length) tb.append(threadRow(cards));
+    }
+    const rest = all.filter((t) => !placed.has(t.id));
+    if (rest.length) { // outdated threads: GitHub files them away from the lines they used to be on
+      const note = el('div', 'src-note', `${rest.length} outdated thread${rest.length > 1 ? 's' : ''} (their lines have since changed)`);
+      tb.append(threadRow([note, ...rest.map((t) => threadCard(t))]));
+    }
+    wrap.append(table);
+    v.srcHunks = patchHunkRanges(v.rows);
+  });
+}
+
+// Click a line's "+" (or its number) to comment on it; shift-click another line on the same side
+// to extend to a range. A multi-line comment must stay inside one hunk, so the range stops there.
+function onLineClick(v, cell, shift) {
+  if (state.pending && $('#c-body').value.trim()) return;
+  const side = cell.dataset.side;
+  const line = Number(cell.dataset.line);
+  if (!line) return;
+  let start = line;
+  let end = line;
+  const hunk = (v.srcHunks || []).map((h) => (side === 'LEFT' ? h.left : h.right)).find((r) => r && line >= r.start && line <= r.end);
+  if (shift && v.srcAnchor && v.srcAnchor.side === side && hunk && v.srcAnchor.line >= hunk.start && v.srcAnchor.line <= hunk.end) {
+    start = Math.min(v.srcAnchor.line, line);
+    end = Math.max(v.srcAnchor.line, line);
+  } else v.srcAnchor = { side, line };
+  const numOf = (tr) => Number(side === 'LEFT' ? tr.dataset.old : tr.dataset.new); // '' (no number on this side) becomes 0
+  const rows = v.srcRows.filter((tr) => numOf(tr) >= start && numOf(tr) <= end);
+  const text = rows.map((tr) => tr.querySelector('.d-code').textContent).join('\n');
+  const segments = [{ kind: 'code', lang: '', text }];
+  const range = document.createRange();
+  range.selectNodeContents(rows[rows.length - 1]);
+  const rect = rows[0].getBoundingClientRect();
+  const last = rows[rows.length - 1].getBoundingClientRect();
+  showComposer({
+    start, end, side, quote: text, segments, quoteMd: formatQuote(segments), anchor: { start, end, exact: true },
+    includeDefault: false, // GitHub already shows these lines
+    range, rows, view: v, about: side === 'LEFT' ? 'removed line' + (start === end ? '' : 's') : '',
+    rect: { left: rect.left, right: last.right, top: rect.top, bottom: last.bottom, width: last.right - rect.left, height: last.bottom - rect.top },
+  });
+}
+
+
 
 // ---------- rendering the document ----------
 const blockLines = (el) => {
@@ -517,7 +639,7 @@ function paintBlocks() {
     if (changed && !wholeFileAdded) el.classList.add('chg');
     else if (state.diff.hunks.some((h) => overlaps(b, h.start, h.end))) el.classList.add('ctx');
     else el.classList.add('out');
-    if (state.comments.some((c) => c.path === state.file.filename && overlaps(b, c.start, c.end))) el.classList.add('has-c');
+    if (state.comments.some((c) => c.path === state.file.filename && c.side !== 'LEFT' && overlaps(b, c.start, c.end))) el.classList.add('has-c');
     if (state.threads.some((t) => t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-t');
   }
   renderMargin();
@@ -535,14 +657,16 @@ function groupThreads(list) {
   }
   const threads = [];
   const removed = [];
+  const left = [];
   for (const { root, msgs } of groups.values()) {
-    if (root.side === 'LEFT') { removed.push(root.path); continue; } // line numbers refer to the base file
     msgs.sort((a, b) => (a.id === root.id ? -1 : b.id === root.id ? 1 : Date.parse(a.createdAt) - Date.parse(b.createdAt)));
     const end = root.line ?? root.originalLine ?? 1;
     const start = Math.min(end, root.startLine ?? root.originalStartLine ?? end);
-    threads.push({ id: root.id, path: root.path, start, end, msgs, outdated: root.line == null, fileLevel: root.line == null && root.originalLine == null });
+    const th = { id: root.id, path: root.path, start, end, msgs, side: root.side === 'LEFT' ? 'LEFT' : 'RIGHT', outdated: root.line == null, fileLevel: root.line == null && root.originalLine == null };
+    if (th.side === 'LEFT') { removed.push(root.path); left.push(th); continue; } // base-file line numbers: shown in the source diff
+    threads.push(th);
   }
-  return { threads, removed };
+  return { threads, removed, left };
 }
 
 const hue = (str) => [...str].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) % 360, 7);
@@ -611,7 +735,7 @@ function threadCard(th) {
           body: JSON.stringify({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number, commentId: th.id, text }),
         }).then(JSON.parse);
         th.msgs.push(res);
-        withView(owner, renderMargin);
+        refreshView(owner);
       } catch (e) { err.textContent = e.message; send.disabled = false; }
     };
     send.addEventListener('click', doSend);
@@ -660,7 +784,7 @@ function renderMargin() {
   const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]')).map((e) => ({ e, b: blockLines(e) }));
   const raw = [
     ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id })),
-    ...state.comments.filter((c) => c.path === path).map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id })),
+    ...state.comments.filter((c) => c.path === path && c.side !== 'LEFT').map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id })),
   ];
   for (const it of raw) {
     let blocks = leaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e);
@@ -676,7 +800,7 @@ function renderMargin() {
   }
   const removedHere = state.removed.filter((p) => p === path).length; // only this file's
   if (removedHere) {
-    const n = el('div', 'note', `${removedHere} thread${removedHere > 1 ? 's' : ''} on removed lines not shown here.`);
+    const n = el('div', 'note', `${removedHere} thread${removedHere > 1 ? 's' : ''} on removed lines not shown here (see Source diff).`);
     n.dataset.note = '1';
     margin.append(n);
   }
@@ -712,6 +836,8 @@ function activateAt(block) {
 }
 $('#cards').addEventListener('click', (e) => {
   const v = viewOfNode(e.target);
+  const cell = e.target.closest && e.target.closest('.d-num');
+  if (cell && v && v.mode === 'source') { use(v); onLineClick(v, cell, e.shiftKey); return; }
   const link = e.target.closest && e.target.closest('a[href^="#"]');
   if (link && v) { // our own URL hash holds the PR, so keep fragment links in the page
     e.preventDefault();
@@ -992,7 +1118,8 @@ function showComposer(sel) {
   $('#c-qedit').setAttribute('aria-expanded', 'false');
   $('#c-body').value = '';
   composer.hidden = false;
-  setSelHighlight(sel.about ? null : sel.range); // an element comment highlights the element, not the whole figure
+  setSelHighlight(sel.about || sel.rows ? null : sel.range); // an element or a diff line highlights itself, not a text range
+  for (const r of sel.rows || []) r.classList.add('d-sel');
   placeComposer(sel.range, sel.rect);
   $('#c-body').focus({ preventScroll: true });
 }
@@ -1012,6 +1139,7 @@ function placeComposer(range, rect) {
 
 function hideComposer() {
   markElement(null);
+  for (const r of document.querySelectorAll('.d-sel')) r.classList.remove('d-sel');
   composer.hidden = true;
   state.pending = null;
   setSelHighlight(null);
@@ -1046,6 +1174,7 @@ function addComment() {
   state.comments.push({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     path: state.file.filename,
+    side: p.side || 'RIGHT', // LEFT: a removed line, commented on from the source diff
     start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
     about: p.aboutShort || '', // diagram element, so the comment says what it is about on GitHub
     includeQuote: p.anchor ? $('#c-qinc').checked : true,
@@ -1092,7 +1221,7 @@ function renderPanel() {
     const where = document.createElement('div');
     where.className = 'where';
     const link = document.createElement('a');
-    link.textContent = `${c.path} · ${c.start === c.end ? 'L' + c.start : `L${c.start}–${c.end}`}`;
+    link.textContent = `${c.path} · ${c.start === c.end ? 'L' + c.start : `L${c.start}–${c.end}`}${c.side === 'LEFT' ? ' (removed)' : ''}`;
     link.addEventListener('click', async () => {
       $('#review-pop').hidden = true;
       if (!state.file || state.file.filename !== c.path) await openFile(c.path);
@@ -1173,7 +1302,16 @@ $('#submit').addEventListener('click', async () => {
 
 // ---------- review dialog, tree controls ----------
 const pop = $('#review-pop');
-const setPop = (open) => { pop.hidden = !open; $('#review-btn').setAttribute('aria-expanded', String(open)); if (open) $('#summary').focus({ preventScroll: true }); };
+// The dialog hangs off the toolbar, which only sticks once the page has scrolled: size it to the room that is
+// actually left below it so Submit is always reachable.
+const fitPop = () => { if (!pop.hidden) pop.style.maxHeight = Math.max(240, window.innerHeight - pop.getBoundingClientRect().top - 12) + 'px'; };
+const setPop = (open) => {
+  pop.hidden = !open;
+  $('#review-btn').setAttribute('aria-expanded', String(open));
+  if (open) { fitPop(); $('#summary').focus({ preventScroll: true }); }
+};
+window.addEventListener('resize', fitPop);
+window.addEventListener('scroll', fitPop, { passive: true });
 $('#review-btn').addEventListener('click', () => setPop(pop.hidden));
 $('#review-close').addEventListener('click', () => setPop(false));
 document.addEventListener('mousedown', (e) => { if (!pop.hidden && !e.target.closest('.review-wrap')) setPop(false); });
