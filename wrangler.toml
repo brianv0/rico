@@ -18,3 +18,10 @@ OAUTH_SCOPE = "repo"
 # Secrets (never commit them):
 #   npx wrangler secret put GITHUB_CLIENT_SECRET
 #   npx wrangler secret put SESSION_SECRET     # any long random string, e.g. `openssl rand -base64 32`
+
+# Optional, recommended: keep the encrypted session in KV instead of entirely in the cookie. The key is split
+# between SESSION_SECRET (server) and a random half that only the cookie holds, and signing out revokes the session.
+#   npx wrangler kv namespace create SESSIONS     (then paste the id below and uncomment)
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "<namespace id>"

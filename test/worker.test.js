@@ -114,3 +114,39 @@ test('logout clears the session; missing configuration is reported; everything e
   assert.match((await bad.json()).error, /GITHUB_CLIENT_SECRET/);
   assert.equal(await (await worker.fetch(req('/github.com/o/r/1'), env)).text(), 'asset:/github.com/o/r/1');
 });
+
+// ---- split mode: the token is encrypted in KV with a key made of a server secret and a half held only by the cookie
+const kv = () => { const m = new Map(); return { m, get: async (k) => m.get(k) ?? null, put: async (k, v) => void m.set(k, v), delete: async (k) => void m.delete(k) }; };
+
+async function signInSplit(e) {
+  const l = await worker.fetch(req('/auth/login'), e);
+  const state = new URL(l.headers.get('Location')).searchParams.get('state');
+  const cb = await worker.fetch(req(`/auth/callback?code=good&state=${state}`, { headers: { Cookie: cookieOf(l, 'rico_oauth') } }), e);
+  return cookieOf(cb, 'rico_session');
+}
+
+test('split sessions: cookie holds no token, KV holds only ciphertext, and either half alone is useless', async () => {
+  const e = { ...env, SESSIONS: kv() };
+  const cookie = await signInSplit(e);
+  assert.match(cookie, /^rico_session=v2\.[\w-]+\.[\w-]+$/);
+  assert.equal(e.SESSIONS.m.size, 1);
+  const [[key, stored]] = [...e.SESSIONS.m];
+  assert.ok(key.startsWith('s:') && !stored.includes('gho_usertoken') && !cookie.includes('gho_usertoken'));
+  const me = await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e);
+  assert.equal((await me.json()).login, 'octo');
+  // the cookie without the KV entry
+  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), { ...e, SESSIONS: kv() })).status, 401);
+  // the KV entry with a different cookie half (or a plain old-style cookie)
+  const [, sid] = cookie.split('=')[1].split('.');
+  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: `rico_session=v2.${sid}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` } }), e)).status, 401);
+  assert.equal(await open(env.SESSION_SECRET, stored), null, 'the server secret alone cannot read the KV entry');
+});
+
+test('split sessions: signing out deletes the server half, so a copied cookie stops working', async () => {
+  const e = { ...env, SESSIONS: kv() };
+  const cookie = await signInSplit(e);
+  const out = await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1', Cookie: cookie } }), e);
+  assert.equal(out.status, 200);
+  assert.equal(e.SESSIONS.m.size, 0);
+  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e)).status, 401, 'the replayed cookie is dead');
+});

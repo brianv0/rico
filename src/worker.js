@@ -14,6 +14,38 @@ const page = (status, text) => new Response(`<!doctype html><meta charset="utf-8
 const safeReturn = (r) => (typeof r === 'string' && /^\/(?!\/)[^\\\s]*$/.test(r) ? r : '/');
 const randomState = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 
+// ---- sessions -------------------------------------------------------------------------------------
+// Two modes, like oauth2-proxy's cookie and Redis session stores:
+//  * cookie (no KV bound): the whole session, sealed with SESSION_SECRET, is the cookie.
+//  * split (KV bound as SESSIONS): the token is sealed with a key made of SESSION_SECRET (server) AND a random
+//    half that only the cookie carries, and the ciphertext lives in KV. The cookie alone has nothing in it, the KV
+//    alone cannot be decrypted, and signing out deletes the KV entry, so a copied cookie stops working at once.
+const b64u = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const rand = (n) => b64u(crypto.getRandomValues(new Uint8Array(n)));
+
+async function createSession(env, token) {
+  if (!env.SESSIONS) return seal(env.SESSION_SECRET, { t: token }, SESSION_TTL);
+  const sid = rand(16);
+  const half = rand(32);
+  await env.SESSIONS.put('s:' + sid, await seal(`${env.SESSION_SECRET}:${half}`, { t: token }, SESSION_TTL), { expirationTtl: SESSION_TTL / 1000 });
+  return `v2.${sid}.${half}`;
+}
+
+async function readSession(env, cookieHeader) {
+  const raw = readCookie(cookieHeader, SESSION);
+  if (!raw) return null;
+  if (!env.SESSIONS) return open(env.SESSION_SECRET, raw);
+  const m = /^v2\.([\w-]+)\.([\w-]+)$/.exec(raw);
+  if (!m) return null;
+  const stored = await env.SESSIONS.get('s:' + m[1]);
+  return stored ? open(`${env.SESSION_SECRET}:${m[2]}`, stored) : null;
+}
+
+async function destroySession(env, cookieHeader) {
+  const m = /^v2\.([\w-]+)\.[\w-]+$/.exec(readCookie(cookieHeader, SESSION) || '');
+  if (env.SESSIONS && m) await env.SESSIONS.delete('s:' + m[1]);
+}
+
 function missingConfig(env) {
   return ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'SESSION_SECRET'].filter((k) => !env[k]);
 }
@@ -46,7 +78,7 @@ async function callback(request, env, url) {
     return page(502, 'Could not reach GitHub to finish signing in.');
   }
   if (!tok.access_token) return page(400, `GitHub did not grant access${tok.error_description ? ': ' + tok.error_description : ''}.`);
-  const session = await seal(env.SESSION_SECRET, { t: tok.access_token }, SESSION_TTL);
+  const session = await createSession(env, tok.access_token);
   const headers = new Headers({ Location: flow.ret || '/', 'Cache-Control': 'no-store' });
   headers.append('Set-Cookie', setCookie(SESSION, session, { maxAge: SESSION_TTL / 1000, secure }));
   headers.append('Set-Cookie', clear);
@@ -59,7 +91,7 @@ async function api(request, env, url) {
     const origin = request.headers.get('Origin');
     if (request.headers.get('X-Rico') !== '1' || (origin && origin !== url.origin)) return json(403, { error: 'forbidden' });
   }
-  const sess = await open(env.SESSION_SECRET, readCookie(request.headers.get('Cookie'), SESSION));
+  const sess = await readSession(env, request.headers.get('Cookie'));
   const github = createGithub({
     apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
     getToken: () => {
@@ -87,6 +119,7 @@ export default {
       if (p === '/auth/callback' && request.method === 'GET') return callback(request, env, url);
       if (p === '/auth/logout' && request.method === 'POST') {
         if (request.headers.get('X-Rico') !== '1') return json(403, { error: 'forbidden' });
+        await destroySession(env, request.headers.get('Cookie'));
         return json(200, { ok: true }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
       }
       if (p.startsWith('/api/')) return api(request, env, url);

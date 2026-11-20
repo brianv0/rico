@@ -144,5 +144,12 @@ local server and the Worker (`src/worker.js`).
    npm install && npm run deploy
    ```
 
+**Session storage.** By default the whole session is the encrypted cookie (like oauth2-proxy's cookie store). For
+stronger handling, bind a KV namespace named `SESSIONS` (see the commented block in `wrangler.toml`): the token is then
+encrypted with a key made of `SESSION_SECRET` *and* a random half carried only by the cookie, and the ciphertext lives in
+KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone can't be decrypted, and **Sign out deletes
+the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
+(30 days).
+
 `npm run dev:cf` runs the Worker locally (`wrangler dev`, with the same variables in a `.dev.vars` file). Changing
 `SESSION_SECRET` signs everyone out. Locally, `npm start` is unchanged and uses your own token.
