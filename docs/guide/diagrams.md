@@ -35,3 +35,20 @@ x -> y: harmless
 ```
 
 That is all.
+
+## Mermaid flow
+
+```mermaid
+flowchart TD
+  Reviewer[Reviewer] -->|selects text| UI(Browser UI)
+  UI --> Server{Rico server}
+  Server -->|review| GitHub[(GitHub)]
+```
+
+```mermaid
+sequenceDiagram
+  participant R as Reviewer
+  participant S as Server
+  R->>S: submit review
+  S-->>R: link to review
+```
