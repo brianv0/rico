@@ -43,8 +43,8 @@ async function drag(from, to) {
   // selection, so compare against the composer's own copy of the quote, not getSelection().)
   await page.waitForFunction(([a, z]) => {
     const p = window.__rico.state.pending;
-    return !!p && !document.getElementById('composer').hidden && p.quote.startsWith(a) && p.quote.endsWith(z);
-  }, [from.slice(0, 4), to.slice(-3)], { timeout: 5000 });
+    return !!p && !document.getElementById('composer').hidden && p.quote.includes(a) && p.quote.includes(z);
+  }, [from.slice(0, 4), to.slice(0, 4)], { timeout: 5000 });
 }
 const composerText = () => page.locator('#c-range').innerText();
 const quote = () => page.evaluate(() => window.__rico.state.pending?.quote);
@@ -96,6 +96,29 @@ await step('selection inside one hard-wrapped paragraph narrows to a single line
   await drag('across', 'testing');
   assert.equal(await composerText(), 'Comments on line 6');
   await page.keyboard.press('Escape');
+});
+await step('quote option: off when the selection covers whole lines, on when it is only part of them', async () => {
+  await drag('across', 'testing'); // all of source line 6
+  assert.equal(await page.locator('#c-qinc').isChecked(), false);
+  assert.match(await page.locator('#c-qnote').innerText(), /already shows/);
+  await page.keyboard.press('Escape');
+  await drag('paragraph is', 'hard'); // part of source line 5
+  assert.equal(await page.locator('#c-qinc').isChecked(), true);
+  await page.keyboard.press('Escape');
+});
+await step('quote option: code selections quote their source lines as a fenced block, and the quote is editable', async () => {
+  await drag('const a', 'const b');
+  assert.equal(await page.locator('#c-qinc').isChecked(), false); // GitHub already shows these lines
+  await page.locator('#c-qinc').check();
+  await page.locator('#c-qedit').click();
+  assert.equal(await page.locator('#c-qtext').inputValue(), '```js\nconst a = 1;\nconst b = 2;\n```');
+  await page.locator('#c-qtext').fill('```js\nconst a = 1;\n```'); // trim to the relevant part
+  await page.fill('#c-body', 'Draft with an edited quote.');
+  await page.keyboard.press('Control+Enter');
+  const c = await page.evaluate(() => window.__rico.state.comments.at(-1));
+  assert.equal(c.quoteMd, '```js\nconst a = 1;\n```'); assert.equal(c.includeQuote, true);
+  await page.locator('#margin .thread.draft', { hasText: 'edited quote' }).getByRole('button', { name: 'Delete' }).click(); // leave no trace
+  assert.equal(await page.evaluate(() => window.__rico.state.comments.length), 0);
 });
 await step('composer floats over the selection immediately', async () => {
   await drag('First', 'First paragraph here.');
@@ -149,9 +172,9 @@ await step('review is posted with correct anchors', async () => {
   assert.equal(posted.commit_id, SHA);
   assert.equal(posted.event, 'COMMENT');
   const [a, b] = posted.comments;
-  assert.deepEqual({ ...a }, { path: 'docs/plan.md', line: 6, side: 'RIGHT', start_line: 3, start_side: 'RIGHT', body: 'Tighten this whole section.' });
+  assert.deepEqual({ ...a }, { path: 'docs/plan.md', line: 6, side: 'RIGHT', start_line: 3, start_side: 'RIGHT', body: '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section.' });
   assert.equal(b.start_line, 9); assert.equal(b.line, 10);
-  assert.match(b.body, /^> item two[\s\S]*\n\nSpans hunks\.$/);
+  assert.equal(b.body, '_Selected lines 9–12; anchored to lines 9–10._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nSpans hunks.');
   assert.equal(posted.comments.length, 2);
   assert.match(posted.body, /Looks good overall\./);
   assert.match(posted.body, /L16\*\*\n> Far away paragraph outside the diff\n\nUnanchored remark\./);

@@ -1,5 +1,6 @@
 import {
   parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
+  formatQuote, plainQuote, coversWholeLines,
 } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
@@ -390,18 +391,73 @@ function lineAt(node, offset, which) {
   const block = node.parentElement && node.parentElement.closest('[data-l]');
   if (!block || !doc.contains(block)) return null;
   const bounds = blockLines(block);
+  if (block.dataset.k === 'd2' && !node.parentElement.closest('.d2-src pre code')) return which === 'start' ? bounds.s : bounds.e;
+  const codeEl = block.dataset.k === 'd2' ? block.querySelector('.d2-src pre code') : block;
   const r = document.createRange();
-  r.setStart(block, 0);
+  r.setStart(codeEl, 0);
   r.setEnd(node, offset);
   const before = r.toString();
   return locateLine(state.lines, bounds, {
     which,
-    fence: block.dataset.k === 'fence',
+    fence: block.dataset.k === 'fence' || block.dataset.k === 'd2',
     renderedTotal: wordCount(block.textContent),
     wordsBefore: wordCount(before),
     midWord: which === 'start' && /\S$/.test(before) && /\S/.test(node.data[offset] || ''),
     newlinesBefore: (which === 'end' ? before.replace(/\n$/, '') : before).split('\n').length - 1,
   });
+}
+
+// Fenced code: language and the source lines between the fences.
+function fenceInfo(b) {
+  const open = state.lines[b.s - 1] || '';
+  const m = /^\s*(`{3,}|~{3,})\s*([^\s`]*)/.exec(open);
+  const closed = b.e > b.s && /^\s*(`{3,}|~{3,})\s*$/.test(state.lines[b.e - 1] || '');
+  return m ? { lang: m[2], a: b.s + 1, b: closed ? b.e - 1 : b.e } : { lang: '', a: b.s, b: b.e };
+}
+
+// The relevant parts of a selection, one segment per block it touches, in order.
+// Prose is the selected text; code (fences, indented code, D2) is the source lines themselves.
+function segmentsFor(range) {
+  const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]') && range.intersectsNode(e));
+  const segs = [];
+  for (const el of leaves) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    if (range.compareBoundaryPoints(Range.START_TO_START, r) > 0) r.setStart(range.startContainer, range.startOffset);
+    if (range.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(range.endContainer, range.endOffset);
+    const k = el.dataset.k;
+    if (k === 'fence' || k === 'd2' || el.tagName === 'PRE') {
+      const fi = fenceInfo(blockLines(el));
+      let a = fi.a;
+      let z = fi.b;
+      const span = textSpan(r);
+      // inside the code text itself: only the selected lines; on a rendered diagram: all of it
+      if (span && (k !== 'd2' || span.first.node.parentElement.closest('.d2-src'))) {
+        const la = lineAt(span.first.node, span.first.s, 'start');
+        const lz = lineAt(span.last.node, span.last.e, 'end');
+        if (la != null && lz != null) { a = Math.max(fi.a, Math.min(la, lz)); z = Math.min(fi.b, Math.max(la, lz)); }
+      }
+      segs.push({ kind: 'code', lang: k === 'd2' ? 'd2' : fi.lang, text: state.lines.slice(a - 1, z).join('\n') });
+      continue;
+    }
+    let text;
+    if (el.tagName === 'TR') {
+      const cells = [...r.cloneContents().querySelectorAll('td,th')];
+      text = cells.length ? cells.map((c) => c.textContent.trim()).join(' | ') : r.toString();
+    } else text = r.toString();
+    segs.push({ kind: 'text', text: text.replace(/\s*\n\s*/g, ' ').replace(/[ \t]+/g, ' ').trim() });
+  }
+  return segs.filter((x) => x.text.trim());
+}
+
+function finishSelection(start, end, segments, range) {
+  const quote = plainQuote(segments);
+  const anchor = clampRange(start, end, state.diff.hunks);
+  const whole = coversWholeLines(quote, state.lines.slice(start - 1, end));
+  return {
+    start, end, quote, segments, quoteMd: formatQuote(segments), anchor, range: range.cloneRange(),
+    includeDefault: !anchor || !anchor.exact || !whole, // a quote only helps when it adds information
+  };
 }
 
 function describeSelection(range) {
@@ -410,10 +466,7 @@ function describeSelection(range) {
   const a = lineAt(span.first.node, span.first.s, 'start');
   const b = lineAt(span.last.node, span.last.e, 'end');
   if (a == null || b == null) return null;
-  const start = Math.min(a, b);
-  const end = Math.max(a, b);
-  const quote = range.toString().replace(/\n{3,}/g, '\n\n').trim();
-  return { start, end, quote, anchor: clampRange(start, end, state.diff.hunks), range: range.cloneRange() };
+  return finishSelection(Math.min(a, b), Math.max(a, b), segmentsFor(range), range);
 }
 
 function rangeText(start, end, anchor) {
@@ -438,6 +491,14 @@ function showComposer(sel) {
   const rEl = $('#c-range');
   rEl.textContent = rt.text;
   rEl.classList.toggle('warn', rt.warn);
+  const inc = $('#c-qinc');
+  inc.checked = sel.includeDefault;
+  inc.disabled = !sel.anchor; // unanchored comments live in the summary, where the quote is the only context
+  $('#c-qnote').textContent = sel.anchor ? (sel.includeDefault ? '' : 'GitHub already shows these lines') : 'required: goes in the summary';
+  $('#c-quote').classList.toggle('off', !inc.checked);
+  $('#c-qtext').value = sel.quoteMd;
+  $('#c-qtext').hidden = true;
+  $('#c-qedit').setAttribute('aria-expanded', 'false');
   $('#c-body').value = '';
   composer.hidden = false;
   setSelHighlight(sel.range);
@@ -491,6 +552,8 @@ function addComment() {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     path: state.file.filename,
     start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
+    includeQuote: p.anchor ? $('#c-qinc').checked : true,
+    quoteMd: $('#c-qtext').value.trim(), // markdown actually posted; the user may have edited it
   });
   save();
   hideComposer();
@@ -500,6 +563,14 @@ function addComment() {
   renderFiles();
 }
 
+$('#c-qinc').addEventListener('change', () => $('#c-quote').classList.toggle('off', !$('#c-qinc').checked));
+$('#c-qedit').addEventListener('click', () => {
+  const t = $('#c-qtext');
+  t.hidden = !t.hidden;
+  $('#c-qedit').setAttribute('aria-expanded', String(!t.hidden));
+  if (!t.hidden) t.focus(); else $('#c-body').focus();
+  if (state.pending) placeComposer(state.pending.range);
+});
 $('#c-add').addEventListener('click', addComment);
 $('#c-cancel').addEventListener('click', () => { hideComposer(); window.getSelection().removeAllRanges(); });
 $('#c-body').addEventListener('keydown', (e) => {

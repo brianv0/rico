@@ -95,6 +95,13 @@ textarea { resize: vertical; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--sel); } }
 #composer .row { display: flex; gap: 8px; margin-top: 8px; }
 #c-range { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.qrow { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 6px; }
+.qrow label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.qrow input { width: auto; margin: 0; }
+.qrow #c-qnote { color: var(--muted); }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; }
+#c-qtext { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 6px; }
+#composer blockquote.off { opacity: .45; text-decoration: line-through; }
 #c-range.warn { color: #9a6700; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #c-range.warn { color: #d29922; } }
 

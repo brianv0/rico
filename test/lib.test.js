@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -101,7 +101,7 @@ test('buildReview anchors inline comments and folds the rest into the body', () 
   assert.equal(r.commit_id, 'abc');
   assert.equal(r.comments.length, 2);
   assert.deepEqual(r.comments[0], { path: 'a.md', line: 8, side: 'RIGHT', start_line: 3, start_side: 'RIGHT', body: 'exact one' });
-  assert.match(r.comments[1].body, /^> q2\n\nclamped$/);
+  assert.equal(r.comments[1].body, '_Selected lines 3–30; anchored to lines 3–6._\n\n> q2\n\nclamped');
   assert.match(r.body, /Overall: good\./);
   assert.match(r.body, /`a\.md` L50\*\*\n> q3\n\noutside/);
 });
@@ -122,4 +122,66 @@ test('resolveRepoPath resolves relative targets and rejects the rest', () => {
   assert.equal(resolveRepoPath('', 'a.png'), 'a.png');
   assert.equal(resolveRepoPath('docs', '../../../etc/passwd'), null); // cannot climb above the repo root
   for (const u of ['https://x.com/a.png', '//x.com/a.png', 'data:image/png;base64,AAAA', '#frag', '']) assert.equal(resolveRepoPath('docs', u), null);
+});
+
+test('formatQuote: prose becomes a blockquote, paragraphs are separated by a quoted blank line', () => {
+  assert.equal(formatQuote([{ kind: 'text', text: 'One.' }, { kind: 'text', text: 'Two.\nthree' }]), '> One.\n>\n> Two.\n> three');
+  assert.equal(formatQuote([]), '');
+  assert.equal(formatQuote([{ kind: 'text', text: '   ' }]), '');
+});
+
+test('formatQuote: code is fenced with its language; fences grow when the code contains fences', () => {
+  assert.equal(formatQuote([{ kind: 'code', lang: 'js', text: 'a();\nb();\n' }]), '```js\na();\nb();\n```');
+  assert.equal(formatQuote([{ kind: 'code', lang: '', text: 'x' }]), '```\nx\n```');
+  assert.equal(formatQuote([{ kind: 'code', lang: 'md', text: '```js\nx\n```' }]), '````md\n```js\nx\n```\n````');
+});
+
+test('formatQuote: prose then code then prose keeps order and separation', () => {
+  const md = formatQuote([{ kind: 'text', text: 'Before' }, { kind: 'code', lang: 'd2', text: 'a -> b' }, { kind: 'text', text: 'After' }]);
+  assert.equal(md, '> Before\n\n```d2\na -> b\n```\n\n> After');
+});
+
+test('formatQuote: long selections keep head and tail with an ellipsis between', () => {
+  const segs = Array.from({ length: 12 }, (_, i) => ({ kind: 'text', text: `Paragraph number ${i} with a fair amount of filler text to make it long enough.` }));
+  const md = formatQuote(segs, { max: 400 });
+  assert.ok(md.length <= 400, String(md.length));
+  assert.match(md, /^> Paragraph number 0/);
+  assert.match(md, /> …/);
+  assert.match(md, /Paragraph number 11[^]*$/);
+  assert.doesNotMatch(md, /Paragraph number 5/);
+});
+
+test('formatQuote: long code keeps its first and last lines', () => {
+  const code = Array.from({ length: 40 }, (_, i) => `line${i}`).join('\n');
+  const md = formatQuote([{ kind: 'code', lang: 'txt', text: code }], { maxCodeLines: 6 });
+  assert.equal(md, '```txt\nline0\nline1\nline2\n…\nline37\nline38\nline39\n```');
+});
+
+test('clipMiddle and plainQuote', () => {
+  assert.equal(clipMiddle('short', 20), 'short');
+  const c = clipMiddle('a'.repeat(50) + 'b'.repeat(50), 30);
+  assert.ok(c.startsWith('aaaa') && c.endsWith('bbbb') && c.includes(' … '));
+  assert.equal(plainQuote([{ kind: 'text', text: 'x ' }, { kind: 'code', text: 'y' }]), 'x\n\ny');
+  assert.equal(quoteText('a\n\nb'), '> a\n>\n> b');
+});
+
+test('coversWholeLines compares the selection to the anchored source lines', () => {
+  const lines = ['- item with **bold** text', 'and a wrapped line'];
+  assert.equal(coversWholeLines('item with bold text and a wrapped line', lines), true);
+  assert.equal(coversWholeLines('item with bold', lines), false);
+  assert.equal(coversWholeLines('anything', ['', '---']), false);
+});
+
+test('buildReview: quote can be switched off, edited text is used, loose comments always quote', () => {
+  const base = { path: 'a.md', start: 4, end: 4, quote: 'raw', body: 'b', anchor: { start: 4, end: 4, exact: true } };
+  const r = buildReview({ commitId: 'x', event: 'COMMENT', comments: [
+    { ...base, quoteMd: '> kept', includeQuote: true },
+    { ...base, quoteMd: '> hidden', includeQuote: false },
+    { ...base, quoteMd: '> edited by the user', includeQuote: true },
+    { ...base, anchor: null, quoteMd: '```d2\na -> b\n```', includeQuote: false },
+  ] });
+  assert.equal(r.comments[0].body, '> kept\n\nb');
+  assert.equal(r.comments[1].body, 'b');
+  assert.equal(r.comments[2].body, '> edited by the user\n\nb');
+  assert.match(r.body, /`a\.md` L4\*\*\n```d2\na -> b\n```\n\nb/); // forced even though includeQuote is false
 });

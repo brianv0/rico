@@ -125,20 +125,94 @@ export function locateLine(lines, block, info) {
 export function quoteText(text, max = 600) {
   let t = String(text).replace(/\r/g, '').trim();
   if (t.length > max) t = t.slice(0, max).trimEnd() + '…';
-  return t.split('\n').map((l) => '> ' + l).join('\n');
+  return t.split('\n').map((l) => (l ? '> ' + l : '>')).join('\n');
+}
+
+const fenceFor = (text) => { let n = 3; while (text.includes('`'.repeat(n))) n++; return '`'.repeat(n); };
+
+/** Keep the head and the tail of a long string: "start … end". */
+export function clipMiddle(text, max) {
+  const t = String(text);
+  if (t.length <= max) return t;
+  const head = Math.ceil(max * 0.6);
+  return t.slice(0, head).trimEnd() + ' … ' + t.slice(t.length - (max - head)).trimStart();
+}
+function clipLines(text, maxLines) {
+  const ls = text.split('\n');
+  if (ls.length <= maxLines) return text;
+  const h = Math.ceil(maxLines / 2);
+  return [...ls.slice(0, h), '…', ...ls.slice(ls.length - (maxLines - h))].join('\n');
 }
 
 /**
+ * Format the relevant parts of a selection as markdown.
+ *  segments: [{kind: 'text', text} | {kind: 'code', lang, text}] in document order.
+ * Prose becomes a blockquote; code becomes a fenced block with its language. Long selections keep
+ * their first and last parts with an ellipsis between, so the reader sees where it starts and ends.
+ */
+export function formatQuote(segments, { max = 700, maxCodeLines = 12 } = {}) {
+  const segs = (segments || []).filter((x) => x && String(x.text).trim());
+  if (!segs.length) return '';
+  const render = (list) => {
+    let md = '';
+    let prevText = false;
+    for (const x of list) {
+      let piece;
+      const isText = x.kind !== 'code';
+      if (isText) piece = String(x.text).trim().split('\n').map((l) => (l.trim() ? '> ' + l : '>')).join('\n');
+      else {
+        const t = clipLines(String(x.text).replace(/\s+$/, ''), maxCodeLines);
+        const f = fenceFor(t);
+        piece = `${f}${x.lang || ''}\n${t}\n${f}`;
+      }
+      md += md ? (prevText && isText ? '\n>\n' : '\n\n') + piece : piece;
+      prevText = isText;
+    }
+    return md;
+  };
+  let list = segs;
+  let md = render(list);
+  if (md.length > max && list.length > 2) {
+    list = [list[0], { kind: 'text', text: '…' }, list[list.length - 1]];
+    md = render(list);
+  }
+  if (md.length > max) {
+    const per = Math.max(80, Math.floor(max / list.length));
+    list = list.map((x) => (x.kind === 'code' ? x : { ...x, text: clipMiddle(x.text, per) }));
+    md = render(list);
+  }
+  return md;
+}
+
+/** The selection as plain text (code is raw), for previews and the sidebar. */
+export const plainQuote = (segments) => (segments || []).map((x) => String(x.text).trim()).filter(Boolean).join('\n\n');
+
+/** Does the selection cover its anchored source lines entirely? (then a quote adds nothing) */
+export function coversWholeLines(selectedText, srcLines) {
+  const total = srcLines.reduce((n, l) => n + srcWords(l), 0);
+  return total > 0 && wordCount(selectedText) === total;
+}
+
+const spanOf = (s, e) => (s === e ? `line ${s}` : `lines ${s}–${e}`);
+
+/**
  * Turn queued comments into a GitHub "create review" payload.
- * Comments that cannot be anchored to a diff line go into the review body with a quote.
+ * Each comment may carry {quoteMd, includeQuote}. Comments that cannot be anchored to a diff line
+ * go into the review body, always with their quote.
  */
 export function buildReview({ comments, summary, event, commitId }) {
   const inline = [];
   const loose = [];
   for (const c of comments) {
+    const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
     if (c.anchor) {
-      const body = (c.anchor.exact ? '' : quoteText(c.quote) + '\n\n') + c.body;
-      const item = { path: c.path, line: c.anchor.end, side: 'RIGHT', body };
+      const parts = [];
+      if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
+      // comments saved before the quote option existed carry no flag: quote only when not exact
+      const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
+      if (include && quote) parts.push(quote);
+      parts.push(c.body);
+      const item = { path: c.path, line: c.anchor.end, side: 'RIGHT', body: parts.join('\n\n') };
       if (c.anchor.start < c.anchor.end) {
         item.start_line = c.anchor.start;
         item.start_side = 'RIGHT';
@@ -146,7 +220,7 @@ export function buildReview({ comments, summary, event, commitId }) {
       inline.push(item);
     } else {
       const where = c.start === c.end ? `L${c.start}` : `L${c.start}–${c.end}`;
-      loose.push(`**\`${c.path}\` ${where}**\n${quoteText(c.quote)}\n\n${c.body}`);
+      loose.push(`**\`${c.path}\` ${where}**\n${quote}\n\n${c.body}`);
     }
   }
   const body = [summary?.trim(), ...loose].filter(Boolean).join('\n\n---\n\n');
@@ -170,3 +244,4 @@ export function resolveRepoPath(fileDir, src) {
   }
   return parts.length ? parts.join('/') : null;
 }
+
