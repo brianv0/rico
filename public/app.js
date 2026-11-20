@@ -1,5 +1,5 @@
 import {
-  parsePrRef, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
+  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -1279,7 +1279,14 @@ function setSelHighlight(range) {
 function showComposer(sel) {
   sel.view = sel.view || cur;
   state.pending = sel;
-  $('#c-quote').textContent = sel.quote.length > 240 ? sel.quote.slice(0, 240) + '…' : sel.quote;
+  const pv = previewLines(sel.quote);
+  const q = $('#c-quote');
+  q.textContent = '';
+  q.append(pv.head.join('\n'));
+  if (pv.omitted) {
+    q.append(el('div', 'q-gap', `⋯ ${pv.omitted} more lines ⋯`));
+    q.append(pv.tail.join('\n'));
+  }
   const rt = rangeText(sel.start, sel.end, sel.anchor, sel.side);
   const rEl = $('#c-range');
   rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');

@@ -366,3 +366,15 @@ test('prPath / parsePrPath round-trip a linkable PR location, with an optional c
   assert.equal(parsePrPath('/'), null);
   assert.equal(parsePrPath('/vendor/x.js'), null);
 });
+
+test('previewLines keeps short quotes whole and elides the middle of long ones', async () => {
+  const { previewLines } = await import('../public/lib.js');
+  assert.deepEqual(previewLines('a\nb\nc'), { head: ['a', 'b', 'c'], omitted: 0, tail: [] });
+  const eleven = Array.from({ length: 11 }, (_, i) => `l${i + 1}`).join('\n');
+  assert.equal(previewLines(eleven).omitted, 0);
+  const many = Array.from({ length: 40 }, (_, i) => `l${i + 1}`).join('\n');
+  const p = previewLines(many);
+  assert.deepEqual(p.head, ['l1', 'l2', 'l3', 'l4', 'l5']);
+  assert.deepEqual(p.tail, ['l36', 'l37', 'l38', 'l39', 'l40']);
+  assert.equal(p.omitted, 30);
+});

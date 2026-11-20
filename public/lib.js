@@ -8,6 +8,13 @@ export function parsePrRef(input) {
   return m ? { owner: m[1], repo: m[2], number: Number(m[3]) } : null;
 }
 
+/** Shorten a long multi-line quote for display: the first `head` lines, a gap marker, the last `tail` lines. */
+export function previewLines(text, head = 5, tail = 5) {
+  const lines = String(text).split('\n');
+  if (lines.length <= head + tail + 1) return { head: lines, omitted: 0, tail: [] };
+  return { head: lines.slice(0, head), omitted: lines.length - head - tail, tail: lines.slice(-tail) };
+}
+
 /** The shareable page path for a PR: /github.com/owner/repo/7 or /github.com/owner/repo/7@abc1234 (the head commit). */
 export function prPath({ owner, repo, number }, sha = '', instance = 'github.com') {
   return `/${instance}/${owner}/${repo}/${number}${sha ? '@' + String(sha).slice(0, 7) : ''}`;
