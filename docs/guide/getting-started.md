@@ -18,6 +18,13 @@ Select any text. A comment box appears over it. Press Ctrl+Enter to add the comm
 
 ![Overview](../img/diagram.svg)
 
-## 4. Submit
+## 4. Reply to existing threads
+
+Existing review threads appear in the margin beside the text they refer to. Click **Reply** under a
+thread to answer it; replies are posted immediately.
+
+## 5. Submit
 
 Choose Comment, Approve or Request changes, and submit. All queued comments are posted as one review.
+
+Stuck? See the [FAQ](faq.md).
