@@ -316,7 +316,9 @@ await step('line mapping is exact for every block and range in a complex documen
   });
   for (const t of ['PRE', 'CODEfence', 'TR', 'LI', 'P', 'H2']) assert.ok(res.tags.includes(t) || t === 'PRE', 'fixture lacks ' + t);
   assert.ok(res.n > 150, 'only ' + res.n + ' checks');
-  assert.equal(await page.evaluate(() => document.querySelector('#doc img').naturalWidth), 1, 'relative image should load from the PR head');
+  // images are lazy-loaded, so bring it into view and wait for it rather than racing the browser
+  await page.locator('#doc img').first().scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => { const i = document.querySelector('#doc img'); return i && i.complete && i.naturalWidth === 1; }, null, { timeout: 15000 });
   assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
 });
 // ---- diagrams (D2 + Mermaid), all client-side in sandboxed frames ----
