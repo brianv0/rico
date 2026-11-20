@@ -19,3 +19,24 @@ x -> y
 ```
 
 A closing paragraph after the diagrams.
+
+## Mermaid
+
+```mermaid
+flowchart LR
+  A[Browser] -->|select| B(Server)
+  B --> C{GitHub}
+```
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant R as Rico
+  U->>R: select text
+  R-->>U: comment box
+```
+
+```mermaid
+flowchart LR
+  A -->
+```

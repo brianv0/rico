@@ -24,10 +24,17 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   language. "Include quote" defaults on only when it adds information (a partial line, a clamped range, or
   text outside the diff) and the quote is editable before you add the comment. Long selections keep
   their head and tail with an ellipsis.
-- **D2 diagrams.** `d2` code blocks render as diagrams (WASM, `@terrastruct/d2`, an *optional* dependency loaded on
-  demand; without it the source is shown). They render as images, so scripts, `javascript:` links and
-  external icons in untrusted diagram source are inert. Click a diagram to comment on its block; open
-  "D2 source" to comment on a specific line; broken diagrams show their compile errors inline.
+- **Diagrams (D2 and Mermaid), rendered client-side.** `d2` and `mermaid` code blocks render in the browser
+  (D2 as WASM via `@terrastruct/d2`, Mermaid as plain JS); both are *optional* dependencies loaded on demand,
+  and without them the source is shown with an install hint. Click a **node or edge** to comment on the source
+  line that defines it (the comment box names the element); click empty space to comment on the whole block;
+  open "source" to comment on a specific line. Broken diagrams show their compile errors inline.
+  - *Line mapping.* D2: exact, from the compiler's source ranges (a node defined on several lines anchors to its
+    first definition and lists the others). Mermaid: from element ids and labels (flowchart nodes and edges,
+    sequence actors and messages); anything it cannot place falls back to the whole block.
+  - *Safety.* Diagram source is untrusted. Each diagram is drawn in a sandboxed `iframe` with **no scripts** and a
+    CSP that blocks **all network requests**, so a `javascript:` link, an `onclick`, or an `icon:` URL pointing at
+    another host can do nothing (tested, including that the CSP blocks the icon fetch).
 - Relative images are served from the PR's head commit (images only).
 - Gutter bars: green = changed, blue = commentable context, grey = outside the diff.
 - Existing review threads show in a margin beside the text (like Google Docs), aligned with the blocks they

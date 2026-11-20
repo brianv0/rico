@@ -151,3 +151,10 @@ test('other /vendor paths are not served', async () => {
   assert.equal((await get(port, '/vendor/../server.js')).status, 404);
   assert.equal((await get(port, '/vendor/secret.js')).status, 404);
 });
+
+test('GET /vendor/mermaid.js serves the optional Mermaid bundle when it is installed', { skip: !fs.existsSync(path.join(root, 'node_modules/mermaid/dist/mermaid.min.js')) && 'optional dependency not installed' }, async () => {
+  const r = await get(port, '/vendor/mermaid.js');
+  assert.equal(r.status, 200);
+  assert.match(r.type, /javascript/);
+  assert.ok(r.raw.length > 1_000_000, 'bundle should be several MB');
+});

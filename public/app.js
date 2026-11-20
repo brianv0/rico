@@ -2,6 +2,7 @@ import {
   parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
   formatQuote, plainQuote, coversWholeLines,
 } from './lib.js';
+import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 
 const $ = (s) => document.querySelector(s);
 const doc = $('#doc');
@@ -40,13 +41,16 @@ md.renderer.rules.image = (tokens, i, o, e, self) => {
   return defaultImage(tokens, i, o, e, self);
 };
 
-// ```d2 fences render as diagrams (optional dependency, loaded on demand); the source stays one click away.
+// ```d2 and ```mermaid fences render as diagrams (client-side, optional dependencies loaded on demand);
+// the source stays one click away.
+const LANG_NAME = { d2: 'D2', mermaid: 'Mermaid' };
 const defaultFence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, i, o, e, self) => {
   const t = tokens[i];
-  if ((t.info || '').trim().split(/\s+/)[0].toLowerCase() === 'd2') {
-    return `<figure class="d2" data-l="${t.attrGet('data-l')}" data-k="d2"><div class="d2-out" title="Click to comment on this diagram"><span class="d2-wait">Rendering diagram…</span></div>`
-      + `<details class="d2-src"><summary>D2 source</summary><pre><code>${md.utils.escapeHtml(t.content)}</code></pre></details></figure>\n`;
+  const lang = diagramLang(t.info);
+  if (lang) {
+    return `<figure class="dia" data-l="${t.attrGet('data-l')}" data-k="diagram" data-lang="${lang}"><div class="dia-out" title="Click the diagram to comment on it, or a node or edge to comment on its line"><span class="dia-wait">Rendering diagram…</span></div>`
+      + `<details class="dia-src"><summary>${LANG_NAME[lang]} source</summary><pre><code>${md.utils.escapeHtml(t.content)}</code></pre></details></figure>\n`;
   }
   return defaultFence(tokens, i, o, e, self);
 };
@@ -186,7 +190,7 @@ function renderDoc(text) {
   doc.innerHTML = md.render(text);
   $('#legend').hidden = false;
   paintBlocks();
-  renderD2(); // async; diagrams fill in when the renderer is ready
+  renderDiagrams(); // async; diagrams fill in when their renderer is ready
 }
 
 function paintBlocks() {
@@ -378,55 +382,51 @@ function activateAt(block) {
 }
 doc.addEventListener('click', (e) => {
   if (!window.getSelection().isCollapsed) return;
-  const fig = e.target.closest && e.target.closest('.d2-out');
-  if (fig) onFigureClick(fig.closest('figure'));
+  const fig = e.target.closest && e.target.closest('.dia-out');
+  if (fig && e.target === fig) onDiagramClick(fig.closest('figure'), null);
   const b = e.target.closest && e.target.closest('[data-l]');
   if (b) activateAt(b.querySelector('[data-l]') ? b : b);
 });
 
-// ---------- D2 diagrams ----------
-// Rendered to an <img> (data: URL): scripts, javascript: links and external icons inside the SVG are
-// inert there, so untrusted diagram source cannot do anything beyond drawing.
-let d2Promise = null;
-const d2Cache = new Map(); // source -> {url} | {errors}
-const loadD2 = () => (d2Promise ||= import('/vendor/d2.js').then((m) => new m.D2()));
+// ---------- diagrams (D2, Mermaid) ----------
+// Each diagram is drawn inside a sandboxed iframe: no scripts, and a CSP that forbids all network
+// requests, so untrusted diagram source can only draw. The frame is same-origin (and script-free) so
+// we can see which node or edge was clicked and map it to its source line.
+const diaCache = new Map(); // lang + source -> render result | {errors, unavailable}
 
-function d2Errors(e) {
-  try {
-    const list = JSON.parse(e.message || String(e));
-    if (Array.isArray(list)) return list.map((x) => String(x.errmsg || x).replace(/^index:/, 'line '));
-  } catch { /* not JSON */ }
-  return [String(e.message || e)];
-}
-
-function showD2(fig, res) {
-  const out = fig.querySelector('.d2-out');
+function showDiagram(fig, res) {
+  const out = fig.querySelector('.dia-out');
   out.textContent = '';
-  if (res.url) {
-    const img = document.createElement('img');
-    img.alt = 'D2 diagram';
-    img.src = res.url;
-    out.append(img);
+  const tools = fig.querySelector('.dia-tools');
+  if (res.svg) {
+    const frame = document.createElement('iframe');
+    frame.className = 'dia-frame';
+    frame.setAttribute('sandbox', 'allow-same-origin'); // deliberately NOT allow-scripts
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.title = `${LANG_NAME[fig.dataset.lang]} diagram`;
+    frame.srcdoc = frameDoc(res.svg);
+    frame.addEventListener('load', () => wireFrame(fig, frame, res));
+    out.append(frame);
     // diagrams are capped in height so one big graph cannot push the document off-screen
-    if (!fig.querySelector('.d2-zoom')) {
+    if (!tools) {
       const zoom = document.createElement('button');
       zoom.type = 'button';
-      zoom.className = 'linkish d2-zoom';
+      zoom.className = 'linkish dia-zoom';
       zoom.textContent = 'Expand';
       zoom.addEventListener('click', () => {
         const big = fig.classList.toggle('big');
         zoom.textContent = big ? 'Shrink' : 'Expand';
         layoutMargin();
       });
-      const tools = document.createElement('div');
-      tools.className = 'd2-tools';
-      tools.append(zoom, fig.querySelector('details'));
-      fig.append(tools);
+      const t = document.createElement('div');
+      t.className = 'dia-tools';
+      t.append(zoom, fig.querySelector('details'));
+      fig.append(t);
     }
     return;
   }
   const box = document.createElement('div');
-  box.className = 'd2-err';
+  box.className = 'dia-err';
   box.append(Object.assign(document.createElement('strong'), { textContent: res.unavailable ? 'Diagram rendering is not available' : 'This diagram does not compile' }));
   const ul = document.createElement('ul');
   for (const m of res.errors) ul.append(Object.assign(document.createElement('li'), { textContent: m }));
@@ -435,41 +435,82 @@ function showD2(fig, res) {
   fig.querySelector('details').open = true; // show the source so the problem is visible
 }
 
-async function renderD2() {
-  const figs = [...doc.querySelectorAll('figure.d2')];
-  if (!figs.length) return;
-  let d2;
-  try { d2 = await loadD2(); } catch {
-    for (const f of figs) showD2(f, { unavailable: true, errors: ['Install the optional dependency: npm install @terrastruct/d2'] });
-    return;
-  }
-  for (const fig of figs) {
+let hovered = null;
+let marked = null; // the element a pending comment is about
+const glow = (el, on) => { if (el) el.style.filter = on ? 'drop-shadow(0 0 4px #2f6fed)' : ''; };
+function markElement(el) { glow(marked, false); marked = el; glow(marked, true); }
+
+function wireFrame(fig, frame, res) {
+  const d = frame.contentDocument;
+  const svg = d && d.querySelector('svg');
+  if (!svg) return;
+  const fit = () => { frame.style.height = Math.ceil(svg.getBoundingClientRect().height) + 4 + 'px'; layoutMargin(); };
+  fit();
+  new ResizeObserver(() => fit()).observe(frame);
+  const hit = (t) => { try { return res.resolve(t); } catch { return null; } };
+  d.addEventListener('mouseover', (e) => {
+    const h = hit(e.target);
+    if (hovered && hovered !== marked) glow(hovered, false);
+    hovered = h ? h.el : null;
+    if (hovered) glow(hovered, true);
+    frame.title = h ? `Comment on ${h.kind} ${h.label}` : `${LANG_NAME[fig.dataset.lang]} diagram: click to comment`;
+  });
+  d.addEventListener('mouseout', () => { if (hovered && hovered !== marked) glow(hovered, false); hovered = null; });
+  d.addEventListener('click', (e) => { // capture: also stops links inside the diagram from navigating
+    e.preventDefault();
+    e.stopPropagation();
+    onDiagramClick(fig, hit(e.target), frame);
+  }, true);
+}
+
+async function renderDiagrams() {
+  for (const fig of [...doc.querySelectorAll('figure.dia')]) {
     if (!fig.isConnected) return; // the user switched files meanwhile
+    const lang = fig.dataset.lang;
     const src = fig.querySelector('pre code').textContent;
-    let res = d2Cache.get(src);
+    const key = lang + '\0' + src;
+    let res = diaCache.get(key);
     if (!res) {
-      try {
-        const r = await d2.compile(src);
-        const ro = r.renderOptions || {};
-        const svg = await d2.render(r.diagram, { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
-        res = { url: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
-      } catch (e) { res = { errors: d2Errors(e) }; }
-      d2Cache.set(src, res);
+      try { res = await renderDiagram(lang, src); } catch (e) { res = { errors: e.messages || [String(e.message || e)], unavailable: !!e.unavailable }; }
+      diaCache.set(key, res);
     }
-    if (fig.isConnected) showD2(fig, res);
+    if (fig.isConnected) showDiagram(fig, res);
   }
   layoutMargin();
 }
 
-// Clicking a diagram comments on its whole block (its source lines).
-function onFigureClick(fig) {
+// Clicking a diagram comments on its whole block; clicking a node or edge comments on the line(s)
+// that define it, with the clicked element named in the composer.
+function onDiagramClick(fig, hit, frame) {
   if (!state.file) return;
   if (state.pending && $('#c-body').value.trim()) return;
   const b = blockLines(fig);
   const fi = fenceInfo(b);
+  let start = b.s;
+  let end = b.e;
+  let about = '';
+  let rect = null;
+  if (hit && hit.lines && hit.lines.length) {
+    const first = hit.lines[0];
+    start = Math.max(fi.a, Math.min(fi.b, fi.a + first.s));
+    end = Math.max(start, Math.min(fi.b, fi.a + first.e));
+    const others = [...new Set(hit.lines.slice(1).map((l) => fi.a + l.s))].filter((n) => n !== start);
+    about = `${hit.kind} “${hit.label}”${others.length ? ` (also on line${others.length > 1 ? 's' : ''} ${others.join(', ')})` : ''}`;
+    if (frame) {
+      const fr = frame.getBoundingClientRect();
+      const er = hit.el.getBoundingClientRect();
+      rect = { left: fr.left + er.left, right: fr.left + er.right, top: fr.top + er.top, bottom: fr.top + er.bottom, width: er.width, height: er.height };
+    }
+  }
+  const cs = hit ? start : fi.a;
+  const ce = hit ? end : fi.b;
   const range = document.createRange();
   range.selectNode(fig);
-  showComposer(finishSelection(b.s, b.e, [{ kind: 'code', lang: 'd2', text: state.lines.slice(fi.a - 1, fi.b).join('\n') }], range));
+  const sel = finishSelection(start, end, [{ kind: 'code', lang: fig.dataset.lang, text: state.lines.slice(cs - 1, ce).join('\n') }], range);
+  sel.about = about;
+  sel.rect = rect;
+  showComposer(sel);
+  markElement(hit ? hit.el : null);
 }
 
 // ---------- selection -> source lines ----------
@@ -494,15 +535,15 @@ function lineAt(node, offset, which) {
   const block = node.parentElement && node.parentElement.closest('[data-l]');
   if (!block || !doc.contains(block)) return null;
   const bounds = blockLines(block);
-  if (block.dataset.k === 'd2' && !node.parentElement.closest('.d2-src pre code')) return which === 'start' ? bounds.s : bounds.e;
-  const codeEl = block.dataset.k === 'd2' ? block.querySelector('.d2-src pre code') : block;
+  if (block.dataset.k === 'diagram' && !node.parentElement.closest('.dia-src pre code')) return which === 'start' ? bounds.s : bounds.e;
+  const codeEl = block.dataset.k === 'diagram' ? block.querySelector('.dia-src pre code') : block;
   const r = document.createRange();
   r.setStart(codeEl, 0);
   r.setEnd(node, offset);
   const before = r.toString();
   return locateLine(state.lines, bounds, {
     which,
-    fence: block.dataset.k === 'fence' || block.dataset.k === 'd2',
+    fence: block.dataset.k === 'fence' || block.dataset.k === 'diagram',
     renderedTotal: wordCount(block.textContent),
     wordsBefore: wordCount(before),
     midWord: which === 'start' && /\S$/.test(before) && /\S/.test(node.data[offset] || ''),
@@ -529,19 +570,19 @@ function segmentsFor(range) {
     if (range.compareBoundaryPoints(Range.START_TO_START, r) > 0) r.setStart(range.startContainer, range.startOffset);
     if (range.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(range.endContainer, range.endOffset);
     const k = el.dataset.k;
-    if (k === 'fence' || k === 'd2' || el.tagName === 'PRE') {
+    if (k === 'fence' || k === 'diagram' || el.tagName === 'PRE') {
       const fi = fenceInfo(blockLines(el));
       let a = fi.a;
       let z = fi.b;
       const span = textSpan(r);
       // inside the code text itself: only the selected lines; on a rendered diagram: all of it
-      if (span && (k !== 'd2' || span.first.node.parentElement.closest('.d2-src pre code'))) {
+      if (span && (k !== 'diagram' || span.first.node.parentElement.closest('.dia-src pre code'))) {
         const la = lineAt(span.first.node, span.first.s, 'start');
         const lz = lineAt(span.last.node, span.last.e, 'end');
         if (la != null && lz != null) { a = Math.max(fi.a, Math.min(la, lz)); z = Math.min(fi.b, Math.max(la, lz)); }
         if (z < a) { a = fi.a; z = fi.b; }
       }
-      segs.push({ kind: 'code', lang: k === 'd2' ? 'd2' : fi.lang, text: state.lines.slice(a - 1, z).join('\n') });
+      segs.push({ kind: 'code', lang: k === 'diagram' ? el.dataset.lang : fi.lang, text: state.lines.slice(a - 1, z).join('\n') });
       continue;
     }
     let text;
@@ -594,7 +635,7 @@ function showComposer(sel) {
   $('#c-quote').textContent = sel.quote.length > 240 ? sel.quote.slice(0, 240) + '…' : sel.quote;
   const rt = rangeText(sel.start, sel.end, sel.anchor);
   const rEl = $('#c-range');
-  rEl.textContent = rt.text;
+  rEl.textContent = rt.text + (sel.about ? ` — ${sel.about}` : '');
   rEl.classList.toggle('warn', rt.warn);
   const inc = $('#c-qinc');
   inc.checked = sel.includeDefault;
@@ -606,14 +647,14 @@ function showComposer(sel) {
   $('#c-qedit').setAttribute('aria-expanded', 'false');
   $('#c-body').value = '';
   composer.hidden = false;
-  setSelHighlight(sel.range);
-  placeComposer(sel.range);
+  setSelHighlight(sel.about ? null : sel.range); // an element comment highlights the element, not the whole figure
+  placeComposer(sel.range, sel.rect);
   $('#c-body').focus({ preventScroll: true });
 }
 
-function placeComposer(range) {
+function placeComposer(range, rect) {
   const wrap = docwrap.getBoundingClientRect();
-  const rects = range.getClientRects();
+  const rects = rect ? [rect] : range.getClientRects();
   const first = rects[0] || range.getBoundingClientRect();
   const last = rects[rects.length - 1] || first;
   const h = composer.offsetHeight;
@@ -625,6 +666,7 @@ function placeComposer(range) {
 }
 
 function hideComposer() {
+  markElement(null);
   composer.hidden = true;
   state.pending = null;
   setSelHighlight(null);
@@ -682,7 +724,7 @@ $('#c-body').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); }
   if (e.key === 'Escape') { hideComposer(); window.getSelection().removeAllRanges(); }
 });
-window.addEventListener('resize', () => { layoutMargin(); if (state.pending) placeComposer(state.pending.range); });
+window.addEventListener('resize', () => { layoutMargin(); if (state.pending) placeComposer(state.pending.range, state.pending.rect); });
 let raf = 0;
 new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(layoutMargin); }).observe(doc);
 document.fonts?.ready.then(layoutMargin);

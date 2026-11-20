@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -184,4 +184,81 @@ test('buildReview: quote can be switched off, edited text is used, loose comment
   assert.equal(r.comments[1].body, 'b');
   assert.equal(r.comments[2].body, '> edited by the user\n\nb');
   assert.match(r.body, /`a\.md` L4\*\*\n```d2\na -> b\n```\n\nb/); // forced even though includeQuote is false
+});
+
+test('parseD2Range reads 0-based start and end lines', () => {
+  assert.deepEqual(parseD2Range('index,6:0:102-6:23:125'), { s: 6, e: 6 });
+  assert.deepEqual(parseD2Range('index,2:4:10-5:1:60'), { s: 2, e: 5 });
+  assert.equal(parseD2Range('garbage'), null);
+  assert.equal(parseD2Range(undefined), null);
+});
+
+test('decodeD2Class decodes the base64 id and unescapes entities', () => {
+  assert.equal(decodeD2Class(btoa('server.proxy')), 'server.proxy');
+  assert.equal(decodeD2Class(btoa('(browser -&gt; server.proxy)[0]')), '(browser -> server.proxy)[0]');
+  assert.equal(decodeD2Class(btoa('x') + ' extra'), 'x');
+  assert.equal(decodeD2Class('%%%not base64%%%'), null);
+});
+
+test('d2LineMaps pairs shapes with graph objects and connections with AST edges', () => {
+  const diagram = { shapes: [{ id: 'a' }, { id: 'c' }, { id: 'c.d' }], connections: [{ id: '(a -> c.d)[0]' }, { id: '(c.d -> a)[0]' }] };
+  const graph = {
+    objects: [
+      { references: [{ key: { range: 'index,0:0:0-0:1:1' } }, { key: { range: 'index,4:0:50-4:1:51' } }] },
+      { references: [{ key: { range: 'index,1:0:5-1:1:6' } }] },
+      { references: [{ key: { range: 'index,2:2:9-2:3:10' } }, { key: { range: 'index,4:5:55-4:8:58' } }] },
+    ],
+    ast: { nodes: [
+      { map_key: { edges: [] , value: { map: { nodes: [] } } } },
+      { map_key: { edges: [{ range: 'index,4:0:50-4:20:70' }] } },
+      { map_key: { edges: [{ range: 'index,5:0:71-5:20:91' }] } },
+    ] },
+  };
+  const { shapes, conns } = d2LineMaps(diagram, graph);
+  assert.deepEqual(shapes.get('a'), [{ s: 0, e: 0 }, { s: 4, e: 4 }]); // definition first
+  assert.deepEqual(shapes.get('c.d'), [{ s: 2, e: 2 }, { s: 4, e: 4 }]);
+  assert.deepEqual(conns.get('(a -> c.d)[0]'), [{ s: 4, e: 4 }]);
+  assert.deepEqual(conns.get('(c.d -> a)[0]'), [{ s: 5, e: 5 }]);
+});
+
+test('d2LineMaps maps nothing when counts disagree rather than guessing', () => {
+  const diagram = { shapes: [{ id: 'a' }, { id: 'b' }], connections: [{ id: 'x' }] };
+  const graph = { objects: [{ references: [{ key: { range: 'index,0:0:0-0:1:1' } }] }], ast: { nodes: [] } };
+  const { shapes, conns } = d2LineMaps(diagram, graph);
+  assert.equal(shapes.size, 0); assert.equal(conns.size, 0);
+});
+
+test('d2LineMaps walks nested maps for edges, in document order', () => {
+  const diagram = { shapes: [], connections: [{ id: 'e1' }, { id: 'e2' }] };
+  const graph = { objects: [], ast: { nodes: [
+    { map_key: { edges: [], value: { map: { nodes: [{ map_key: { edges: [{ range: 'index,2:2:9-2:10:17' }] } }] } } } },
+    { map_key: { edges: [{ range: 'index,5:0:40-5:9:49' }] } },
+  ] } };
+  const { conns } = d2LineMaps(diagram, graph);
+  assert.deepEqual([conns.get('e1')[0].s, conns.get('e2')[0].s], [2, 5]);
+});
+
+const MM = ['flowchart LR', '  A[Browser] -->|select| B(Server)', '  B --> C{GitHub}', '  C -->|ok| D[Done]', '  A --> B'].join('\n');
+test('findMermaidLines: nodes prefer their declaration, edges need both ends in order', () => {
+  assert.deepEqual(findMermaidLines(MM, { kind: 'node', id: 'A' }), { s: 1, e: 1 });
+  assert.deepEqual(findMermaidLines(MM, { kind: 'node', id: 'C' }), { s: 2, e: 2 });
+  assert.deepEqual(findMermaidLines(MM, { kind: 'edge', from: 'B', to: 'C', n: 0 }), { s: 2, e: 2 });
+  assert.deepEqual(findMermaidLines(MM, { kind: 'edge', from: 'C', to: 'D', n: 0 }), { s: 3, e: 3 });
+  assert.equal(findMermaidLines(MM, { kind: 'edge', from: 'D', to: 'A', n: 0 }), null); // wrong direction: no such line
+  assert.equal(findMermaidLines(MM, { kind: 'node', id: 'Z' }), null);
+});
+
+test('findMermaidLines: repeated edges use their index; ids are matched as whole words', () => {
+  const src = 'flowchart TD\n  AB --> C\n  A --> C\n  A --> C';
+  assert.deepEqual(findMermaidLines(src, { kind: 'edge', from: 'A', to: 'C', n: 0 }), { s: 2, e: 2 }); // not "AB"
+  assert.deepEqual(findMermaidLines(src, { kind: 'edge', from: 'A', to: 'C', n: 1 }), { s: 3, e: 3 });
+  assert.deepEqual(findMermaidLines(src, { kind: 'edge', from: 'A', to: 'C', n: 9 }), { s: 3, e: 3 }); // clamps
+});
+
+test('findMermaidLines: sequence actors and messages', () => {
+  const src = 'sequenceDiagram\n  participant U as User\n  participant R as Rico\n  U->>R: select text\n  R-->>U: comment box';
+  assert.deepEqual(findMermaidLines(src, { kind: 'actor', id: 'R' }), { s: 2, e: 2 });
+  assert.deepEqual(findMermaidLines(src, { kind: 'text', text: 'comment box' }), { s: 4, e: 4 });
+  assert.deepEqual(findMermaidLines(src, { kind: 'text', text: 'select' }), { s: 3, e: 3 }); // falls back to substring
+  assert.equal(findMermaidLines(src, null), null);
 });

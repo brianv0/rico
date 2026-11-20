@@ -22,7 +22,8 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+const cspBlocked = [];
+page.on('console', (m) => { if (m.type() !== 'error') return; if (/violates the following Content Security Policy/.test(m.text())) cspBlocked.push(m.text()); else errors.push(m.text()); });
 let failed = false;
 let nfail = 0;
 const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ')); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
@@ -244,67 +245,137 @@ await step('line mapping is exact for every block and range in a complex documen
   assert.equal(await page.evaluate(() => document.querySelector('#doc img').naturalWidth), 1, 'relative image should load from the PR head');
   assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
 });
-await step('D2: diagrams render as images, broken ones show their error, hostile ones stay inert', async () => {
+// ---- diagrams (D2 + Mermaid), all client-side in sandboxed frames ----
+// Viewport coordinates of an element inside the n-th diagram frame, scrolled into view.
+const frameSpot = (n, kind, key) => page.evaluate(([n, kind, key]) => {
+  const frame = document.querySelectorAll('#doc iframe.dia-frame')[n];
+  frame.scrollIntoView({ block: 'center' });
+  const d = frame.contentDocument;
+  let el; let pt = null;
+  if (kind === 'd2') { // D2 tags a group with base64(id); edge ids are stored HTML-escaped
+    const g = d.querySelector(`g[class="${btoa(key.replace(/>/g, '&gt;'))}"]`);
+    el = (key.startsWith('(') && g.querySelector('text')) || g;
+  } else if (kind === 'm-node') el = [...d.querySelectorAll('g.node')].find((g) => new RegExp(`flowchart-${key}-\\d+$`).test(g.id));
+  else if (kind === 'm-actor') el = d.querySelector(`rect.actor-top[name="${key}"]`);
+  else if (kind === 'm-text') el = [...d.querySelectorAll('text.messageText')].find((t) => t.textContent.trim() === key);
+  else if (kind === 'm-edge') {
+    el = d.querySelector(`path[id$="-L_${key}"]`);
+    const m = el.getPointAtLength(el.getTotalLength() / 2); const c = el.getScreenCTM();
+    pt = { x: m.x * c.a + m.y * c.c + c.e, y: m.x * c.b + m.y * c.d + c.f };
+  }
+  if (!el) throw new Error(`no ${kind} ${key}`);
+  el.scrollIntoView({ block: 'center', inline: 'center' }); // the frame is height-capped and scrolls internally
+  frame.scrollIntoView({ block: 'center' });
+  if (kind === 'm-edge') { const m = el.getPointAtLength(el.getTotalLength() / 2); const c = el.getScreenCTM(); pt = { x: m.x * c.a + m.y * c.c + c.e, y: m.x * c.b + m.y * c.d + c.f }; }
+  const fr = frame.getBoundingClientRect(); const r = el.getBoundingClientRect();
+  return { x: fr.left + (pt ? pt.x : r.left + r.width / 2), y: fr.top + (pt ? pt.y : r.top + r.height / 2) };
+}, [n, kind, key]);
+const clickIn = async (n, kind, key) => { const p = await frameSpot(n, kind, key); await page.mouse.click(p.x, p.y); await page.waitForSelector('#composer:not([hidden])'); };
+const rangeLabel = async () => { const t = await page.locator('#c-range').innerText(); await page.keyboard.press('Escape'); return t; };
+
+await step('diagrams: 4 render in sandboxed script-free frames, 2 broken ones show their errors', async () => {
   const external = [];
-  page.on('request', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); });
+  page.on('response', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); }); // anything that actually got an answer
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.locator('#files button', { hasText: 'docs/diagrams.md' }).click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
-  await page.waitForFunction(() => document.querySelectorAll('#doc figure.d2 .d2-out img').length === 2 && document.querySelector('#doc .d2-err'), null, { timeout: 60000 });
-  assert.equal(await page.locator('#doc figure.d2 svg').count(), 0, 'no inline SVG: diagrams are images');
-  assert.match(await page.locator('#doc figure.d2 img').first().getAttribute('src'), /^data:image\/svg\+xml/);
-  const err = page.locator('#doc .d2-err');
-  assert.match(await err.innerText(), /does not compile/); assert.match(await err.innerText(), /line \d/);
-  assert.equal(await page.locator('#doc figure.d2').nth(1).locator('details').evaluate((d) => d.open), true, 'source opens on error');
+  await page.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 4 && document.querySelectorAll('#doc .dia-err').length === 2, null, { timeout: 90000 });
+  assert.equal(await page.locator('#doc svg').count(), 0, 'diagram SVG lives inside the frames, never in the page');
+  const attrs = await page.evaluate(() => [...document.querySelectorAll('#doc iframe.dia-frame')].map((f) => ({ sandbox: f.getAttribute('sandbox'), csp: /Content-Security-Policy[^>]*default-src 'none'/.test(f.srcdoc) })));
+  assert.deepEqual(attrs, Array(4).fill({ sandbox: 'allow-same-origin', csp: true }));
+  const errs = await page.locator('#doc .dia-err').allInnerTexts();
+  assert.match(errs[0], /does not compile[\s\S]*line \d/); assert.match(errs[1], /does not compile[\s\S]*Parse error/i);
+  assert.equal(await page.locator('#doc figure.dia').nth(1).locator('details').evaluate((d) => d.open), true, 'source opens on error');
   await page.waitForTimeout(600);
   assert.deepEqual(external, [], 'the hostile icon URL must never be fetched');
+  assert.ok(cspBlocked.some((m) => /terrastruct\.com/.test(m) && /img-src/.test(m)), 'the frame CSP must have blocked the icon request');
   assert.equal(await page.evaluate(() => window.__pwned), undefined);
-  assert.equal(await page.evaluate(() => [...document.querySelectorAll('#doc a')].filter((a) => /^javascript:/i.test(a.getAttribute('href') || '')).length), 0);
 });
-await step('the removed-lines note is per file (none on a file without such threads)', async () => {
-  assert.equal(await page.locator('#margin .note').count(), 0);
+await step('diagrams: clicking the hostile node (javascript: link) executes nothing', async () => {
+  await clickIn(1, 'd2', 'x');
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#doc iframe.dia-frame')[1].contentWindow.__pwned), undefined);
+  assert.match(await rangeLabel(), /node “x”/);
 });
-await step('D2: tall diagrams are height-capped and can be expanded', async () => {
-  const h = () => page.evaluate(() => document.querySelector('#doc figure.d2 .d2-out img').getBoundingClientRect().height);
+await step('diagrams: tall diagrams are height-capped and can be expanded', async () => {
+  const h = () => page.evaluate(() => document.querySelector('#doc iframe.dia-frame').getBoundingClientRect().height);
   const small = await h();
   assert.ok(small <= 381, 'capped at 380px, got ' + small);
-  await page.locator('#doc figure.d2 .d2-zoom').first().click();
+  await page.locator('#doc figure.dia .dia-zoom').first().click();
   const big = await h();
   assert.ok(big > small, `expanded ${big} should exceed ${small}`);
-  await page.locator('#doc figure.d2 .d2-zoom').first().click();
+  await page.locator('#doc figure.dia .dia-zoom').first().click();
   assert.equal(Math.round(await h()), Math.round(small));
   assert.equal(await page.locator('#composer').isHidden(), true, 'the Expand button must not open a comment');
 });
-await step('D2: clicking a diagram comments on its whole block and quotes the source as d2', async () => {
-  await page.locator('#doc figure.d2 .d2-out').first().click();
+await step('D2: clicking empty space in a diagram comments on the whole block and quotes the source', async () => {
+  const p = await page.evaluate(() => { const f = document.querySelector('#doc iframe.dia-frame'); f.scrollIntoView({ block: 'center' }); const r = f.getBoundingClientRect(); return { x: r.left + 6, y: r.top + 6 }; });
+  await page.mouse.click(p.x, p.y);
   await page.waitForSelector('#composer:not([hidden])');
-  { const t = await page.locator('#c-range').innerText(); assert.equal(t, 'Comments on lines 5–8', 'got: ' + JSON.stringify(t)); }
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on lines 5–8');
   assert.equal(await page.locator('#c-qtext').inputValue(), '```d2\nbrowser -> server: request\nserver -> github: api call\n```');
   assert.equal(await page.locator('#c-qinc').isChecked(), false); // GitHub already shows those lines
   await page.keyboard.press('Escape');
 });
-await step('D2: selecting inside the opened source narrows to the selected line', async () => {
-  await page.locator('#doc figure.d2').first().locator('summary').click();
-  await drag('server -> github', 'api call');
-  { const t = await page.locator('#c-range').innerText(); assert.equal(t, 'Comments on line 7', 'got: ' + JSON.stringify(t) + ' quote=' + JSON.stringify(await page.evaluate(() => window.__rico.state.pending?.quote))); }
+await step('D2: clicking a node or an edge anchors to the exact source line that defines it', async () => {
+  await clickIn(0, 'd2', 'github');
+  assert.equal(await rangeLabel(), 'Comments on line 7 — node “github”');
+  await clickIn(0, 'd2', 'server');
+  assert.equal(await rangeLabel(), 'Comments on line 6 — node “server” (also on line 7)');
+  await clickIn(0, 'd2', '(server -> github)[0]');
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on line 7 — edge “(server -> github)[0]”');
+  assert.equal(await page.locator('#c-qtext').inputValue(), '```d2\nserver -> github: api call\n```');
   await page.keyboard.press('Escape');
 });
-await step('D2: a selection across text and a diagram quotes prose then the d2 source', async () => {
+await step('Mermaid: flowchart nodes and edges map to their lines', async () => {
+  await clickIn(2, 'm-node', 'B');
+  assert.equal(await rangeLabel(), 'Comments on line 27 — node “B”');
+  await clickIn(2, 'm-node', 'C');
+  assert.equal(await rangeLabel(), 'Comments on line 28 — node “C”');
+  await clickIn(2, 'm-edge', 'B_C_0');
+  assert.equal(await rangeLabel(), 'Comments on line 28 — edge “B → C”');
+  await clickIn(2, 'm-edge', 'A_B_0');
+  assert.equal(await rangeLabel(), 'Comments on line 27 — edge “A → B”');
+});
+await step('Mermaid: sequence actors and messages map to their lines', async () => {
+  await clickIn(3, 'm-actor', 'R');
+  assert.equal(await rangeLabel(), 'Comments on line 34 — actor “R”');
+  await clickIn(3, 'm-text', 'comment box');
+  assert.equal(await rangeLabel(), 'Comments on line 36 — label “comment box”');
+});
+await step('diagrams: the composer opens next to the clicked element, not at the top of the diagram', async () => {
+  await clickIn(2, 'm-node', 'C');
+  const [cTop, fTop, spot] = await page.evaluate(() => { const f = document.querySelectorAll('#doc iframe.dia-frame')[2].getBoundingClientRect(); return [document.getElementById('composer').getBoundingClientRect().top, f.top, null]; });
+  assert.ok(cTop > fTop, `composer ${cTop} should sit below the frame top ${fTop}`);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('composer')).display !== 'none'), true);
+  await page.keyboard.press('Escape');
+});
+await step('diagrams: selecting inside the opened source narrows to the selected line', async () => {
+  await page.locator('#doc figure.dia').first().locator('summary').click();
+  await drag('server -> github', 'api call');
+  assert.equal(await page.locator('#c-range').innerText(), 'Comments on line 7');
+  await page.keyboard.press('Escape');
+});
+await step('diagrams: a selection across text and a diagram quotes prose then the d2 source', async () => {
   await shiftSelect('An intro', 'Text between'); // taller than the window: click, scroll, shift+click
   assert.equal(await page.locator('#c-range').innerText(), 'Comments on lines 3–10');
   const md = await page.locator('#c-qtext').inputValue();
   assert.match(md, /^> An intro paragraph before the first diagram\.\n\n```d2\nbrowser -> server: request\nserver -> github: api call\n```\n\n> Text between/);
   await page.keyboard.press('Escape');
 });
-await step('D2: without the optional dependency the source is shown with a clear message', async () => {
+await step('diagrams: without the optional dependencies the source is shown with a clear message', async () => {
   const p2 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await p2.route('**/vendor/d2.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
+  await p2.route('**/vendor/mermaid.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
   await p2.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fdiagrams.md`);
-  await p2.waitForSelector('#doc figure.d2 .d2-err', { timeout: 15000 });
-  assert.match(await p2.locator('#doc .d2-err').first().innerText(), /not available[\s\S]*npm install @terrastruct\/d2/);
-  assert.equal(await p2.locator('#doc figure.d2').first().locator('details').evaluate((d) => d.open), true);
+  await p2.waitForFunction(() => document.querySelectorAll('#doc .dia-err').length === 6, null, { timeout: 30000 });
+  const t = await p2.locator('#doc .dia-err').allInnerTexts();
+  assert.match(t[0], /not available[\s\S]*npm install @terrastruct\/d2/);
+  assert.match(t[3], /not available[\s\S]*npm install mermaid/);
+  assert.equal(await p2.locator('#doc figure.dia').first().locator('details').evaluate((d) => d.open), true);
   await p2.close();
 });
+
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
 
 await browser.close(); srv.kill(); await fake.close();

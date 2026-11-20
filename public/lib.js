@@ -245,3 +245,98 @@ export function resolveRepoPath(fileDir, src) {
   return parts.length ? parts.join('/') : null;
 }
 
+
+// ---------- diagrams: map a clicked element back to source lines ----------
+
+/** D2 range "index,6:0:102-6:23:125" -> {s, e} (0-based lines) */
+export function parseD2Range(r) {
+  const m = /,(\d+):\d+:\d+-(\d+):\d+:\d+$/.exec(String(r || ''));
+  return m ? { s: Number(m[1]), e: Number(m[2]) } : null;
+}
+
+/** D2 tags each SVG group with base64(id) as its first class; ids are HTML-escaped ("-&gt;"). */
+export function decodeD2Class(cls) {
+  try {
+    const bin = atob(String(cls).split(/\s+/)[0]);
+    const txt = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    return txt.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  } catch { return null; }
+}
+
+/**
+ * From a D2 compile result, which source lines define each shape and connection?
+ *   shapes: Map(shape id -> [{s, e}...])  every reference, definition first
+ *   conns:  Map(connection id -> [{s, e}])
+ * Shapes pair with graph objects by position (both come from the same ordered list). Connections
+ * pair with the edge statements in the AST in document order; if the counts disagree we map nothing
+ * rather than guess.
+ */
+export function d2LineMaps(diagram, graph) {
+  const shapes = new Map();
+  const conns = new Map();
+  const objs = graph?.objects || [];
+  const shs = diagram?.shapes || [];
+  if (objs.length === shs.length) {
+    objs.forEach((o, i) => {
+      const refs = (o.references || []).map((r) => parseD2Range(r.key?.range)).filter(Boolean);
+      if (refs.length) shapes.set(shs[i].id, refs);
+    });
+  }
+  const edges = [];
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      const mk = n.map_key;
+      if (!mk) continue;
+      for (const e of mk.edges || []) { const r = parseD2Range(e.range); if (r) edges.push(r); }
+      walk(mk.value?.map?.nodes);
+    }
+  };
+  walk(graph?.ast?.nodes);
+  const cs = diagram?.connections || [];
+  if (edges.length === cs.length) cs.forEach((c, i) => conns.set(c.id, [edges[i]]));
+  return { shapes, conns };
+}
+
+const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ARROW = /(-->|---|==>|===|-\.->|-\.-|--[xo]|<-->|->>|-->>|-x|--\)|-\)|->|<-)/;
+
+/**
+ * Find the source line a clicked Mermaid element refers to.
+ *  hint: {kind: 'node', id} | {kind: 'edge', from, to, n} | {kind: 'actor', id} | {kind: 'text', text}
+ * Returns {s, e} (0-based lines) or null when nothing matches (the caller then uses the whole block).
+ */
+export function findMermaidLines(source, hint) {
+  const lines = String(source).split('\n');
+  const idx = (pred, from = 0) => { for (let i = from; i < lines.length; i++) if (pred(lines[i], i)) return i; return -1; };
+  const word = (t) => new RegExp('(^|[^\\w])' + reEsc(t) + '([^\\w]|$)');
+  const one = (i) => (i < 0 ? null : { s: i, e: i });
+  if (!hint) return null;
+  if (hint.kind === 'node') {
+    const w = word(hint.id);
+    const decl = new RegExp('(^|[^\\w])' + reEsc(hint.id) + '\\s*(\\[|\\(|\\{|>|\\)\\))');
+    const i = idx((l) => decl.test(l));
+    return one(i >= 0 ? i : idx((l) => w.test(l)));
+  }
+  if (hint.kind === 'edge') {
+    const a = word(hint.from);
+    const b = word(hint.to);
+    const hits = [];
+    lines.forEach((l, i) => {
+      if (!ARROW.test(l) || !a.test(l) || !b.test(l)) return;
+      const pa = l.search(a); const pb = l.slice(pa + 1).search(b);
+      if (pb >= 0) hits.push(i);
+    });
+    return one(hits.length ? hits[Math.min(hint.n || 0, hits.length - 1)] : -1);
+  }
+  if (hint.kind === 'actor') {
+    const w = word(hint.id);
+    const decl = idx((l) => /^\s*(participant|actor)\b/.test(l) && w.test(l));
+    return one(decl >= 0 ? decl : idx((l) => w.test(l)));
+  }
+  if (hint.kind === 'text' && hint.text) {
+    const t = hint.text.trim();
+    const colon = idx((l) => l.includes(':') && l.slice(l.indexOf(':') + 1).trim() === t); // sequence message
+    return one(colon >= 0 ? colon : idx((l) => l.includes(t)));
+  }
+  return null;
+}
