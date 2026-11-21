@@ -461,7 +461,7 @@ function rollbackAfter(batch, index) {
 
 // Clone JSON-shaped source configuration for nested layout calls so a plugin
 // cannot change the configuration of the parent or another nested diagram.
-function cloneGraphData(data) {
+export function cloneGraphData(data) {
   if (data === null || data === undefined) return null;
   const clone = {};
   for (const key of Object.keys(data)) clone[key] = cloneGraphDataValue(data[key]);

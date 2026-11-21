@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2lib package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.): d2.go.
+// JavaScript port of D2's d2lib package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.): d2.go.
 // compile(text, opts) is the top-level entry: text -> parse -> IR -> graph -> dimensions -> layout -> d2target.Diagram,
 // returning `{ diagram, graph, err }` like the WASM build's compile. `err` is null or an Error-like object with `.message`
 // (Go's err.Error()).
@@ -64,7 +64,7 @@ export function compileSync(input, compileOpts, renderOpts) {
 
   applyConfigs(config, compileOpts, renderOpts);
   applyDefaults(compileOpts, renderOpts);
-  if (config !== null) g.data = config.data;
+  if (config !== null) applyGraphData(g, config.data);
 
   let d;
   try {
@@ -81,6 +81,14 @@ export function compileSync(input, compileOpts, renderOpts) {
   config.sketch = renderOpts.sketch;
   d.config = config;
   return { diagram: d, graph: g, err: null };
+}
+
+function applyGraphData(g, data) {
+  if (g === null || g === undefined) return;
+  g.data = d2layouts.cloneGraphData(data);
+  for (const boards of [g.layers, g.scenarios, g.steps]) {
+    for (const board of boards || []) applyGraphData(board, data);
+  }
 }
 
 function compile_(g, compileOpts, renderOpts) {
@@ -137,8 +145,8 @@ function applyConfigs(config, compileOpts, renderOpts) {
   if (renderOpts.sketch == null) renderOpts.sketch = config.sketch;
   if (renderOpts.pad == null) renderOpts.pad = config.pad;
   if (renderOpts.center == null) renderOpts.center = config.center;
-  renderOpts.themeOverrides = config.themeOverrides;
-  renderOpts.darkThemeOverrides = config.darkThemeOverrides;
+  if (renderOpts.themeOverrides == null) renderOpts.themeOverrides = config.themeOverrides;
+  if (renderOpts.darkThemeOverrides == null) renderOpts.darkThemeOverrides = config.darkThemeOverrides;
 }
 
 function applyDefaults(compileOpts, renderOpts) {

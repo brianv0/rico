@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2layouts/d2near package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's d2layouts/d2near package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 // d2near applies near keywords when they're constants.
 // Intended to be run as the last stage of layout after the diagram has already undergone layout.
 

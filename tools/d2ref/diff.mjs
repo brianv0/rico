@@ -166,7 +166,7 @@ process.exitCode = bad.length ? 1 : 0;
 async function e2e(file, flags) {
   const { execFileSync } = await import('node:child_process');
   const src = (flags.includes('--src') ? flags[flags.indexOf('--src') + 1] : null) ||
-    execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'oss.terrastruct.com/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
+    execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'github.com/d2lang/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
   const cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   let same = 0, noGolden = 0, deferred = 0, errSame = 0;
   const bad = [];
@@ -181,7 +181,8 @@ async function e2e(file, flags) {
     if (r.err) { bad.push({ name: c.name, path: '$err', got: r.err.message, want: 'a diagram' }); continue; }
     const want = JSON.parse(fs.readFileSync(gp, 'utf8'));
     const got = JSON.parse(JSON.stringify(r.diagram));
-    const d = firstDiff(got, want, '$', tolv);
+    const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
+    const d = firstDiff(sortKeys(got), sortKeys(want), "$", tolv); // key order is not compared (v0.9.0 goldens write url.URL fields in another order)
     if (d) bad.push({ name: c.name, ...d }); else same++;
   }
   console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden, ${deferred} deferred (latex)`);
