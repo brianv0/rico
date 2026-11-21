@@ -8,6 +8,7 @@
 #   engine_xdump.go -> d2layouts/d2talalayout/internal/engine/xdump_hook.go   (stage observer around the unexported pipeline)
 #   root_xdump.go   -> d2layouts/d2talalayout/xdump_export.go                 (sequential seeds + records, uses the real selection)
 #   xdump/*.go      -> d2layouts/d2talalayout/internal/xdump/                  (package main: the dump modes)
+#   routing_xdump.go-> d2layouts/d2talalayout/internal/routing/xdump_hook.go   (+ routing_hooks.mjs inserts the xHook* calls)
 #
 # and writes the binary to $TALA_REF/xdump.bin (tools/d2ref/diff.mjs runs it; env TALA_REF points it elsewhere).
 # Re-run it after editing any overlay file (it only recopies and rebuilds). Needs Go 1.27 (GOTOOLCHAIN=auto downloads it).
@@ -26,6 +27,8 @@ fi
 t="$dest/d2layouts/d2talalayout"
 cp "$here/engine_xdump.go" "$t/internal/engine/xdump_hook.go"
 cp "$here/root_xdump.go" "$t/xdump_export.go"
+cp "$here/routing_xdump.go" "$t/internal/routing/xdump_hook.go"
+node "$here/routing_hooks.mjs" "$t/internal/routing"
 rm -rf "$t/internal/xdump"
 mkdir -p "$t/internal/xdump"
 cp "$here"/xdump/*.go "$t/internal/xdump/"
