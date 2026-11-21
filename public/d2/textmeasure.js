@@ -1,13 +1,13 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/textmeasure package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.),
+// JavaScript port of D2's lib/textmeasure package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.),
 // itself ported from github.com/faiface/pixel/tree/master/text.
 //
-// Go measures text with github.com/golang/freetype/truetype (no hinting, 72 dpi) on D2's bundled TTFs. Here the same
+// Go measures text with golang.org/x/image/font/opentype (sfnt, no hinting, 72 dpi; v0.7.2 used freetype/truetype) on D2's bundled TTFs. Here the same
 // numbers come from fonts/metrics.json, a dump (tools/d2ref `fontmetrics`) of exactly what that path reads per font:
 // cmap, hmtx/glyf-derived glyph records (advance, bearings, point bounding box or composite components), kern pairs,
-// hhea ascent/descent and unitsPerEm. `loadGlyph` replays freetype's GlyphBuf.Load (26.6 fixed-point rounding included)
+// hhea ascent/descent and unitsPerEm. `loadGlyph` replays sfnt.Font.GlyphBounds (26.6 fixed-point rounding included)
 // over those records, and the atlas code below is Go's, line for line. Canvas measureText is never used.
 
 import { newPoint } from './geo.js';

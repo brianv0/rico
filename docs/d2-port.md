@@ -11,7 +11,8 @@ MIT; MPL is per file, so that is fine.
 ## Target version: v0.9.0 (changed from v0.7.2)
 
 The port was started against v0.7.2 by mistake (the old module path's last release). Everything verified up to
-commit `0cbfdae` was measured against v0.7.2; the Status table below shows those numbers until a row is re-verified.
+commit `0cbfdae` was measured against v0.7.2; the `parse`, `ir`, `graph` and `leaf` rows below are re-verified at v0.9.0 (the
+`layout`/`render` rows say what they were measured against).
 The reference runner (`tools/d2ref`) now builds against v0.9.0 (needs Go 1.27, which `GOTOOLCHAIN=auto` downloads),
 and `corpus.jsonl` must be regenerated from the v0.9.0 source:
 
@@ -30,15 +31,17 @@ What changed upstream after v0.7.2 (v0.8.x, v0.9.0 changelogs):
 - SVG: markdown labels are native SVG text (not `foreignObject`); SVGs are about 24% smaller; font/CSS assembly changed.
 - Faster compile/layout internals (glob, imports, grid), new scene/raster pipeline (`d2scene`, `d2scenebuild`) that
   the SVG path does not use, so it is out of scope.
-- Initial v0.9.0 diff of the v0.7.2-era JS: parse 1077/1077; ir 1052/1077; graph 1060/1077; layout 942/1073.
+- Initial v0.9.0 diff of the v0.7.2-era JS: parse 1077/1077; ir 1052/1077; graph 1060/1077; layout 942/1073. After the front-end port
+  (next section): parse, ir, graph 1077/1077.
 
 ## Status
 
 | Stage | Go packages | JS | Matches Go |
 |---|---|---|---|
-| parse | `d2ast`, `d2parser` | `public/d2/ast.js`, `parser.js` | 972/972 corpus cases, UTF-8 and UTF-16 |
-| ir | `d2ir` (+ `d2format.Format`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | 1025/1025 corpus cases, UTF-8 and UTF-16; 190/190 extra cases (`extra.jsonl`); about 40k fuzzed cases. Residue below |
-| graph | `d2compiler`, `d2graph` (not serde.go, not `SetDimensions`), `net/url`, `html.UnescapeString`, `encoding/xml` (the Markdown check), `sort.Slice`, `strconv`, `fmt.Sprintf` | `d2compiler.js`, `d2graph.js`, `url.js`, `gohtml.js` + `htmlentity.js`, `xml.js`, `gosort.js`, `strconv.js`, `gofmt.js` (+ `d2target` `Class`/`SQLTable`, `d2ast` label/near tables) | 1025/1025 corpus, UTF-8 and UTF-16; 347/347 `extra.jsonl`; about 30k fuzzed cases clean except the residue below. Support stages: `url` 4122, `htmlunescape` 6017, `xml` 9038, `sortslice` 3000, `strconv` 6093, `sprintf` 6501 (all identical); `graphmethods` (read-only d2graph methods) 1025 |
+| parse | `d2ast`, `d2parser` | `public/d2/ast.js`, `parser.js` | **v0.9.0**: corpus 1077/1077 and `extra.jsonl` 390/390, UTF-8 and UTF-16 |
+| ir | `d2ir` (+ `d2format.Format`/`FormatKeyPath`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | **v0.9.0**: corpus 1077/1077 (UTF-8 and UTF-16); `extra.jsonl` 390/390 (both); mutation fuzz 3 x 3000 (both, 1 case dropped: Go does not finish) and glob/board/class/import grammar fuzz (`globfuzz.mjs`) 3 seeds about 1100-1400 each, all identical. Residue below |
+| graph | `d2compiler`, `d2graph` (not serde.go, not `SetDimensions`), `net/url`, `html.UnescapeString`, `encoding/xml` (the Markdown check), `sort.Slice`, `strconv`, `fmt.Sprintf` | `d2compiler.js`, `d2graph.js`, `url.js`, `gohtml.js` + `htmlentity.js`, `xml.js`, `gosort.js`, `strconv.js`, `gofmt.js` (+ `d2target` `Class`/`SQLTable`, `d2ast` label/near tables) | **v0.9.0**: corpus 1077/1077 (UTF-8 and UTF-16); `extra.jsonl` 390/390 (both); the same fuzz sets as `ir` identical; `graphmd` (Markdown-heavy) 2000/2000. Support stages: `url` 4122 (3 seeds), `htmlunescape` 6017, `xml` 9038, `sortslice` 3000, `strconv` 6093, `sprintf` 6501 (all identical); `graphmethods` 1077 |
+| leaf | `lib/textmeasure` (ruler, legacy Markdown measure), `lib/shape`, `lib/label`, `lib/geo`, `lib/color` (+ csscolorparser, go-colorful parts), `lib/svg` (FormatFloat, path commands), `d2themes` (`ThemableElement`), `d2target`, `d2fonts` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `uniprops.js`, `htmlparse.js`), `shape.js`, `label.js`, `geo.js`, `color.js`, `svg.js`, `themes.js`, `target.js` | **v0.9.0**: `measure` 129354/129354 (+ `extra-measure.jsonl` 113/113; fuzz 3974-3990 of 4000, Markdown HTML residue below), `mdhtml` 118/118 on the corpus's Markdown, `shape` 297/360 exact + 63 within 1e-9 (libm; same on 3 x 3000 fuzz), `label` 381/381 (+ 3 x 3000), `color` 2467/2470 exact + 3 within 1e-9, `element` 1500/1500, `target` 886/886, `targetstatics`, `dims` 1073/1073 (+ 390 extra, 2 x 3000 fuzz) |
 | layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout` (Go glue; D2's own `dagre.js`/`setup.js` run unmodified from `vendor/`), `d2exporter`, `d2lib` (Compile, applyConfigs/Defaults, boards), `lib/geo`, `lib/shape`, `lib/label` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js`, `d2graph.js` (`setDimensions`), `d2exporter.js`, `d2layouts.js`, `d2near.js`, `d2grid.js`, `d2sequence.js`, `d2dagrelayout.js`, `vendor/`, `d2lib.js` (`compile(text, opts)` -> `{diagram, graph, err}`) | `layout` corpus 1021/1021 (+4 deferred: latex), UTF-8 and UTF-16; `extra.jsonl` 343/343 (+2 deferred, 2 Go panics); `dims` 1021/1021; D2's e2e goldens (`e2e` stage) 296/296 dagre boards (+9 latex deferred, 7 stale golden dirs); about 10k fuzzed cases clean except the residue below. Support stages: `measure` 127259/127259, `shape` 297/360 exact (rest within 1e-9, libm), `label` 381/381 |
 | render | `d2renderers/d2svg`, `lib/svg`, `lib/color` | done: `svg.js`, `color.js` (renderer itself not started) | `color`: 2436/2438 (the two are `oklch()` last-bit libm) |
 | later | `d2elklayout`, `d2sketch`, `d2latex`, `d2animate` | | |
@@ -154,7 +157,7 @@ sha1, `strings.Fields`), `geo.js`, `shape.js`, `label.js`, `svg.js`, `color.js`,
 output), `targetstatics`. `go run . fontmetrics` regenerates the font tables, `go run . themes` the theme data (`themes.js` is
 generated from it; keep the template in sync).
 
-- **Text measuring**: freetype's no-hinting path replayed over a dump of the glyph records (advance, bearings, point bounding
+- **Text measuring** (v0.7.2: freetype's no-hinting path; v0.9.0: sfnt's, see the v0.9.0 section) replayed over a dump of the glyph records (advance, bearings, point bounding
   box or component list, kern pairs, hhea metrics). 197 KB JSON, 31 KB gzipped, for all ten distinct TTFs and the 353 runes the
   atlas holds. The atlas packing (`makeSquareMapping`) is ported too: it decides rounding of the glyph rects. Any rune outside
   the atlas measures as U+FFFD, as in Go; non-ASCII strings go through `uniseg` (grapheme width).
@@ -204,6 +207,67 @@ generated from it; keep the template in sync).
 - `strconv.Atoi` results beyond 2^53 and hex-float subnormals are doubles/rounded; unobservable in the compared output.
 - `html.UnescapeString` and `net/url` are complete (full entity table, 11 KB gzipped: `htmlentity.js`, only needed by `validateBoardLinks` and d2ir imports).
 
+
+## v0.9.0 front end (parse, ir, graph, leaf): what changed and what was learned
+
+Method: regenerate every input against v0.9.0, run the stages in order, read the upstream `diff -ru` of the package for the cause, port the
+behavior (not the performance machinery), add a hand-written case to `extra*.jsonl`, fuzz. `globfuzz.mjs` (grammar fuzzer for globs, boards, classes,
+vars and imports) and `nohang.mjs` (drops fuzz cases on which Go does not finish: D2's glob evaluation can loop on adversarial input; build the reference with
+`go build -o /tmp/d2refbin .` and set `D2REF`) were added because the corpus and mutation fuzz barely reach the new lazy-glob code.
+
+- **d2ir: the lazy glob worklist is observable, so it is ported; the indexes and the import-template cache are not.** v0.9.0 stops rescanning the
+  whole IR after each key: `Map.structureVersion` (bumped by `appendField/insertField/removeField/appendEdge/removeEdge`, and by
+  `markStructureCountDelta` when a composite is replaced), `ensureField`'s `created` list, `lazyGlobTarget` + `multiGlobMatchesToward`/`directChildToward`
+  (only the branch toward the new field is replayed), `applyLazyGlobs`, `lazyPostTargets`, `lazySettledVersions`. This changes reference lists
+  (`Field.appendReference`/`Edge.appendReference` dedupe lazy-glob replays with `sameReferenceContext`) and the order in which rules apply, so it is ported
+  line for line (`d2ir.js` `Compiler.compileKey/applyLazyGlobs`, `IRMap.ensureField*`). `fieldIndex`/`edgeIndex` are lookup accelerators with the same
+  results as the linear scans, `getFieldIndexed`/`ensureFieldIndexed`/`getEdgesIndexed` are the same functions, and the per-compilation `importTemplates`
+  cache (selective field imports reuse a compiled IR) gave identical IR on all corpus/extra/fuzz cases without being ported: imports recompile every time.
+- **AST clones change the JSON.** `loadImportAST` returns a deep copy (`cloneASTMap` ...), and `Field`/`Scalar.Copy` now clone the scalar's AST node
+  (`cloneASTScalar`). Go's copies turn nil slices into empty ones, so `"value": null` becomes `"value": []` (interpolation lists, map/array nodes) in
+  imported files' references and in every copied scalar. The JS clone helpers in `d2ir.js` reproduce that (`cloneASTScalarBox` ...).
+- **Other d2ir changes**: `EdgeID.Match` also matches the reversed edge (`a -> b` / `b <- a`: the arrows travel with the endpoints), `EdgeID.Copy` copies
+  the index, `Edge.Copy` copies the ID, `CopyBase` no longer deletes and re-adds the board fields (`deleteEdgesForFieldReferences` + a base copy; same
+  order), recursive globs (`**`) skip `classes` and `vars` (`skipDoubleGlobSubtree`), `matchPattern` for `*b`/`a*b*c` requires the suffix/end to match
+  (`*b` no longer matches `abc`).
+- **d2compiler/d2graph**: `Edge.initIndex`/`findEdges` use `IsEquivalent`/flipped matching (same reversed-edge rule); class reference cycles are an error
+  (`class "a" forms a reference cycle`, `beginClass/endClass`); an edge with `link:` and no label gets the link as label; `compileBoard` copies the IR only for
+  nested boards or boards with children and tests `len(layers...) > 0` before `CopyBase`; opacity rejects NaN/Inf. `d2format.FormatKeyPath(a)` is
+  `Format(MakeKeyPathString(a))` (no code change).
+- **`lib/textmeasure` moved from freetype/truetype to x/image/font/opentype (sfnt).** `metricPreservingFace` keeps hhea ascent/descent and the legacy `kern` table,
+  but `GlyphBounds`/`GlyphAdvance` are now sfnt's: the advance is the hmtx advance scaled once (`scale(adv*ppem, upem)`, no phantom points), the bounds are the box of
+  the outline points (compound glyphs: transformed + offset component points) scaled point by point with Y flipped, with no left-side-bearing shift. `metrics.json`
+  needed no change (`go run . fontmetrics` regenerates it byte-identically with the sfnt-based dump); only `loadGlyph` was rewritten (`unitBounds`).
+  `MeasureMarkdown` is now `LayoutMarkdown(...)` and fails with `native Markdown SVG does not support HTML element <x>` (a thrown `Error` in JS; `getMarkdownDimensions`
+  turns it into the `[null, message]` pair, `target.js` falls back like Go) for anything but the supported element list (`validateMarkdownSVGNodes`); the legacy measure
+  path itself changed only in `scaleUnicodeLegacy` (default-ignorable controls are removed before the fallback scaling; tables in `uniprops.js`, generated from Go's
+  `unicode` package, Unicode 17) and an empty code text node. The CSS/native-painting half of `markdown_svg.go` (`LayoutMarkdown`'s primitives, `measureFontAdvance`,
+  `cssFontBoxMetrics`, `scaleUnicodeCSS`) is the render stage's.
+- **Markdown HTML moved with goldmark 1.7.4 -> 1.8.5 and x/net 0.35 -> 0.57** (`mdhtml` is only a stand-in comparison; what matters is the structure the measurer and the XML
+  check see). Done in `setMarkdownIt`/`htmlparse.js`: table cell alignment is the `align` attribute; `<blockquote>` always has `\n` after it; a tight list item's text is followed
+  by `\n` before a fence/code/HTML block; an unterminated fence at the end of the input gets its final newline; a lone `</pre>` is not an HTML block; leading whitespace of
+  a paragraph's continuation lines is stripped (visible in code spans); and the HTML parser (x/net) drops whitespace, comments and ignorable end tags before the first body
+  content and puts `title/style/script/meta/link/base/noframes` that start the document into `<head>` (outside the measured body), and `<li>/<dd>/<dt>` close an open `<p>`.
+- **net/url (Go 1.24 -> 1.27)**: `parseHost(scheme, host)` is strict about colons for http/https (`a::1` and `h1:80,h2:81` are errors there, not for other
+  schemes), validates bracketed hosts with `netip.ParseAddr` (zone rules, IPv4 not allowed in brackets; the error texts are ported) and unescapes the port part.
+  `Diagram.Bytes()` keeps `icon` URLs in the field order of Go <= 1.25 (`marshalHashJSON`) so hashes do not change with the toolchain: `goMarshal(v, true)`.
+- **csscolorparser 0.1.5 -> 0.1.8** (via lib/color): any `name(...)` with other than 3 or 4 parameters is `Invalid format` (so `linear-gradient(red, blue)` no
+  longer reports `Invalid color format`), parameters split on `,` `/` and space only, `lab()`/`lch()` exist (`Invalid lab()`), the alpha is parsed first.
+  `gradientStopOffset` gives `0.00%` for a single stop. `d2themes.ThemableElement` prints coordinates with `svg.FormatFloat` (`%f` without trailing zeros, `-0` kept,
+  integers without `.`): `svg.js` `formatFloat`. `svg.SvgPathContext` records typed `PathCommand`s (`pathCommands()`, kinds `PathCommandMove/Line/Cubic/Close`) and every shape
+  that has custom path data has `getPathCommands()` (`shape.getPathCommands(s)` is `shape.GetPathCommands`); `shape.boxPath` is gone upstream. `lib/svg/doctype.go` (SVG import) is not ported.
+- **Dependency drift that does not show**: Go 1.27 has Unicode 17 tables, Node 22.23 has ICU Unicode 17, and the cased-letter probes added in Unicode 16/17 (Garay, Latin
+  additions) fold identically, so `goLower`/`equalFold` need no table. The d2themes catalog is unchanged (`genthemes.py` output is byte-identical).
+
+### v0.9.0 residue (front end)
+
+- Pointer addresses in `import key %q` errors: Go 1.27 prints 12 hex digits (`0x2ec8f9e61230`); `diff.mjs` blanks `0x[0-9a-f]{9,12}` in `errmsg`/`err`.
+- Go fatal errors and hangs: the self-referential `vars` stack overflow (as before); glob programs that make Go (and the port) loop or explode, for example
+  `* -> *` followed by hundreds of fields or `**.a: { Ab -> a*.y.y }`. Both sides do not finish; `nohang.mjs` filters them out of fuzz files.
+- Markdown HTML versus goldmark 1.8.5 on pathological fuzz input (about 3% of generated Markdown snippets, about 0.7% of all `measure` fuzz cases): `\r` is kept by goldmark
+  inside code and raw HTML (markdown-it normalizes it), tables that start in a lazy continuation line inside a list item or blockquote, `>` + tab + a block tag, an inline raw tag at the
+  start of a line followed by a table. None occurs in D2's corpus (`mdhtml` 118/118, all `measure` corpus cases identical).
+- `lib/shape` and `lib/color` libm residue as before (`shape` 63 of 360 within 1e-9; `oklab()/oklch()/lab()/lch()` last bit).
 
 ## Layout stage: what was learned
 

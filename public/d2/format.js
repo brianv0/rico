@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of the parts of D2's d2format package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.)
+// JavaScript port of the parts of D2's d2format package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.)
 // that d2ir calls: Format and its escaping helpers. Nodes have the shape described in ast.js; because the
 // Go printer takes an interface, `format` takes the node's kind ('map_key', 'key_path', 'map', ...) with it.
 

@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2renderers/d2fonts package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's d2renderers/d2fonts package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 // Data only: font families, styles and sizes. The glyph tables the measuring code reads live in fonts/metrics.json
 // (see textmeasure.js).
 //
