@@ -115,6 +115,9 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 	case "lgops":
 		return runOps(in)
 	}
+	if f, ok := pkgModes[mode]; ok { // packing/labeling/quality checks: pkg_xdump.go, packing_xdump.go, labeling_xdump.go, quality_xdump.go
+		return f(in, ruler)
+	}
 	return runFixture(mode, in)
 }
 

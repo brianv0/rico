@@ -29,5 +29,12 @@ cp "$here/root_xdump.go" "$t/xdump_export.go"
 rm -rf "$t/internal/xdump"
 mkdir -p "$t/internal/xdump"
 cp "$here"/xdump/*.go "$t/internal/xdump/"
+# overlay/<pkg>.<tag>.go -> internal/<pkg>/xdump_<tag>.go (extra exported access for the harness), then the small patches of pkghooks.sh
+for f in "$here"/overlay/*.go; do
+  [ -f "$f" ] || continue
+  b="$(basename "$f" .go)"
+  cp "$f" "$t/internal/${b%%.*}/xdump_${b#*.}.go"
+done
+"$here/pkghooks.sh" "$t"
 (cd "$dest" && go build -o "$dest/xdump.bin" ./d2layouts/d2talalayout/internal/xdump)
 echo "built $dest/xdump.bin"
