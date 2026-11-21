@@ -14,7 +14,7 @@ It is the package's own dist/dagre.js (the unminified esbuild bundle) with exact
          avoid a division by zero.
 
 With these edits dagre.js gives the same node coordinates and edge points as dagro, bit for bit, on every graph D2's glue builds
-(tools/d2ref/dagrocmp.mjs: 1030/1030 layouts of the D2 corpus, 20000+ generated ones). dagro has one more safety change, collision-checked
+(tools/d2ref/dagrocmp.mjs: 1030/1030 layouts of the D2 corpus, 6500+ generated ones). dagro has one more safety change, collision-checked
 names for the edges dagre reverses (`rev1`...), which only matters for a caller edge named like that and cannot occur with D2's edge names.
 
 To rebuild:  npm pack @dagrejs/dagre@3.1.1; tar xzf *.tgz; python3 tools/d2ref/dagrebuild/build.py package/dist/dagre.js public/d2/vendor/dagre.js
