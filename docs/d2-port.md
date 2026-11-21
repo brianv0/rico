@@ -47,7 +47,8 @@ What changed upstream after v0.7.2 (v0.8.x, v0.9.0 changelogs):
 | layout | `lib/textmeasure` (glyph metrics, Markdown validation and legacy box model), `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout` (Go glue; the engine is dagre 3.1.1 from npm with dagro's corrections, `vendor/dagre.js`), `d2exporter`, `d2lib` (Compile, applyConfigs/Defaults, boards), `lib/geo`, `lib/shape`, `lib/label` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js`, `d2graph.js` (`setDimensions`), `d2exporter.js`, `d2layouts.js`, `d2near.js`, `d2grid.js`, `d2sequence.js`, `d2dagrelayout.js`, `vendor/dagre.js` (107 KB, 24 KB gzipped), `d2lib.js` (`compile(text, opts)` -> `{diagram, graph, err}`) | v0.9.0: `layout` corpus 1077/1077 (latex included), UTF-8 and UTF-16; `extra.jsonl` 390/390; `extra-latex.jsonl` (34 hand-written LaTeX programs) 34/34; `extralayout.jsonl` (v0.9.0 cases written for this stage) 50/50, both modes; D2's e2e dagre goldens (`e2e` stage) 321/321 boards (+2 expected errors, 5 without a dagre golden); `dims` 1077/1077; about 27k generated layout cases (`fuzzlayout.mjs` 9 seeds, `fuzzgrid.mjs`, `fuzzseq.mjs`) and 12k mutated corpus cases identical to Go (Go-unstable ones excepted, below). Engine level: `dagrocmp.mjs` 1030/1030 dagre layouts of the corpus and 6500+ generated ones identical to dagro. Support stages: `measure` 129354/129354 (incl. `--big`), `shape` 297/360 exact (rest within 1e-9, libm), `label` 381/381 |
 | render | `d2renderers/d2svg` (d2svg, class, table, markdown, theme, font_corpus), `lib/svg`, `lib/color`, `lib/font` (subsetter, Sfnt2Woff), `compress/flate`+`zlib` (Go 1.27's encoder), `d2renderers/internal/patternassets`, `lib/textmeasure` markdown layout (`markdown.go`, `markdown_svg.go`), `rivo/uniseg` line breaking, `alecthomas/chroma` (lexer engine, 48 lexers, 2 styles) | `d2svg.js` (+ `d2sketch.js`, `vendor/rough.js`, `d2latex.js` and the lazy `vendor/mathjax.js`, `d2svgcorpus.js`, `d2svgassets.js`, `d2svgfonts.js`, `d2svgpatterns.js`, `fontsubset.js`, `flate.js`, `mdlayout.js`, `linebreak.js`, `highlight.js`, the `xml.js` tokenizer, `fonts/*.ttf`, `patterns/*`, `lexers/*`) | `svg` stage (Go's own diagram JSON in, Go's SVG bytes out): corpus 881/881, e2e boards 929/929 (all of D2's `board.exp.json` incl. elk/tala layouts and multiboard), extra 277/277, `extra-latex.jsonl` 29/29, about 8700 fuzzed cases with random render options, 3150 Markdown-heavy cases; non-Latin Markdown and the unported code languages are deferred by rule (see below). LaTeX labels are rendered by MathJax 3.2.2 instead of mathjax-go (section "LaTeX" below: identical on every formula of D2's tests, not on all input). **Sketch mode** (`--sketch`, `svgfull`, see "Sketch mode" below): corpus 877/877 (renderer) and 1068/1068 (whole pipeline), e2e boards 911/911, extra 397/397 (whole pipeline) and 287/287 (renderer), D2's own sketch goldens 37/37 byte for byte, about 20,000 fuzzed cases identical (residue below). Support stages: `flate` 3160/3160 streams identical to Go, `linebreak` 6000/6000, `highlight` 7169/7169 |
 | latex | `d2renderers/d2latex` (glue); engine: MathJax 3.2.2 instead of `mathjax-go` | `d2latex.js`, `vendor/mathjax.js` (1.7 MB, 599 KB gzipped, lazy) | `latex` stage 19/19 formulas of D2's tests identical (svg, size, errors); **not** identical on all input, see "LaTeX" |
-| later | `d2elklayout`, `d2animate` | | ELK and TALA are not ported yet (`d2lib` throws `ElkNotPorted`/`TalaNotPorted`) |
+| elk | `d2layouts/d2elklayout` (Go glue: `layout.go`, `descendant_shifter.go`, `spatial_index.go`; the engine is ELK.js 0.12.0 from npm `elkjs` with elk-go compatibility edits) | `d2elklayout.js`, `vendor/elk.js` (1.6 MB, 464 KB gzipped, lazy `import()`), `d2lib.js` (`loadLayout`, `layout: 'elk'`, `elkOpts`) | v0.9.0: `layout --layout elk` corpus 1077/1077 (UTF-8 and UTF-16), `extra.jsonl` 390/390 (both), `extralayout.jsonl` 50/50 (both); D2's e2e elk goldens (`e2e --layout elk`) 309/309 boards (+2 expected errors, 17 without an elk golden); about 26k generated layouts (`fuzzlayout.mjs` 6 seeds x 3000 plus its `elk` profile with ELK options 2 x 1500, `fuzzgrid.mjs`, `fuzzseq.mjs`, 3000 mutated corpus cases; UTF-8 and UTF-16) identical to Go, Go panics excepted (a padding option without `right=`; non-layered algorithms with an edge across a container boundary), one residue: the LaTeX width of a mutated `grid_with_latex.d2` (MathJax against mathjax-go, the same under dagre). Engine level: `elkcmp.mjs` ELK.js against elk-go on the graphs the glue builds, 1030/1030 corpus layouts and about 22k generated ones identical; the graphs the Go glue really marshals are byte for byte the JS ones (`elkinputcmp.mjs`, 1030/1030) |
+| later | `d2animate`, `d2talalayout` | | TALA is not ported yet (`d2lib` throws `TalaNotPorted`) |
 
 Not needed: `d2oracle`, `d2lsp`, `d2format` (except what `d2ir` calls), `d2plugin`, `d2renderers/d2ascii`, `d2js`.
 
@@ -159,7 +160,8 @@ These are the places where the JS output is not (or cannot be) the same as Go's;
 
 - Swap `public/diagrams.js` from `/vendor/d2.js` to the JS port and keep the WASM build as a fallback for a
   release or two.
-- With no WASM and no ELK-by-default, `'wasm-unsafe-eval'` can leave the CSP in `src/security.js`.
+- With no WASM and no ELK-by-default, `'wasm-unsafe-eval'` can leave the CSP in `src/security.js`. The vendored ELK (`vendor/elk.js`) needs neither `'unsafe-eval'` nor a
+  worker nor `blob:` (see "ELK stage"), so `'unsafe-eval'` can leave it too once the page uses the port.
 - Optional DOM output: build the SVG with `createElementNS` and `textContent` from the same renderer, and put
   source ranges on elements as `data-*` attributes for click-to-comment. Rico currently draws diagrams in a
   sandboxed, script-less iframe because diagram source is untrusted; drawing into the page loses that, so
@@ -346,8 +348,8 @@ Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagr
   is a state machine (digits do not start a word: `1st` -> `1St`, `layers.x` stays one word) - ported with Unicode property escapes for
   its tables (`titleCase` in `d2graph.js`; exotic scripts/special casing other than final sigma, digraphs, ligatures are approximated);
   `encoding/json` refuses NaN, so d2ref prints `{"panic": ...}` for such a case (e.g. `style.opacity: nan`) and the harness skips it.
-- **Not ported**: ELK and TALA are not ported (`layout: 'elk'` -> `ElkNotPorted`, `'tala'` -> `TalaNotPorted`); the Go harness
-  and the e2e tests always pass `Layout: dagre`, which overrides `d2-config`'s layout-engine, so no corpus case needs them; `sketch`
+- **Not ported**: TALA (`'tala'` -> `TalaNotPorted`); ELK has its own section below. The Go harness
+  and the e2e tests pass `Layout` explicitly, which overrides `d2-config`'s layout-engine, so no corpus case needs the engines; `sketch`
   only switches the font family to HandDrawn and is covered. `d2plugin.FeatureSupportCheck` (the "dagre does not support ..." errors
   the e2e tests expect on 5 cases) is not ported and not part of `d2lib.Compile`.
 - **API shape**: `compile(text, opts, renderOpts)` async / `compileSync`: `opts` = `{utf16, fs, inputPath, layout, layoutResolver, routerResolver, measuredTexts, ruler (null = none), fontFamily, monoFontFamily}`;
@@ -358,6 +360,57 @@ Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagr
   `obj.box.Width`, `obj.Label` is `obj.attributes.label`, `obj.Children` a Map (`size`), `LabelPosition` the string `obj.labelPosition`. `ExtractSubgraph`'s
   `nestedGraph.Root.Attributes = container.Attributes` is a struct copy in Go: `copyAttributes` in `d2layouts.js` copies the value fields and shares pointers.
   `slices.SortFunc`/`sort.Slice` use the pdqsort of `gosort.js`; `sort.SliceStable` uses JS's stable sort.
+
+### ELK stage: what was learned
+
+Run (Go side: `go build -o /tmp/d2ref .`, then `export D2REF_BIN=/tmp/d2ref` so `diff.mjs` does not `go run` for every batch):
+
+```bash
+node diff.mjs layout corpus.jsonl --layout elk [--utf16]    # also extra.jsonl, extralayout.mjs output, fuzz sets: --layout sets the engine of every case
+node diff.mjs e2e e2e.jsonl --layout elk                    # testdata/<name>/elk/board.exp.json (e2eenum/run.sh records elkFeatureError too)
+node fuzzlayout.mjs 3000 7 elk > f.jsonl                    # ELK profile: container <-> descendant edges, SQL/class column edges, self loops, ELK options
+node elkcmp.mjs f.jsonl /tmp/d2ref                          # engine level: ELK.js (vendor/elk.js) against elk-go on the graphs the JS glue builds
+node elkinputcmp.mjs f.jsonl dump.jsonl                     # the graphs the Go glue really marshals (sh elkdump/build.sh /tmp/d2ref_dump; D2REF_ELKDUMP=dump.jsonl /tmp/d2ref_dump layout) against the JS ones
+node elkone.mjs prog.d2 /tmp/d2ref [--show]                 # one program (or several, separated by `---` lines), ELK.js against elk-go; ELK_ALT=build.js tries another build of the engine
+node elkshrink.mjs f.jsonl 123 /tmp/d2ref                   # greedy reducer of an engine-level mismatch
+node elkcsp.mjs                                             # headless Chromium: compile with layout elk under `script-src 'self'`
+```
+
+- **The engine is ELK.js 0.12.0 (npm `elkjs`), not a port of elk-go.** elk-go (49k lines) says it follows official ELK.js 0.12.0 and checks itself against that bundle; for the graphs
+  D2's glue builds the two agree except in three places, which are small and are patched into the vendored build (`tools/d2ref/elkbuild/build.py` turns `lib/elk-worker.min.js`, which
+  `elk.bundled.js` embeds byte for byte, into `public/d2/vendor/elk.js`; `ELK_COMPAT=none|origin|all` builds the plain or partly patched engine to see a difference):
+  1. *Edges between a container and its own descendants* (`a -> a.b`, `a.b -> a`): elk-go translates `findCoordinateSystemOrigin` of ELK 0.8.1, ELK 0.12 returns `null` for an edge
+     whose target is a descendant of its source. elk-go then walks up to the root when it offsets the route (`if current.ParentNode == nil { break }`), ELK.js would throw. The patch drops the
+     check and adds the break (this alone fixed 5 of 1030 corpus graphs).
+  2. *Several edges through the same compound node*: ELK splits cross-hierarchy edges node by node and sets the compound node's port constraints to `FIXED_SIDE` after the last external-port dummy;
+     elk-go splits them edge by edge (import order) and sets it after the first, so every later dummy of that node takes its side from the boundary port instead of from the net flow; the ports
+     it creates on the compound node and the order of its dummies (`reorderCompoundPortDummies`) follow the edges too. The patch tags the imported edges with their order and reproduces that
+     (`elkgoPrepare`, `elkgoConstraints`, `elkgoPorts`, `elkgoReorder`); the Go version is `internal/layered/compound.go`.
+  3. *Two-sided opposing self loops* (e.g. a SQL table with a self loop under `direction: right`, where D2 gives the table a SOUTH and a NORTH port): ELK.js takes the two sides out of a
+     hash map keyed by identity-hashed enum constants (order = which constant was hashed first), elk-go takes north, east, south, west. The patch sorts them.
+  Result: engine level `elkcmp.mjs` 1030/1030 corpus layouts and about 22k generated ones (6 seeds of `fuzzlayout.mjs`, 2 of the ELK profile with options) identical, ordered arrays and all
+  numbers; the graphs the Go glue marshals are byte for byte the JS ones (`elkinputcmp.mjs`, 1030/1030, found with a patched copy of `layout.go` built through
+  `-modfile`, `elkdump/build.sh`). Unpatched ELK.js differs on about 0.5% of corpus graphs and 0.3% of generated ones; every difference found was in these three places. A graph shape nobody has
+  generated yet may show a fourth: that is what `elkshrink.mjs` and the Go debug-copy approach (copy elk-go, add `println`s, `-modfile` replace) are for.
+- **Identity hash codes.** GWT gives objects `$H` hash codes from one global counter, which orders Java `HashMap`s of identity-hashed keys. elk-go replaces those with insertion order, so a result
+  that depended on the counter would depend on the layouts run before it in the same engine. It does not (except the self-loop sides above): layouts run in one engine in different orders (corpus, six
+  fuzz sets) all equal elk-go's fresh-engine answers; the engine keeps no module state beyond that, so one dispatcher is reused.
+- **No `eval`, no worker, no `setTimeout`.** The GWT output is plain script (`grep` finds neither `eval(` nor `new Function` nor `importScripts` in `elk-worker.min.js`); elkjs runs it in a Web
+  Worker or in a "FakeWorker" that defers with `setTimeout`. The vendored module exports the worker's `Dispatcher`, and `d2elklayout.js` calls it synchronously, which is what keeps `compileSync`/
+  `layoutNested` synchronous. `node elkcsp.mjs` (Playwright's Chromium, page served with `Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'self'`): `eval` and
+  `new Function` are blocked in that page, the ELK layout still works, no violation is reported. So the ELK engine needs neither `'unsafe-eval'` nor `'wasm-unsafe-eval'` nor `worker-src`/`blob:`.
+  (The `'unsafe-eval'` in `src/security.js` was for the embedded elk.js of D2's WASM build, which ran inside a blob: worker.) Size: `vendor/elk.js` 1.6 MB, 464 KB gzipped; the page downloads it with
+  `import('./d2elklayout.js')` only when a diagram asks for ELK (`layout: 'elk'` in the options or `d2-config.layout-engine`), `compile()` does that by itself, `compileSync()` needs `await loadLayout('elk')`
+  (else `LayoutNotLoaded`). Cost on a loaded dev machine: about 0.2 s to load and initialise the module, 0.3 s for the first layout (JIT warm-up), then 10 to 25 ms per layout (the D2 corpus's 1077 diagrams take about 10 s in all).
+- **Options.** D2 v0.9.0's `d2elklayout.Layout(g, opts)` takes `ConfigurableOpts`; the CLI flags `--elk-algorithm`, `--elk-nodeNodeBetweenLayers`, `--elk-padding`, `--elk-edgeNodeBetweenLayers`,
+  `--elk-nodeSelfLoop` reach it through the plugin's `HydrateOpts` (JSON with the Go tags, missing keys are Go zero values, not defaults). The port takes the same JSON as `compileOpts.elkOpts`
+  (`hydrateOpts`), nothing in `d2-config` is read (only TALA reads `d2-config.data`). `diff.mjs layout` passes a case's `elkopts` to Go through the same plugin path. A padding option without `right=`
+  makes Go panic (`parsePadding` indexes the submatch before checking it); the port throws the same.
+- **Where elk-go and ELK.js still differ, and why it does not matter.** Non-layered algorithms (`--elk-algorithm radial|stress|mrtree|force|box`) on a diagram with an edge that crosses a container
+  boundary: ELK.js refuses (`UnsupportedGraphException ... could not be found`: the container's own layout is layered and cannot reach the other end), elk-go lays the graph out and leaves the
+  edge without a section, which makes D2's Go glue panic (`index out of range`), so no diagram comes out of Go either; the harness counts those as Go panics (`elkcmp.mjs` lists them).
+  Algorithms other than layered are otherwise identical to elk-go (`stress`, `radial`, `mrtree`, `force`, `box` on flat and nested graphs are in the ELK fuzz profile).
+- **Not ported**: `wasm.go` (`ConvertGraph`, the legacy raw-WASM export), `d2lib.LayoutReuse` (as for dagre, D2's e2e tests turn it on and the elk goldens still match without it).
 
 ### Notes for the render stage
 
@@ -376,15 +429,8 @@ Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagr
 - The e2e inputs now include `real_world` (10 large diagrams from `testdata/files/*.d2`, also in the corpus) and every case runs with `LayoutReuse: true`;
   `e2eenum/run.sh <writable copy of the D2 tree>` regenerates `e2e.jsonl` (the module cache is read-only).
 
-### Notes for the ELK and TALA stages
+### Notes for the TALA stage
 
-- ELK: v0.9.0 is `elk-go` ("a native Go port of the ELK behavior used by D2", target ELK.js 0.12.0 exactly; its own tests compare ordered JSON against the official bundle).
-  The dagre result suggests the same plan: vendor npm `elkjs@0.12.0` (`elk.bundled.js` is large; check whether `elk-api.js` plus a worker-less layout is smaller and whether
-  `layered`'s D2 profile is all that is needed), port `d2elklayout/layout.go` (new in v0.9.0: `descendant_shifter.go`, `spatial_index.go`, route-around-containers fixes,
-  self-loop label fixes) and compare. Build the engine-level harness first (`dagrocmp.mjs` is the template: wrap the engine call, record its input graph, send it to
-  `elk-go` through a new d2ref mode, compare exactly). `e2e` goldens for ELK are `testdata/<name>/elk/board.exp.json` (cases with measured texts and `justDagre`
-  have none); generalise `diff.mjs e2e` by passing the engine name and `layout: 'elk'`. `d2-config.layout-engine` is ignored by the harness (`Layout` is always set), so ELK
-  corpus runs need a `layout` field per case (`input.Layout` exists in `main.go`).
 - TALA is `d2layouts/d2talalayout`: about 6k lines at the top and `internal/` below (about 64k in all), Go only, no JS original, deterministic per seed
   (`Seeds`, the e2e tests use one seed and `MaxConcurrency 1`). Nothing to vendor: it has to be ported, diffed with the same harness (engine-level first), and loaded lazily.
 - All engines go through `d2layouts.LayoutNested` (done): grids, sequences and constant nears are laid out by D2 itself, the engine only sees plain graphs and a
