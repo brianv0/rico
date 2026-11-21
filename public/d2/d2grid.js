@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2layouts/d2grid package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.):
+// JavaScript port of D2's d2layouts/d2grid package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.):
 // constants.go, grid_diagram.go and layout.go. Conventions as in d2graph.js.
 
 import * as d2target from './target.js';
@@ -531,14 +531,15 @@ GridDiagram.prototype.getBestLayout = function getBestLayout(targetSize, columns
   let count = 0;
   // quickly eliminate bad row groupings
   let startingCache = new Map();
+  const measurements = new GridRowMeasurements(sizes, gap);
   // Note: we want a low threshold to explore good options within attemptLimit,
   // but the best option may require a few rows that are far from the target size.
   let okThreshold = STARTING_THRESHOLD;
-  const rowOk0 = (row) => {
-    let rowSize = 0.;
-    for (const obj of row) rowSize += getSize(obj);
-    if (row.length > 1) {
-      rowSize += gap * (row.length - 1);
+  const rowOk0 = (start, end) => {
+    const n = end - start;
+    let rowSize = measurements.get(start, end).size;
+    if (n > 1) {
+      rowSize += gap * (n - 1);
       // if multiple nodes are too big, it isn't ok. but a single node can't shrink so only check here
       if (rowSize > okThreshold * targetSize) {
         skipCount++;
@@ -553,31 +554,38 @@ GridDiagram.prototype.getBestLayout = function getBestLayout(targetSize, columns
     }
     return true;
   };
-  const rowOk = (row, starting) => {
+  const rowOk = (start, end, starting) => {
+    const n = end - start;
     if (starting) {
       // we can cache results from starting positions since they repeat and don't change
-      // with starting=true it will always be the 1st N objects based on len(row)
-      if (startingCache.has(row.length)) return startingCache.get(row.length);
-      const ok = rowOk0(row);
+      // with starting=true it will always be the first n objects
+      if (startingCache.has(n)) return startingCache.get(n);
+      const ok = rowOk0(start, end);
       // cache result before returning
-      startingCache.set(row.length, ok);
+      startingCache.set(n, ok);
       return ok;
     }
-    return rowOk0(row);
+    return rowOk0(start, end);
   };
 
   // get all options for where to place these cuts, preferring later cuts over earlier cuts
   // of these divisions, find the layout with rows closest to the targetSize
   const tryDivision = (division) => {
-    const layout = genLayout(objects, division);
-    const dist = getDistToTarget(layout, targetSize, gd.horizontalGap, gd.verticalGap, columns);
+    let dist = 0.;
+    let start = 0;
+    for (let i = 0; i <= division.length; i++) {
+      let end = objects.length;
+      if (i < division.length) end = division[i] + 1;
+      dist += Math.abs(measurements.get(start, end).withGap - targetSize);
+      start = end;
+    }
     if (dist < bestDist) {
-      bestLayout = layout;
+      bestLayout = genLayout(objects, division);
       bestDist = dist;
       fastIsBest = false;
     } else if (fastIsBest && dist === bestDist) {
       // prefer ordered search solution to fast layout solution
-      bestLayout = layout;
+      bestLayout = genLayout(objects, division);
       fastIsBest = false;
     }
     count++;
@@ -592,7 +600,7 @@ GridDiagram.prototype.getBestLayout = function getBestLayout(targetSize, columns
   for (let i = 0; i < thresholdAttempts || bestLayout === null; i++) {
     count = 0;
     skipCount = 0;
-    iterDivisions(objects, nCuts, tryDivision, rowOk);
+    iterDivisions(objects.length, nCuts, tryDivision, rowOk);
     okThreshold += THRESHOLD_STEP_SIZE;
     startingCache = new Map();
     if (skipCount === 0) {
@@ -671,31 +679,56 @@ GridDiagram.prototype.fastLayout = function fastLayout(targetSize, nCuts, column
   return layout;
 };
 
-/** get all possible divisions of objects by the number of cuts; f returns true to stop iterating */
-function iterDivisions(objects, nCuts, f, check) {
-  if (objects.length < 2 || nCuts === 0) return;
-  let done = false;
-  // we go in this order to prefer extra objects in starting rows rather than later ones
-  const lastObj = objects.length - 1;
-  for (let index = lastObj; index >= nCuts; index--) {
-    if (!check(objects.slice(index), false)) {
-      // optimization: if current cut gives a bad grouping, don't recurse
-      continue;
-    }
-    if (nCuts > 1) {
-      iterDivisions(objects.slice(0, index), nCuts - 1, (inner) => {
-        done = f([...inner, index - 1]);
-        return done;
-      }, check);
-    } else {
-      if (!check(objects.slice(0, index), true)) {
-        // e.g. [A   B   C | D] if [A,B,C] is bad, skip it
-        continue;
-      }
-      done = f([index - 1]);
-    }
-    if (done) return;
+// Row measurements preserve the original left-to-right floating-point addition
+// order. Subtracting prefix sums could change ties between candidate layouts.
+// (grid_search.go caches them in a hash table; the cache only avoids recomputation, so a Map is the same.)
+class GridRowMeasurements {
+  constructor(sizes, gap) {
+    this.sizes = sizes;
+    this.gap = gap;
+    this.cache = new Map();
   }
+
+  get(start, end) {
+    if (end - start <= 1) return this.measure(start, end);
+    const key = start * (this.sizes.length + 1) + end;
+    let m = this.cache.get(key);
+    if (m === undefined) {
+      m = this.measure(start, end);
+      this.cache.set(key, m);
+    }
+    return m;
+  }
+
+  measure(start, end) {
+    let size = 0., withGap = 0.;
+    for (let i = start; i < end; i++) {
+      const v = this.sizes[i];
+      size += v;
+      withGap += v + this.gap;
+    }
+    if (start < end) withGap -= this.gap;
+    return { start, end, size, withGap };
+  }
+}
+
+// The division and row checks run in their original order, including repeated
+// checks: their attempt/skip counts affect when the bounded search terminates.
+// f returns true to stop iterating; the callback borrows cuts only until it returns.
+function iterDivisions(nObjects, nCuts, f, check) {
+  if (nObjects < 2 || nCuts === 0) return;
+  const cuts = new Array(nCuts).fill(0);
+  const visit = (end, remaining) => {
+    for (let index = end - 1; index >= remaining; index--) {
+      if (!check(index, end, false)) continue;
+      cuts[remaining - 1] = index - 1;
+      if (remaining > 1) {
+        if (visit(index, remaining - 1)) return true;
+      } else if (check(0, index, true) && f(cuts)) return true;
+    }
+    return false;
+  };
+  visit(nObjects, nCuts);
 }
 
 /**

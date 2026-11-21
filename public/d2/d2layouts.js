@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2layouts package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.): d2layouts.go.
+// JavaScript port of D2's d2layouts package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.): d2layouts.go.
 // LayoutNested lays out nested diagrams (grids, sequence diagrams, constant nears) first, then the graph itself with the
 // core layout (dagre), then injects the nested graphs back and routes the edges that cross graph boundaries.
 // Conventions as in d2graph.js; errors are thrown as Error (Go returns them).
@@ -13,6 +13,7 @@ import * as d2sequence from './d2sequence.js';
 import * as geo from './geo.js';
 import * as label from './label.js';
 import { goLower } from './ast.js';
+import { goFixed } from './gomath.js';
 
 export const DefaultGraphType = '';
 export const ConstantNearGraph = 'constant-near';
@@ -89,13 +90,25 @@ export function layoutNested(g, graphInfo, coreLayout, edgeRouter) {
   {
     // Iterate top-down from Root so all nested diagrams can process their own contents
     let queue = [...(g.root.childrenArray || [])];
+    let batchedExtractions = null;
+    let extractionBatch = null;
+    if (graphInfo.diagramType !== GridDiagram) {
+      const specs = collectNestedExtractions(g);
+      if (specs.length > 1) {
+        extractionBatch = extractSubgraphs(g, specs);
+        batchedExtractions = extractionBatch.extractions;
+        queue = specs.map((spec) => spec.container);
+      }
+    }
 
     while (queue.length > 0) {
       let curr = queue[0];
       queue = queue.slice(1);
 
       const isGridCellContainer = graphInfo.diagramType === GridDiagram && curr.isContainer() && curr.parent === g.root;
-      const gi = nestedGraphInfo(curr);
+      let gi = nestedGraphInfo(curr);
+      const batched = batchedExtractions !== null ? batchedExtractions.get(curr) : undefined;
+      if (batched !== undefined) gi = batched.graphInfo;
 
       if (isGridCellContainer && gi.isDefault()) {
         // if we are in a grid diagram, and our children have descendants
@@ -151,10 +164,18 @@ export function layoutNested(g, graphInfo, coreLayout, edgeRouter) {
 
       if (!gi.isDefault()) {
         // empty grid or sequence can have 0 objects..
-        if (!gi.isConstantNear && (curr.children === null || curr.children.size === 0)) continue;
+        const wasBatched = batched !== undefined;
+        if (!wasBatched && !gi.isConstantNear && (curr.children === null || curr.children.size === 0)) continue;
 
         // There is a nested diagram here, so extract its contents and process in the same way
-        const [nestedGraph, externalEdges, externalEdgeIDs] = extractSubgraph(curr, gi.isConstantNear);
+        let nestedGraph, externalEdges, externalEdgeIDs;
+        if (batched !== undefined) {
+          nestedGraph = batched.nestedGraph;
+          externalEdges = batched.externalEdges;
+          externalEdgeIDs = batched.externalEdgeIDs;
+        } else {
+          [nestedGraph, externalEdges, externalEdgeIDs] = extractSubgraph(curr, gi.isConstantNear);
+        }
         extractedEdges = [...(extractedEdges || []), ...externalEdges];
         extractedEdgeIDs = [...(extractedEdgeIDs || []), ...externalEdgeIDs];
 
@@ -166,7 +187,12 @@ export function layoutNested(g, graphInfo, coreLayout, edgeRouter) {
           curr.attributes.nearKey = null;
         }
 
-        layoutNested(nestedGraph, nestedInfo, coreLayout, edgeRouter);
+        try {
+          layoutNested(nestedGraph, nestedInfo, coreLayout, edgeRouter);
+        } catch (err) {
+          if (batched !== undefined) rollbackAfter(extractionBatch, batched.index);
+          throw err;
+        }
         // coreLayout can overwrite graph contents with newly created *Object pointers
         // so we need to update `curr` with nestedGraph's value
         if (gi.isConstantNear) curr = nestedGraph.root.childrenArray[0];
@@ -251,6 +277,8 @@ export function layoutNested(g, graphInfo, coreLayout, edgeRouter) {
         e.dst = dst;
       }
     }
+
+    validateObjectPositions(g.objects);
   }
   // Go's `defer restoreOrder()`; after an error the graph is not used any more
   restoreOrder();
@@ -278,8 +306,186 @@ export function nestedGraphInfo(obj) {
   return gi;
 }
 
+/** the Go code's `edgeIDs` struct is {srcID, dstID} */
+
+// collectNestedExtractions returns the topmost nested diagrams in the same
+// breadth-first order used by LayoutNested. Their object sets are disjoint, so
+// they can be partitioned out of the parent graph together.
+function collectNestedExtractions(g) {
+  let queue = [...(g.root.childrenArray || [])];
+  const specs = [];
+  while (queue.length > 0) {
+    const curr = queue[0];
+    queue = queue.slice(1);
+    const gi = nestedGraphInfo(curr);
+    if (!gi.isDefault()) {
+      if (!gi.isConstantNear && (curr.children === null || curr.children.size === 0)) continue;
+      specs.push({ container: curr, includeSelf: gi.isConstantNear, graphInfo: gi });
+      continue;
+    }
+    queue = [...queue, ...(curr.childrenArray || [])];
+  }
+  return specs;
+}
+
+// extractSubgraphs is the one-pass equivalent of calling ExtractSubgraph for
+// each disjoint nested diagram in order. An edge crossing two nested diagrams
+// belongs to the first extraction, matching the sequential implementation.
+function extractSubgraphs(g, specs) {
+  const extractions = new Map();
+  const batch = { g, specs, extractions, restoreParentOrder: [] };
+  const ownerIndex = new Map();
+  const parentOrderSaved = new Set();
+  specs.forEach((spec, i) => {
+    ownerIndex.set(spec.container, i);
+    let restoreInto = spec.container;
+    if (spec.includeSelf) {
+      restoreInto = spec.container.parent;
+      if (restoreInto !== null) {
+        if (!parentOrderSaved.has(restoreInto)) {
+          parentOrderSaved.add(restoreInto);
+          batch.restoreParentOrder.push(saveChildrenOrder(restoreInto));
+        }
+      }
+    }
+    const nestedGraph = d2graph.newGraph();
+    nestedGraph.data = cloneGraphData(g.data);
+    nestedGraph.rootLevel = spec.container.level();
+    if (spec.includeSelf) nestedGraph.rootLevel--;
+    nestedGraph.root.attributes = copyAttributes(spec.container.attributes);
+    nestedGraph.root.box = new geo.Box(null, 0, 0);
+    nestedGraph.root.labelPosition = spec.container.labelPosition;
+    nestedGraph.root.iconPosition = spec.container.iconPosition;
+    extractions.set(spec.container, {
+      nestedGraph,
+      externalEdges: [],
+      externalEdgeIDs: [],
+      graphInfo: spec.graphInfo,
+      index: i,
+      restoreInto,
+    });
+  });
+
+  const objectOwner = new Map();
+  const findOwner = (obj) => {
+    if (objectOwner.has(obj)) return [objectOwner.get(obj), true];
+    for (let ancestor = obj; ancestor !== null; ancestor = ancestor.parent) {
+      const owner = ownerIndex.get(ancestor);
+      if (owner === undefined) continue;
+      if (specs[owner].includeSelf || ancestor !== obj) return [owner, true];
+      break;
+    }
+    return [0, false];
+  };
+
+  const remainingObjects = [];
+  for (const obj of g.objects || []) {
+    const [owner, ok] = findOwner(obj);
+    if (!ok) {
+      remainingObjects.push(obj);
+      continue;
+    }
+    objectOwner.set(obj, owner);
+    const extraction = extractions.get(specs[owner].container);
+    extraction.nestedGraph.objects = [...(extraction.nestedGraph.objects || []), obj];
+  }
+  g.objects = remainingObjects;
+
+  const remainingEdges = [];
+  for (const edge of g.edges || []) {
+    const [srcOwner, srcNested] = findOwner(edge.src);
+    if (d2sequence.isLifelineEnd(edge.dst)) {
+      if (srcNested) {
+        const extraction = extractions.get(specs[srcOwner].container);
+        extraction.nestedGraph.edges = [...(extraction.nestedGraph.edges || []), edge];
+      } else remainingEdges.push(edge);
+      continue;
+    }
+
+    const [dstOwner, dstNested] = findOwner(edge.dst);
+    if (srcNested && dstNested && srcOwner === dstOwner) {
+      const extraction = extractions.get(specs[srcOwner].container);
+      extraction.nestedGraph.edges = [...(extraction.nestedGraph.edges || []), edge];
+      continue;
+    }
+    if (!srcNested && !dstNested) {
+      remainingEdges.push(edge);
+      continue;
+    }
+
+    let owner = srcOwner;
+    if (!srcNested || (dstNested && dstOwner < owner)) owner = dstOwner;
+    const extraction = extractions.get(specs[owner].container);
+    extraction.externalEdges.push(edge);
+    extraction.externalEdgeIDs.push({ srcID: edge.src.absID(), dstID: edge.dst.absID() });
+  }
+  g.edges = remainingEdges;
+
+  // Mutate parent/root references only after all memberships have been
+  // classified; doing so earlier would change ancestry for later diagrams.
+  for (const spec of specs) {
+    const extraction = extractions.get(spec.container);
+    for (const obj of extraction.nestedGraph.objects || []) obj.graph = extraction.nestedGraph;
+    if (spec.includeSelf) {
+      if (spec.container.parent !== null) spec.container.parent.removeChild(spec.container);
+      extraction.nestedGraph.root.childrenArray = [spec.container];
+      spec.container.parent = extraction.nestedGraph.root;
+      extraction.nestedGraph.root.children.set(goLower(spec.container.id), spec.container);
+    } else {
+      extraction.nestedGraph.root.childrenArray = [...(extraction.nestedGraph.root.childrenArray || []), ...(spec.container.childrenArray || [])];
+      for (const child of spec.container.childrenArray || []) {
+        child.parent = extraction.nestedGraph.root;
+        extraction.nestedGraph.root.children.set(goLower(child.id), child);
+      }
+      if (spec.container.children !== null) spec.container.children.clear();
+      spec.container.childrenArray = null;
+    }
+  }
+
+  return batch;
+}
+
+// rollbackAfter restores sibling diagrams that the batched fast path extracted
+// ahead of the diagram whose recursive layout failed. The failing diagram and
+// all earlier diagrams remain extracted, matching sequential ExtractSubgraph
+// side effects at the same error point.
+function rollbackAfter(batch, index) {
+  for (let i = index + 1; i < batch.specs.length; i++) {
+    const spec = batch.specs[i];
+    const extraction = batch.extractions.get(spec.container);
+    injectNested(extraction.restoreInto, extraction.nestedGraph, false);
+    batch.g.edges = [...(batch.g.edges || []), ...extraction.externalEdges];
+  }
+  for (const restoreOrder of batch.restoreParentOrder) restoreOrder();
+}
+
+// Clone JSON-shaped source configuration for nested layout calls so a plugin
+// cannot change the configuration of the parent or another nested diagram.
+export function cloneGraphData(data) {
+  if (data === null || data === undefined) return null;
+  const clone = {};
+  for (const key of Object.keys(data)) clone[key] = cloneGraphDataValue(data[key]);
+  return clone;
+}
+
+function cloneGraphDataValue(value) {
+  if (Array.isArray(value)) return value.map(cloneGraphDataValue);
+  if (value !== null && typeof value === 'object') return cloneGraphData(value);
+  return value;
+}
+
+function validateObjectPositions(objects) {
+  for (const obj of objects || []) {
+    if (obj.box.TopLeft === null) continue;
+    if (Math.abs(obj.box.TopLeft.x) === Infinity || Math.abs(obj.box.TopLeft.y) === Infinity) {
+      throw new Error(`object ${goQuote(obj.absID())} has invalid position with infinity value: x=${goFixed(obj.box.TopLeft.x)}, y=${goFixed(obj.box.TopLeft.y)}`);
+    }
+  }
+}
+
 export function extractSubgraph(container, includeSelf) {
   const nestedGraph = d2graph.newGraph();
+  nestedGraph.data = cloneGraphData(container.graph.data);
   nestedGraph.rootLevel = container.level();
   if (includeSelf) nestedGraph.rootLevel--;
   nestedGraph.root.attributes = copyAttributes(container.attributes);

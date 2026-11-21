@@ -2421,7 +2421,8 @@ function getMarkdownDimensions(mtexts, ruler, t, fontFamily, monoFontFamily) {
     try {
       [width, height] = measureMarkdown(t.text, ruler, fontFamily, monoFontFamily, t.fontSize);
     } catch (e) {
-      return [null, e.message];
+      if (e && e.name === 'MarkdownError') return [null, e.message];
+      throw e;
     }
     return [new d2target.TextDimensions(width, height), null];
   }

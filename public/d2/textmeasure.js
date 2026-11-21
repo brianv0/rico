@@ -143,8 +143,7 @@ function fUnion(r, s) {
 class Face {
   constructor(ttf, size) {
     this.f = ttf;
-    const sz = size > 0 ? size : 12;
-    this.scale = Math.trunc(0.5 + (sz * 72 * 64 / 72));
+    this.scale = Math.trunc(0.5 + size * 64);
     this.cache = new Map();
   }
   metrics() {
@@ -812,12 +811,32 @@ export function headerToFontSize(baseFontSize, header) {
   return 0;
 }
 
-/** MeasureMarkdown: [width, height] ints */
+/** The error of validateMarkdownSVGNodes: D2 v0.9.0 paints Markdown as native SVG, which supports a subset of HTML. */
+export class MarkdownError extends Error {
+  constructor(message) { super(message); this.name = 'MarkdownError'; }
+}
+
+const markdownSVGElements = new Set(['html', 'head', 'body',
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'blockquote', 'ul', 'ol', 'li', 'pre', 'code',
+  'em', 'b', 'strong', 'del', 's', 'strike', 'a', 'br', 'hr', 'img',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th']);
+
+function validateMarkdownSVGNodes(n) {
+  if (n.type === 'element') {
+    if (!markdownSVGElements.has(n.data)) throw new MarkdownError(`native Markdown SVG does not support HTML element <${n.data}>`);
+  }
+  for (let child = n.firstChild; child != null; child = child.nextSibling) validateMarkdownSVGNodes(child);
+}
+
+/**
+ * MeasureMarkdown: [width, height] ints. D2 v0.9.0 calls LayoutMarkdown (lib/textmeasure/markdown_svg.go), whose dimensions are
+ * the legacy box model below (the native SVG painting that shares that code belongs to the renderer). Throws MarkdownError when
+ * the HTML has an element native SVG does not support.
+ */
 export function measureMarkdown(mdText, ruler, fontFamily, monoFontFamily, fontSize) {
   const render = renderMarkdown(mdText);
   const bodyNode = parseBody(render);
-  // LayoutMarkdown (markdown_svg.go) rejects what native SVG cannot paint; MeasureMarkdown returns that error. Throws like the
-  // rest of this port's errors, with Go's message.
   validateMarkdownSVGNodes(bodyNode);
 
   const originalLineHeight = ruler.LineHeightFactor;
@@ -831,22 +850,6 @@ export function measureMarkdown(mdText, ruler, fontFamily, monoFontFamily, fontS
     ruler.LineHeightFactor = originalLineHeight;
     ruler.boundsWithDot = false;
   }
-}
-
-function validateMarkdownSVGNodes(n) {
-  if (n.type === 'element') {
-    switch (n.data) {
-      case 'html': case 'head': case 'body':
-      case 'p': case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
-      case 'blockquote': case 'ul': case 'ol': case 'li': case 'pre': case 'code':
-      case 'em': case 'b': case 'strong': case 'del': case 's': case 'strike': case 'a': case 'br': case 'hr': case 'img':
-      case 'table': case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'td': case 'th':
-        break;
-      default:
-        throw new Error(`native Markdown SVG does not support HTML element <${n.data}>`);
-    }
-  }
-  for (let child = n.firstChild; child != null; child = child.nextSibling) validateMarkdownSVGNodes(child);
 }
 
 function hasPrev(n) {
@@ -1055,7 +1058,7 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
 
         switch (n.data) {
           case 'blockquote':
-            block.width += (2 * PaddingLR_blockquote_em + BorderLeft_blockquote_em) * fontSize;
+            block.width += 2 * PaddingLR_blockquote_em * fontSize + BorderLeft_blockquote_em * fontSize;
             block.marginBottom = Math.max(block.marginBottom, MarginBottom_blockquote);
             break;
           case 'p':
