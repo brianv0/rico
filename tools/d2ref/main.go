@@ -61,6 +61,11 @@ type input struct {
 	Shape  string  `json:"shape"`
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
+
+	// label mode
+	Route  [][]float64 `json:"route"`
+	Stroke float64     `json:"stroke"`
+	Pct    float64     `json:"pct"`
 }
 
 func main() {
@@ -115,6 +120,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return map[string]interface{}{"html": html, "err": errString(err)}
 	case "shape":
 		return shapeCheck(in)
+	case "label":
+		return labelCheck(in)
 	case "parse":
 		ast, err := d2parser.Parse(in.Path, strings.NewReader(in.Text), &d2parser.ParseOptions{UTF16Pos: in.UTF16Pos})
 		return struct {

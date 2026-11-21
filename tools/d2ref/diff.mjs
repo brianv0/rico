@@ -15,6 +15,7 @@ import markdownit from 'markdown-it';
 import { setMarkdownIt, loadMetrics, newRuler, getTextDimensionsWithMono, measureMarkdown, renderMarkdown } from '../../public/d2/textmeasure.js';
 import * as d2fonts from '../../public/d2/fonts.js';
 import { shapeCheck } from './shapecheck.mjs';
+import { labelCheck } from './labelcheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -43,6 +44,7 @@ const STAGES = {
   measure,
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
   shape: shapeCheck,
+  label: labelCheck,
 };
 
 const [mode, file, ...flags] = process.argv.slice(2);
@@ -60,15 +62,18 @@ const ref = execFileSync('go', ['run', '.', mode], { cwd: here, input: cases.map
   .toString().trim().split('\n');
 
 const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-function firstDiff(a, b, p = '$') {
+const tol = Number(flag('--tol', 0)); // --tol 1e-9: numbers within a relative tolerance count as equal-within-tolerance
+function firstDiff(a, b, p = '$', t = 0) {
   if (JSON.stringify(a) === JSON.stringify(b)) return null;
+  if (t && typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= t * Math.max(1, Math.abs(a), Math.abs(b))) return null;
   if (a && b && typeof a === 'object' && typeof b === 'object') {
-    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${p}.${k}`); if (d) return d; }
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${p}.${k}`, t); if (d) return d; }
+    if (t) return null; // every leaf is within tolerance
   }
   return { path: p, got: JSON.stringify(a)?.slice(0, 200), want: JSON.stringify(b)?.slice(0, 200) };
 }
 
-let same = 0, panics = 0;
+let same = 0, panics = 0, withinTol = 0;
 const bad = [];
 const t0 = performance.now();
 cases.forEach((c, i) => {
@@ -77,8 +82,8 @@ cases.forEach((c, i) => {
   let got;
   try { got = canon(JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   const d = firstDiff(got, canon(want));
-  if (d) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...d }); else same++;
+  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt }); else withinTol++; } else same++;
 });
-console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics} identical to Go` + (panics ? `, ${panics} skipped (Go panicked)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
+console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
 process.exitCode = bad.length ? 1 : 0;

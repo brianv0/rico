@@ -61,6 +61,54 @@ export function goPow(x, y) {
   return ldexp(a1, ae);
 }
 
+// Go evaluates constant expressions with arbitrary precision and rounds once, so `a/b` of two decimal constants is
+// the correctly rounded exact quotient, not fl(a)/fl(b). exactDiv does that for decimal strings ("18.925", "1.5e3").
+function decToBig(s) {
+  const m = /^([+-]?)(\d*)\.?(\d*)(?:e([+-]?\d+))?$/i.exec(s);
+  const frac = m[3] || '';
+  let exp = Number(m[4] || 0) - frac.length;
+  let n = BigInt((m[2] || '0') + frac);
+  if (m[1] === '-') n = -n;
+  return [n, exp]; // n * 10^exp
+}
+const bitLength = (x) => x.toString(2).length;
+/** correctly rounded (half-to-even) double of the exact quotient of two decimal constants */
+export function exactDiv(a, b) {
+  let [an, ae] = decToBig(a);
+  let [bn, be] = decToBig(b);
+  let num = an, den = bn;
+  const e = ae - be;
+  if (e >= 0) num *= 10n ** BigInt(e); else den *= 10n ** BigInt(-e);
+  const neg = (num < 0n) !== (den < 0n);
+  if (num < 0n) num = -num;
+  if (den < 0n) den = -den;
+  if (num === 0n) return 0;
+  // scale so the integer quotient has at least 66 bits
+  const k = Math.max(0, 66 - (bitLength(num) - bitLength(den)));
+  const q0 = (num << BigInt(k)) / den;
+  const sticky = (num << BigInt(k)) % den !== 0n;
+  let q = (q0 << 1n) | (sticky ? 1n : 0n);
+  const L = bitLength(q);
+  const shift = L - 53;
+  let mant = q >> BigInt(shift);
+  const rem = q & ((1n << BigInt(shift)) - 1n);
+  const half = 1n << BigInt(shift - 1);
+  if (rem > half || (rem === half && (mant & 1n) === 1n)) mant += 1n;
+  const v = Number(mant) * 2 ** (shift - k - 1);
+  return neg ? -v : v;
+}
+/** Go's untyped constant math.Sqrt2 to 64 digits, for exactDiv expressions such as 40/math.Sqrt2 */
+export const SQRT2_DEC = '1.41421356237309504880168872420969807856967187537694807317667974';
+
+/** Go's math.Log2 and math.Log10: Log2(x) = Log(frac)*(1/Ln2) + exp (exact for powers of two); Log10 = Log2 * (Ln2/Ln10). */
+export function goLog2(x) {
+  const [frac, exp] = frexp(x);
+  // Frexp returns frac in [0.5, 1); Go special-cases exactly 0.5 (powers of two)
+  if (frac === 0.5) return exp - 1;
+  return Math.log(frac) * 1.442695040888963407359924681001892137 + exp;
+}
+export const goLog10 = (x) => goLog2(x) * 0.30102999566398119521373889472449302677;
+
 /** Expand a JS number's shortest round-trip digits to a plain decimal string (no exponent). */
 function plain(n) {
   let s = String(Math.abs(n));
