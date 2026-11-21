@@ -480,8 +480,8 @@ Loading is a dynamic `import()` of `vendor/mathjax.js`: nothing downloads unless
   MathML-to-SVG output asks for any variant), so there is no smaller component set. Plus `d2latex.js` 4 KB (1.8 KB gzipped).
 - **CSP**: no `eval`, no `new Function` (the only `eval` in the bundle is the physics macro named `eval`); verified in Chrome under
   `default-src 'none'; script-src 'self'; connect-src 'self'` (`eval()` is blocked there and the formulas render): first load 170-200 ms from localhost (599 KB gzipped
-  over the wire), 80 ms for four formulas including mhchem and CD, identical SVG to Node. `import-src`/`script-src` must allow the origin of `vendor/mathjax.js`; no
-  `'unsafe-eval'`, no DOM access (liteAdaptor), so it also runs in a worker. A sandboxed `blob:` iframe needs an absolute URL (`setEngineURL`).
+  over the wire), 80 ms for four formulas including mhchem and CD, identical SVG to Node. `script-src` must allow the origin of `vendor/mathjax.js`; no
+  `'unsafe-eval'` is needed, and no DOM is needed either (liteAdaptor; the harness runs it in Node). A sandboxed `blob:` iframe needs an absolute URL (`setEngineURL`).
 
 ### Where MathJax and mathjax-go differ (the reason latex is not "identical on all input")
 
@@ -509,5 +509,6 @@ formulas" holds for the tested set only. Causes, with a probe of 2265 control se
 What it would take to be identical everywhere: a line-for-line port of mathjax-go (`internal/tex` 12.4k lines, `internal/svg` 6.3k, `internal/mhchem` 2.6k, `internal/mml`+`layout`
 +`jscompat`+`font` 1.3k, and the generated glyph tables 3k lines / 1.3 MB of data that must be loaded lazily too: about 22k hand-written lines before the tests) with
 the harness already in place (`latex` stage + `latexfuzz.mjs`); the MathJax engine would be dropped. The alternative (decision for the owner): keep MathJax, which is what Rico's current
-WASM D2 (`@terrastruct/d2` 0.1.33, the MathJax bundle in goja) renders, so Rico users see no change, and which is the more correct renderer in every difference above.
+WASM D2 builds before v0.9.0 render (the MathJax 3.2.2 bundle in an embedded JS VM; Rico depends on `@terrastruct/d2` 0.1.33, which should be one of them), so Rico users would see no change,
+and which is the more correct renderer in every difference above.
 `extra-latex-gap.jsonl` holds three programs that show this on `layout`/`svg` (error text, the backtick, `\pu`).
