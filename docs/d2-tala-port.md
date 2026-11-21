@@ -24,7 +24,7 @@ needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelge
 | `internal/grouping` | `tala/grouping.js` | 1985 (about 2570) | `t1diff stages` 1 (`PreprocessSequences`), 5 (`PreprocessClusters`), 19 (`CleanupStuff`); `talat1ops` ops `resetClusters`, `seqEdges`, `cluster`, `join`, `rebuild`: see T1 |
 | `internal/proximity` | `tala/proximity.js` | 668 (1270) | `t1diff stages` 6 (`PreprocessHubs`); `talat1ops` ops `hubs`, `commonUncle`, `nearsHerds` (nears, herds): see T1 |
 | `internal/trees` | `tala/trees.js` | 2707 (2340) | `t1diff stages` 3 (`PreprocessTrees`); `talat1ops` op `trees` (Preprocess + Place as placement calls them): see T1 |
-| `slices.SortFunc`, `SortStableFunc`, `cmp.Compare` | `tala/goslices.js` | n/a | `talat1ops` op `slices`: TBDSLICES arrays |
+| `slices.SortFunc`, `SortStableFunc`, `cmp.Compare` | `tala/goslices.js` | n/a | `talat1ops` op `slices`: 2,300 arrays |
 
 ## Running it
 
@@ -140,6 +140,10 @@ Reading the source agrees: results do not depend on timing or scheduling.
   `abductEdges` collecting the existing abductions of all clusters/sequences (first unused match wins; ties between identical pairs are not expected),
   `collectRuntimeObjectsContext`, `clustersWithWorkGuard` (sorted by cluster ID afterwards), `Commit`'s container and overlap loops (any bad one rejects).
   The JS `Map`/`Set` iterate in insertion order, which is one of Go's possible orders. If a later stage finds a map-order dependence it must be recorded here.
+  **Found in T1:** `trees.buildPlacementTrees` ranges over a map of up to three tree directions and `mergeWith` (the first largest placement tree that can take
+  undirected roots) depends on that order, so an isolated tree with roots in several directions plus undirected roots is placed differently from run to run in Go
+  (2 outputs in 40 runs of one generated case; no corpus, e2e or fixture input has the shape). `layoutgraph.Validate` names an arbitrary cluster vessel in the
+  `cluster vessel N has no cluster record` error. See "T1" at the end.
 - **Work budgets** are deterministic counters (`limits.WorkGuard`, `OptimizationWorkGuard`, `routeWorkGuard`): 61.4M engine units (`MaxEngineWorkUnits`),
   1e9 per layout for transactions (`MaxTransactionWorkUnits`, one guard per seed pipeline: `EnsureTransactionWorkGuard` in `runAllStages`), 250M per
   optimization, 68M for tree placement, 50M for labels, 1e9 for bin packing. They matter only when a graph is big enough to exhaust one (an error, no
@@ -245,3 +249,112 @@ earlier stages in JS. That is how to split the work; the full-pipeline diff come
   considered done.
 - `layoutgraph` has no work to do for D2's `RouteEdges` hook beyond the adapter (`loadExistingLayout`); the router entry (`routing.RouteEdges`) belongs to the routing agent.
 - Float formatting is not an issue for the port itself (JSON shape is the D2 `Diagram`); IDs are.
+
+## T1: `loops`, `grouping`, `proximity`, `trees` (done)
+
+Files (gzip -9): `tala/loops.js` 3.4 KB, `grouping.js` 10.6 KB, `proximity.js` 4.9 KB, `trees.js` 15.4 KB, `goslices.js` 1.5 KB (Go's `slices.SortFunc`,
+`slices.SortStableFunc`, `cmp.Compare`; the unit tests are `test/tala-t1.test.js`, 20 tests, ports of the cheap Go tests). 5.7k Go lines became about 4k JS
+lines, line for line (Go names in camelCase; unexported twins of exported names get the trailing underscore: `loops.computeOffsets` is `ComputeOffsets`,
+`computeOffsets_` the unexported `computeOffsets`).
+
+### What is checked against Go, and how to run it
+
+The Go side is `tools/d2ref/tala/xdump/t1_*.go` (modes `t1stages`, `t1ops`), the JS side `tools/d2ref/tala/t1check.mjs`; build with `tala/setup.sh` as before.
+
+```bash
+cd tools/d2ref
+node tala/t1diff.mjs stages tala-corpus.jsonl --seeds 1,2,3 --stages 1,3,5,6,19     # also tala-e2e.jsonl, tala-fixtures.jsonl, t1fuzz files
+node tala/t1fuzz.mjs 400 11 > ff11.jsonl && node tala/t1diff.mjs stages ff11.jsonl --seeds 1,2,3 --stages 1,3,5,6
+node tala/t1opscases.mjs tala-fixtures.jsonl --fixtures > o.jsonl && node diff.mjs talat1ops o.jsonl     # direct calls (graphs from fixtures or stages)
+node tala/t1opscases.mjs tala-corpus.jsonl --max 400 --stages -1,2,5,7,8,10,18,20 > o.jsonl            # (or a t1fuzz file instead of the corpus)
+node tala/t1slicescases.mjs 800 1 > s.jsonl && node diff.mjs talat1ops s.jsonl                          # goslices.js against slices.SortFunc/SortStableFunc
+node --test test/tala-t1.test.js
+```
+
+- **`t1diff.mjs stages`** (`talat1stages` is not a `diff.mjs` stage: it needs the exact 63-bit IDs of the Go side, which `diff.mjs` flattens): Go runs the
+  pipeline of one seed up to stage 20 and dumps, after the stages asked for, **graphjson plus the deep state** (`t1Deep`: margins, paddings, loop offsets,
+  herd assignments with their paired sets, nears, long-distance requirements, `node.edges` order, `node.container`, cluster/sequence/tree records with
+  edge abductions, `nodeToTree`, hubs, directions, containers, `commonUncleSiblings`, edge routes). Each target stage k is then recomputed in JS from Go's
+  state after stage k-1 (`reconstruct` = `graphjson.unmarshal` + `applyDeep`; the check first rebuilds that state and compares it with Go's, so a
+  difference is attributed to the stage and not to the input) and compared with Go's state after stage k, graph and deep state. Targets and inputs: 1 from 0
+  (`AddSequences`, generator = a fresh `rand.NewSource(seed)`), 3 from 2 (`trees.Preprocess`), 5 from 4 (`AddClusters`; the generator is first advanced by one
+  `Int63` per sequence, which is all stage 1 consumed: nothing else draws from `p.random`), 6 from 5 (`AddHubs`), 19 from 18 (`Cleanup`).
+- **`talat1ops`** (registered in `diff.mjs`, which retries a mismatch 100 times in Go: see Go-unstable below): `loops` (every node's `Route`, `ComputeOffsets`,
+  `UpdateOffsets` on unpositioned nodes), `resetClusters`, `seqEdges` (`SequenceDefiningEdges`), `cluster` (`PaddingBetween`, `AssignArrangement` for seeds 1-3),
+  `join` (`JoinDistancedClusters` as placement calls it: per container, innermost first, children graph + `AbductEdges`; a Go panic is part of the result),
+  `rebuild` (`Cleanup` then `AddSequences` with remembered vessel IDs, `AddClusters` from positions, `ResetClusters`, again), `commonUncle`, `hubs`, `nearsHerds`
+  (the calls of `placeNodes`: children graph, `AbductEdges`, recursion into child containers, `AssignNears`, `AssignHerds` with the parent's abductions,
+  `SyncHerdFences`), `trees` (`Preprocess`, then `Place` for every container as `placeNodes` does: children graph, abducted edges, `SplitSubgraphsTracked` with
+  nears and trees, `Place` per subgraph, tree nodes and edges copied back), `slices`.
+- Inputs: D2's corpus (`tala-corpus.jsonl`, seeds 1,2,3), the 309 e2e inputs (seed 1), the 115 graph fixtures (seed 123: `benchmark/trees_26nodes` and
+  `layout/larger_tree` among them), and **`tala/t1fuzz.mjs`**, a generator of D2 programs for exactly these packages (fans of identical leaves, step chains, cycles with
+  branching trees, isolated trees, self loops with labels and arrowheads, hubs, containers whose children share outside uncles, sql tables with edges to columns,
+  locked `top`/`left`, trees hanging off steps). `t1opscases.mjs` turns Go's stage graphs (positioned or not, with clusters, sequences, trees) into `t1ops` cases.
+
+Results: every comparison below is identical to Go (graph and deep state), nothing is tolerated.
+
+| check | inputs | identical |
+|---|---|---|
+| stages 1, 3, 5, 6, 19 (`t1diff stages`) | D2 corpus, seeds 1,2,3 | 847/847 programs, 15,627 stage comparisons (230 of the 1077 snippets make no TALA run: 188 compile errors, the rest only grid or sequence diagrams that D2 lays out itself or errors of TALA; groups are rare: 15 comparisons with sequences, 60 with trees, 54 with clusters, 153 with hubs) |
+| same | e2e inputs (309 with goldens), seed 1 | 273/273 (36 have no layout run), 1,845 |
+| same | 115 graph fixtures (`benchmark/*`, `layout/*`, `regression/*`, `ovg/*`), seed 123 | 115/115, 575 (`trees_26nodes`, `larger_tree` included) |
+| stages 1, 3, 5, 6 | `t1fuzz`: 2,155 programs (6 seeds), seeds 1,2,3 | 2,155/2,155, 25,833 (with sequences in 1,776 comparisons, trees in 2,118, clusters in 4,437, hubs in 5,787) |
+| stages 1, 5, 19 | `t1fuzz`: 247 programs, seeds 1,2 | 247/247, 1,482 |
+| `talat1ops`: `loops`, `resetClusters`, `seqEdges`, `cluster`, `join`, `commonUncle`, `hubs`, `nearsHerds`, `trees` | graphs of Go's stages -1, 2, 5, 7, 8, 10, 18, 20 of corpus and fuzz programs, and the fixtures: about 4,000 graphs | about 36,000 calls identical (loop offsets non-empty in 563 of the first 2,187 graphs; `trees` placed trees in about 400 graphs, `nearsHerds` assigned herds in about 300 graphs, 165 of them with paired sets) |
+| `rebuild` | fixtures, corpus stage graphs, fuzz | 1,383/1,383 |
+| `slices` (`goslices.js`) | random arrays up to 500 elements, 3 comparators, `SortFunc` and `SortStableFunc` | 2,300/2,300 |
+| unit tests `test/tala-t1.test.js` | | 20/20 |
+
+Also: `diff.mjs graph` and `layout` 1077/1077, `npm test` passes.
+
+### What the port had to get right (found by the diff, or by reading)
+
+- **Go ranges over a slice header fixed at the start.** `AddClusters` appends the new vessel to `g.Containers[container]` while it ranges over the children of that
+  container; the JS `for...of` over the same array visits the vessel and failed (18 corpus cases). The port copies the array (`.slice()`) where the loop body
+  appends to it (`addClusters`, `putBackNonBranchingTrees`). Look for it in every port of a `for _, x := range s` whose body can `append` to `s`'s variable.
+- **The sorts are not stable-valid comparators.** `loops.edgesInOrder` sorts with a comparator that is not a strict weak ordering (a source-only and a
+  target-only arrow are equal, but each orders by label area against the others), so the result depends on `slices.SortStableFunc`'s algorithm (insertion sort of
+  blocks of 20, then SymMerge): `goslices.js` ports it, `sortFunc` is `sort.Slice`'s pdqsort (`gosort.js`) with `cmp(x[i], x[j]) < 0` (the generated sources are the same).
+  Other packages that call `slices.SortFunc` / `SortStableFunc` should use it.
+- **State that graphjson does not carry** and a stage in the middle of the pipeline depends on: `node.edges` order (stage 4 `PreprocessHierarchies` reorders it),
+  `node.container` of hierarchy members, margins, paddings, loop offsets, herds, nears, long-distance requirements, `commonUncleSiblings`. `applyDeep` puts them back.
+  `graphjson.unmarshal` also cannot rebuild a graph in which a sequence's edge abduction names an edge that a tree extraction detached from `g.Edges` (a tree
+  hanging off a step, stages 3 to 18; Go's `Unmarshal` has the same check): `t1diff` then runs the JS stages 3 and 5 from the stage 2 graph (valid because Go's stage 4
+  left the state as it was up to the order of `node.edges`, which is put onto the JS graph).
+- **`JoinDistancedClusters` needs the graph placement gives it** (the children of one container with the edges of the descendants abducted onto them): on a whole
+  graph it panics `Clustered nodes: n. Total: m` (a `DistanceClusters` invariant), in Go and in JS.
+- **Go panics are `TypeError`s here**: a nil dereference in Go is a `TypeError` in JS (`t1check.mjs` maps both to the same message when it records a recovered panic).
+- **Random streams.** `AddSequences` draws one `Int63` per group and container (before it knows which IDs are remembered), `AddClusters` one `Int63` per attempted
+  cluster (the draw comes after the cheap descendant test and before the kernel charges) and creates a fresh `rand.New(rand.NewSource(seed))` per container for
+  the `Float64` of a square cluster (`AssignArrangement`); vessel IDs skip reserved values (`nextVesselID`, `nextAvailableNodeID`: wrap at MaxInt64 to 0).
+- **Work budgets**: every `guard.Step()/Add()/Finish()/Check()` of the Go code is called in the same place, including the loops that only charge (`for range`).
+  The budget exhaustion path itself is not exercised (it needs graphs with more than 61 million work units).
+
+### Go-unstable output (a determinism finding to add to the section above)
+
+`trees.buildPlacementTrees` ranges over a Go map of at most three keys (`rootsByTreeDirection`, `Outwards`/`Inwards`/`Bidirectional`) in random order. The trees it
+creates are sorted afterwards by size and first child ID (a total order), but the merge of **undirected** roots into "the first largest tree" (`mergeWith`) depends on
+the order: an isolated tree whose roots reach the sentinel in several directions and that also has undirected roots can be placed in two different ways, run to run
+(measured: 2 distinct outputs in 40 runs of one generated case). The JS port keeps first-seen order; the diff stage counts such cases as identical if JS equals one of
+Go's outputs (as `layout` does for dagre). None of the corpus, e2e or fixture inputs has this shape. `Validate` also names an arbitrary cluster vessel in its
+`cluster vessel N has no cluster record` error (the `rebuild` op reaches it).
+
+### API for the dependent packages
+
+All functions throw a `GoError` where Go returns an error (`errorsIs(e, context.Canceled)` works); IDs are BigInt; `random` is a `gorand.js` `Rand`.
+
+| Go | JS | called by (Go) |
+|---|---|---|
+| `loops.ComputeOffsets(g)`, `UpdateOffsets(node)`, `Route(node)` | `computeOffsets(g)`, `updateOffsets(node)`, `route(node)` -> self-edges with `points` and label positions set | `placement.Prepare`, `placeNodes`, `routing/coordinator` |
+| `grouping.ResetClusters(g)` | `resetClusters(g)` | pipeline stage 0 (before `Prescale`) |
+| `grouping.AddSequences(ctx, g, random)`, `AddClusters(ctx, g, seed, random)`, `Cleanup(g)` | `addSequences`, `addClusters(ctx, g, seedBigIntOrNumber, random)`, `cleanup` | stages 1, 5, 19 |
+| `grouping.AssignArrangement`, `PaddingBetween`, `CreateVessel`, `AddCluster`, `SequenceDefiningEdges`, `JoinDistancedClusters(ctx, g)` | same names, camelCase (`sequenceDefiningEdges` returns a `Set` of BigInt IDs) | placement (`optimizeCluster`, `placeNodesOrthogonally`), routing |
+| `proximity.AddHubs`, `AssignNears`, `AssignHerds`, `GroupSheep`, `ApplyVirally`, `CanUseBothSides`, `SyncHerdFences`, `CommonUncleSiblings` | same names, camelCase (`commonUncleSiblings(g)` returns `Map<Node, Node[]>`, assign it to `g.commonUncleSiblings`) | stage 6, `placeNodes`, `placement.Place`, the optimizers |
+| `trees.Preprocess(ctx, g)`, `Place(ctx, g, container)`, `Descendants(root)` | `preprocess`, `place`, `descendants` | stage 3, `placeNodes` |
+
+### Corrections to the plan
+
+- `join.go` (`JoinDistancedClusters`) is in `grouping`, not in placement; it is ported and checked here.
+- Placement's tree placement is verified through the `trees` op (the calls of `placeNodes` replayed on stage graphs and fixtures), not inside stage 7: stage 7 needs
+  the placement package. The remaining check of `Place` is the whole stage 7 once placement exists.
+- Stage 0's `ResetClusters` is not separable from `Prescale` and the route reset, so it is checked as the `resetClusters` op on graphs with active clusters.

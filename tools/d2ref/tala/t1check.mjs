@@ -14,6 +14,8 @@ import * as bigjson from '../../../public/d2/tala/bigjson.js';
 import * as geo from '../../../public/d2/geo.js';
 import * as loops from '../../../public/d2/tala/loops.js';
 import * as grouping from '../../../public/d2/tala/grouping.js';
+import * as proximity from '../../../public/d2/tala/proximity.js';
+import * as trees from '../../../public/d2/tala/trees.js';
 import { newRand } from '../../../public/d2/gorand.js';
 import * as goslices from '../../../public/d2/tala/goslices.js';
 
@@ -200,12 +202,7 @@ export function reconstruct(rec) {
 const ser = (g) => graphjson.serialize(ctx(), g);
 const record = (g, index, name) => ({ graph: ser(g), deep: deepState(g), index, name });
 
-let proximity = null;
-let trees = null;
-export async function loadModules() {
-  proximity = await import('../../../public/d2/tala/proximity.js').catch(() => null);
-  trees = await import('../../../public/d2/tala/trees.js').catch(() => null);
-}
+export async function loadModules() {} // kept for the callers of the first version (the modules are imported statically now)
 
 /** the JS function of each target stage and the stage whose graph is its input */
 export const STAGE_PRED = { 1: 0, 3: 2, 5: 4, 6: 5, 19: 18 };
@@ -612,4 +609,3 @@ function nearsHerds(g) {
 
 export const MODES = { talat1ops: 't1ops' };
 export const STAGES = { talat1ops: opsT1Stage };
-await loadModules();

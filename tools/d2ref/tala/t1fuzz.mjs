@@ -172,25 +172,42 @@ function program() {
     const crossings = int(4);
     for (let j = 0; j < crossings; j++) b.edge(pick(b.nodes), pick(b.nodes), {});
   }
-  // herds: containers whose children connect to the same outside nodes (the uncles) or to children of the other containers
-  if (chance(0.5)) {
-    const uncles = [b.fresh('U'), b.fresh('U'), b.fresh('U')].slice(0, 1 + int(3));
-    for (const u of uncles) b.emitNode(u, chance(0.3) ? [`shape: ${pick(shapes)}`] : []);
-    const boxes = [];
-    for (let i = 0, k = 1 + int(3); i < k; i++) {
-      const c = b.fresh('H');
+  // herds: the children of a container (W) that reach the children (cousins) of other containers (Z): siblings with the same uncle form a herd
+  if (chance(0.6)) {
+    const ws = [];
+    for (let i = 0, k = 1 + int(2); i < k; i++) {
+      const W = b.fresh('W');
       const kids = [];
       for (let j = 0, m = 2 + int(3); j < m; j++) {
-        const kid = `${c}.${b.fresh('q')}`;
-        b.emitNode(kid, chance(0.2) ? [`width: ${30 + int(120)}`, `height: ${20 + int(80)}`] : []);
+        const kid = `${W}.${b.fresh('a')}`;
+        if (chance(0.3)) { // a nested container child
+          const inner = `${kid}.${b.fresh('i')}`;
+          b.emitNode(inner, []);
+          b.emitNode(`${kid}.${b.fresh('i')}`, []);
+          kids.push(inner);
+        } else {
+          b.emitNode(kid, chance(0.2) ? [`width: ${30 + int(120)}`, `height: ${20 + int(80)}`] : []);
+          kids.push(kid);
+        }
+      }
+      ws.push(kids);
+    }
+    const zs = [];
+    for (let i = 0, k = 1 + int(3); i < k; i++) {
+      const Z = b.fresh('Z');
+      const kids = [];
+      for (let j = 0, m = 1 + int(3); j < m; j++) {
+        const kid = `${Z}.${b.fresh('z')}`;
+        b.emitNode(kid, chance(0.2) ? [`shape: ${pick(shapes)}`] : []);
         kids.push(kid);
       }
-      boxes.push(kids);
-      for (const kid of kids) if (chance(0.8)) b.edge(kid, pick(uncles), { arrow: pick(['->', '->', '--']), label: '' });
-      if (chance(0.3)) b.edge(kids[0], kids[1], {});
+      zs.push(kids);
     }
-    for (let i = 1; i < boxes.length; i++) if (chance(0.6)) b.edge(pick(boxes[i - 1]), pick(boxes[i]), {});
-    if (uncles.length > 1 && chance(0.5)) b.edge(uncles[0], uncles[1], {});
+    for (const kids of ws) {
+      const target = pick(zs);
+      for (const kid of kids) if (chance(0.85)) b.edge(kid, chance(0.7) ? pick(target) : pick(pick(zs)), { arrow: pick(['->', '->', '--']), label: '' });
+    }
+    if (zs.length > 1 && chance(0.5)) b.edge(pick(zs[0]), pick(zs[1]), {});
   }
   if (chance(0.3)) b.lines.push(`direction: ${pick(['up', 'down', 'left', 'right'])}`);
   // a few random extra edges
