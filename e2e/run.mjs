@@ -689,6 +689,26 @@ await step('change bars: one gutter column for every block (nested lists, quotes
   await p5.screenshot({ path: path.join(root, 'e2e', 'bars.png'), clip: { x: 280, y: 150, width: 900, height: 800 } });
   await p5.close();
 });
+await step('removed text: red tint, text in the same column as kept text, and its red bar in the same gutter', async () => {
+  const p6 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await p6.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fplan.md`);
+  await p6.waitForSelector('#doc .rm');
+  await p6.waitForFunction(() => document.querySelectorAll('#doc .rico-bars i.del').length >= 1, null, { timeout: 15000 });
+  const r = await p6.evaluate(() => {
+    const doc = document.getElementById('doc').getBoundingClientRect();
+    const rm = document.querySelector('#doc .rm');
+    const txt = (e) => { const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); const n = w.nextNode(); const rg = document.createRange(); rg.selectNodeContents(n); return rg.getBoundingClientRect().left; };
+    const kept = [...document.querySelectorAll('#doc > p[data-l]')].find((p) => !p.closest('.rm'));
+    const raw = getComputedStyle(rm).backgroundColor.match(/[\d.]+/g).map(Number).slice(0, 3);
+    const bg = raw.every((x) => x <= 1) ? raw.map((x) => x * 255) : raw; // color-mix() reports 0-1 channels
+    return { barX: Math.round(document.querySelector('#doc .rico-bars i.del').getBoundingClientRect().left - doc.left), rmText: Math.round(txt(rm)), keptText: Math.round(txt(kept)), bg };
+  });
+  assert.equal(r.barX, -16, 'the removed bar sits in the gutter column');
+  assert.ok(Math.abs(r.rmText - r.keptText) <= 1, `removed text (${r.rmText}) lines up with kept text (${r.keptText})`);
+  assert.ok(r.bg[0] - r.bg[1] > 25 && r.bg[0] - r.bg[2] > 20, 'the removed block is clearly red: rgb ' + r.bg.slice(0, 3));
+  await p6.screenshot({ path: path.join(root, 'e2e', 'removed.png'), clip: { x: 280, y: 150, width: 900, height: 480 } });
+  await p6.close();
+});
 await step('removed sections: Source diff and Rendered show the same threads', async () => {
   const c = card('docs/removed.md');
   await c.getByRole('button', { name: 'Source diff' }).click();

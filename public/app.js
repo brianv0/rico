@@ -1258,18 +1258,20 @@ function layoutBars(root) {
   }
   const base = root.getBoundingClientRect().top;
   const runs = [];
-  for (const e of root.querySelectorAll('[data-l].chg, [data-l].ctx, [data-l].out')) {
-    if (e.closest('.rm')) continue; // removed blocks draw their own red edge
+  for (const e of root.querySelectorAll('[data-l].chg, [data-l].ctx, [data-l].out, .rm')) {
+    const del = e.classList.contains('rm');
+    if (del ? e.parentElement.closest('.rm') : e.closest('.rm')) continue; // only the outermost removed element gets a bar
     const r = e.getBoundingClientRect();
     if (!r.height) continue; // collapsed (a closed <details>) or hidden
     const cs = getComputedStyle(e);
     const bottom = r.bottom - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderBottomWidth) || 0);
-    const kind = e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
-    const heading = /^H[1-6]$/.test(e.tagName);
+    const kind = del ? 'del' : e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
+    const heading = !del && /^H[1-6]$/.test(e.tagName);
     // Neighbouring blocks of the same kind share one bar when they sit tight together (list items, table rows);
     // paragraph breaks and headings always start a new bar.
     const last = runs[runs.length - 1];
-    if (last && !heading && !last.heading && last.kind === kind && r.top - last.rawBottom <= COALESCE_GAP) {
+    // a run of removed blocks with nothing kept between them is one deletion, so it is one bar whatever the gap
+    if (last && !heading && !last.heading && last.kind === kind && (del || r.top - last.rawBottom <= COALESCE_GAP)) {
       last.bottom = Math.max(last.bottom, bottom);
       last.rawBottom = Math.max(last.rawBottom, r.bottom);
     } else runs.push({ kind, heading, top: r.top, bottom, rawBottom: r.bottom });

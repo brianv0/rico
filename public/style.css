@@ -175,7 +175,7 @@ textarea { resize: vertical; padding: 8px 12px; }
 /* change bars: drawn by layoutBars() in one gutter column at the document's left edge */
 .rico-bars { position: absolute; inset: 0 auto 0 0; width: 0; pointer-events: none; }
 .rico-bars i { position: absolute; left: -16px; width: 3px; border-radius: 2px; }
-.rico-bars i.chg { background: var(--chg); } .rico-bars i.ctx { background: var(--ctx); } .rico-bars i.out { background: var(--out); }
+.rico-bars i.del { background: var(--danger); } .rico-bars i.chg { background: var(--chg); } .rico-bars i.ctx { background: var(--ctx); } .rico-bars i.out { background: var(--out); }
 .markdown-body [data-l].chg { background: color-mix(in srgb, var(--chg) 9%, transparent); } /* like GitHub's rich diff */
 .markdown-body [data-l].has-c { background: var(--mark); box-shadow: 0 0 0 3px var(--mark); border-radius: 2px; }
 .markdown-body [data-l].has-t { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 2px; }
@@ -185,11 +185,11 @@ textarea { resize: vertical; padding: 8px 12px; }
 ::highlight(rico-hl) { background-color: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* removed blocks, drawn from the old version like GitHub's rich diff */
-.markdown-body .rm { margin: 8px 0; padding: 4px 12px; background: var(--diff-del-bg); border-left: 3px solid var(--danger); border-radius: 6px; }
+/* The text keeps the column of the surrounding text; the red tint reaches 8px past it (negative margin + equal padding). */
+.markdown-body .rm { --del: color-mix(in srgb, var(--danger) 18%, var(--bg)); margin: 8px -8px; padding: 4px 8px; background: var(--del); border-radius: 4px; }
 .markdown-body .rm > :first-child { margin-top: 0; } .markdown-body .rm > :last-child { margin-bottom: 0; }
-.markdown-body li.rm { margin: 2px 0; padding: 0 8px; }
-.markdown-body tr.rm td, .markdown-body tr.rm th { background: var(--diff-del-bg); }
-.markdown-body tr.rm > :first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.markdown-body li.rm { margin: 2px 0 2px -8px; padding: 0 8px; }
+.markdown-body tr.rm td, .markdown-body tr.rm th { background: color-mix(in srgb, var(--danger) 18%, var(--bg)); }
 .markdown-body .rm [data-l]::before { display: none; }
 .markdown-body [data-l].gone.has-t, .markdown-body [data-l].gone.has-c { box-shadow: 0 0 0 3px var(--mark); }
 
