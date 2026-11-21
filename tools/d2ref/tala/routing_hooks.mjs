@@ -33,3 +33,7 @@ patch('coordinator.go', [
   ['\tresponses, err := generateRouteFlavorResponses(ctx, routers, true)\n',
     '\tresponses, err := generateRouteFlavorResponses(ctx, routers, true)\n\txHookResponses(ovg, routers, responses, err)\n'],
 ]);
+patch('ovg_hierarchy.go', [
+  ['\t\tsort.Slice(levelToNodes[level], func(i, j int) bool {\n\t\t\treturn levelToNodes[level][i].TopLeft.X < levelToNodes[level][j].TopLeft.X\n\t\t})\n',
+    '\t\tif !xHookSortLevel(levelToNodes[level]) {\n\t\t\tsort.Slice(levelToNodes[level], func(i, j int) bool {\n\t\t\t\treturn levelToNodes[level][i].TopLeft.X < levelToNodes[level][j].TopLeft.X\n\t\t\t})\n\t\t}\n'],
+]);

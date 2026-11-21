@@ -164,7 +164,7 @@ export function positionedArrowheadLabelCostGuarded(positioned, nodes, labels, r
   let penalty = 4 * graph.turnCostValue() * overlapCount;
 
   let overlappingEdgeCount = 0;
-  for (const route of routes) {
+  for (const route of routes ?? []) {
     guard.step();
     if (route.gEdge === positioned.edge) continue;
     for (let index = 1; index < route.ovgNodes.length; index++) {
@@ -175,7 +175,7 @@ export function positionedArrowheadLabelCostGuarded(positioned, nodes, labels, r
       }
     }
   }
-  for (const edge of edges) {
+  for (const edge of edges ?? []) {
     guard.step();
     if (edge === positioned.edge) continue;
     for (let index = 1; index < edge.points.length; index++) {

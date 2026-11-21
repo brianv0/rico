@@ -15,6 +15,14 @@ import { hierarchy as hierarchyDeps } from './deps.js';
 
 const { Orientation } = geo;
 
+// Go's sort.Slice of a hierarchy level starts from a random map iteration order, so nodes with equal TopLeft.X end up in a random order
+// (see XDeterministicLevels in tools/d2ref/tala/routing_xdump.go). The harness sets this flag, in Go and here, to order ties by node ID
+// and check everything else; in production it stays false (the JS order is then the order of hierarchy.levels(), one of Go's orders).
+let deterministicHierarchyLevels = false;
+export function setDeterministicHierarchyLevels(on) {
+  deterministicHierarchyLevels = !!on;
+}
+
 /** the hierarchy level of a node (Go: Node.HierarchyLevel(): n.Hierarchy.level[n], 0 when missing). */
 const hierarchyLevel = (n) => n.hierarchy.level.get(n) ?? 0;
 
@@ -111,7 +119,11 @@ export function addHierarchyLevelNodes(g, hierarchy, guard) {
     guard.step();
     const list = levelToNodes.get(level) ?? [];
     guard.reserveSortWork(list.length);
-    sortSlice(list, (i, j) => list[i].topLeft.x < list[j].topLeft.x);
+    if (deterministicHierarchyLevels) {
+      sortSlice(list, (i, j) => (list[i].topLeft.x !== list[j].topLeft.x ? list[i].topLeft.x < list[j].topLeft.x : list[i].id < list[j].id));
+    } else {
+      sortSlice(list, (i, j) => list[i].topLeft.x < list[j].topLeft.x);
+    }
   }
   const [tl, br] = guard.ovgBoundingBox(this);
   // Align the bounds to ovgPadding so OVG nodes line up across levels.

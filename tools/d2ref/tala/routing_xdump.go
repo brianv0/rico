@@ -20,6 +20,10 @@ import (
 
 // XObserve switches the recording on. XSerialize turns a graph into its graphjson (set by the xdump program).
 var (
+	// XDeterministicLevels makes addHierarchyLevelNodes order the nodes of a hierarchy level by (TopLeft.X, ID). Go's sort.Slice there
+	// starts from the order of a map iteration, so nodes with equal X (common in horizontal hierarchies: tables in a column) are ordered
+	// randomly and the OVG differs from run to run (the routes mostly do not). The check turns this on in Go and in JS to verify the rest.
+	XDeterministicLevels bool
 	XObserve   bool
 	XSerialize func(*layoutgraph.Graph) interface{}
 )
@@ -97,6 +101,7 @@ type XSubgraph struct {
 // XCall is one call of RouteGraph.
 type XCall struct {
 	Graph     interface{}  `json:"graph"`
+	NodeEdges [][]int64    `json:"nodeEdges"` // per node: [node ID, edge IDs in node.Edges order] (the adjacency order is not in graphjson)
 	Subgraphs []*XSubgraph `json:"subgraphs"`
 }
 
@@ -207,6 +212,42 @@ func xHookRouteGraph(graph *layoutgraph.Graph) {
 	if XSerialize != nil {
 		xCall.Graph = XSerialize(graph)
 	}
+	seen := map[*layoutgraph.Node]bool{}
+	var visit func(n *layoutgraph.Node)
+	visit = func(n *layoutgraph.Node) {
+		if n == nil || seen[n] {
+			return
+		}
+		seen[n] = true
+		row := []int64{int64(n.ID)}
+		for _, e := range n.Edges {
+			row = append(row, int64(e.IDValue()))
+			visit(e.From)
+			visit(e.To)
+		}
+		xCall.NodeEdges = append(xCall.NodeEdges, row)
+		for _, c := range graph.Containers[n] {
+			visit(c)
+		}
+		if cl := graph.Clusters[n]; cl != nil {
+			for _, c := range cl.Nodes {
+				visit(c)
+			}
+		}
+		if sq := graph.Sequences[n]; sq != nil {
+			for _, c := range sq.Nodes {
+				visit(c)
+			}
+		}
+	}
+	for _, n := range graph.Nodes {
+		visit(n)
+	}
+	for _, children := range graph.Containers {
+		for _, c := range children {
+			visit(c)
+		}
+	}
 	xCalls = append(xCalls, xCall)
 	xSub = nil
 }
@@ -298,3 +339,16 @@ func xHookSubgraphDone(sub *layoutgraph.Graph, err error) {
 
 var _ = fmt.Sprint
 var _ context.Context
+
+func xHookSortLevel(nodes []*layoutgraph.Node) bool {
+	if !XDeterministicLevels {
+		return false
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].TopLeft.X != nodes[j].TopLeft.X {
+			return nodes[i].TopLeft.X < nodes[j].TopLeft.X
+		}
+		return nodes[i].ID < nodes[j].ID
+	})
+	return true
+}

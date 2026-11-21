@@ -27,6 +27,7 @@ import * as geo from '../../../public/d2/geo.js';
 import * as routing from '../../../public/d2/tala/routing/core.js';
 import { GoError } from '../../../public/d2/tala/goerrors.js';
 
+routing.setDeterministicHierarchyLevels(true); // see ovg_hierarchy.js: Go's level order is random for equal X; xdump's routing modes order ties by ID too
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const idStr = (id) => BigInt(id).toString();
@@ -110,6 +111,29 @@ export function replayCall(call, opts = {}) {
   const ctx0 = context.background();
   const g = new lg.Graph();
   graphjson.unmarshal(ctx0, call.graph, g);
+  // the order of node.Edges (adjacency) is live state of Go's graph that graphjson does not carry
+  {
+    const nodes = new Map();
+    const edges = new Map();
+    const visit = (n) => {
+      if (n === null || nodes.has(idStr(n.id))) return;
+      nodes.set(idStr(n.id), n);
+      for (const c of g.containers.get(n) ?? []) visit(c);
+      const cl = g.clusters.get(n);
+      if (cl) for (const c of cl.nodes) visit(c);
+      const sq = g.sequences.get(n);
+      if (sq) for (const c of sq.nodes) visit(c);
+    };
+    for (const n of g.nodes) visit(n);
+    for (const list of g.containers.values()) for (const c of list) visit(c);
+    for (const e of g.edges) { edges.set(idStr(e.id), e); visit(e.from); visit(e.to); }
+    for (const row of call.nodeEdges ?? []) {
+      const n = nodes.get(idStr(row[0]));
+      if (n === undefined) continue;
+      const list = row.slice(1).map((id) => edges.get(idStr(id)));
+      if (list.length === n.edges.length && list.every((e) => e !== undefined)) n.edges = list;
+    }
+  }
   const aggregate = routing.newRouteWorkGuard(ctx0, 'EdgeRouting', routing.maxEdgeRoutingStageWorkUnits);
   const routingCtx = routing.contextWithRouteAggregateWork(ctx0, aggregate);
   const ovgGuard = routing.newOVGBuildGuard(routingCtx, routing.defaultOVGBuildLimits());
