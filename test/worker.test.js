@@ -150,3 +150,21 @@ test('split sessions: signing out deletes the server half, so a copied cookie st
   assert.equal(e.SESSIONS.m.size, 0);
   assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e)).status, 401, 'the replayed cookie is dead');
 });
+
+// ---- hardening: every response carries the CSP / framing headers; '.' and '..' are not owner/repo names
+test('every response, including the static app and errors, carries CSP and framing headers; /api/raw keeps its stricter CSP', async () => {
+  for (const res of [await worker.fetch(req('/github.com/o/r/1'), env), await worker.fetch(req('/api/me'), { ...env, GITHUB_CLIENT_SECRET: '' }), await worker.fetch(req('/auth/login'), env)]) {
+    assert.match(res.headers.get('Content-Security-Policy'), /frame-ancestors 'self'/);
+    assert.equal(res.headers.get('X-Frame-Options'), 'DENY');
+    assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+  }
+});
+
+test('api: "." and ".." are rejected as owner/repo before anything reaches GitHub', async () => {
+  const { cookie } = await signIn();
+  const before = calls.length;
+  for (const p of ['/api/pr?owner=..&repo=r&number=1', '/api/pr?owner=o&repo=..&number=1', '/api/pr?owner=.&repo=r&number=1']) {
+    assert.equal((await worker.fetch(req(p, { headers: { Cookie: cookie } }), env)).status, 400);
+  }
+  assert.equal(calls.slice(before).filter((c) => c.url.includes('/repos/')).length, 0);
+});
