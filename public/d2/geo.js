@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/geo package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's lib/geo package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 // Go's math.Sin/Cos/Acos/Atan2/Pow can differ from V8 in the last bit; sqrt, abs, min, max and round do not.
 
 import { goRound, goPow, float32, goV, goFixed, goInt } from './gomath.js';

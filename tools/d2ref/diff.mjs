@@ -41,8 +41,13 @@ await initD2();
 function measure(c) {
   const family = c.fontFamily || null, mono = c.monoFamily || null;
   if (c.markdown) {
-    const [width, height] = measureMarkdown(c.text, ruler, family, mono, c.fontSize);
-    return { width, height, err: null };
+    try {
+      const [width, height] = measureMarkdown(c.text, ruler, family, mono, c.fontSize);
+      return { width, height, err: null };
+    } catch (e) {
+      if (e.name === 'MarkdownError') return { width: 0, height: 0, err: e.message };
+      throw e;
+    }
   }
   const t = { text: c.text, fontSize: c.fontSize, isBold: !!c.bold, isItalic: !!c.italic, language: c.language || '' };
   const dims = getTextDimensionsWithMono(null, ruler, t, family, mono);
@@ -159,14 +164,14 @@ for (const [i, c] of cases.entries()) {
   let d = firstDiff(got, canon(want));
   if (d && mode === 'layout') {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
-    // between runs. If Go gives the JS answer in some of 30 more runs, the case is Go-unstable, not a mismatch.
-    const again = runRef(Array(30).fill(c)).map((l) => canon(JSON.parse(l)));
+    // between runs. If Go gives the JS answer in some of 100 more runs, the case is Go-unstable, not a mismatch.
+    const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
-  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt }); else withinTol++; } else same++;
+  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
 }
 console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (${Object.entries(deferredBy).map(([k, v]) => `${k}: ${v}`).join(', ')})` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
-for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
+for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}` + (b.errs ? `\n  err  ${b.errs}` : ''));
 process.exitCode = bad.length ? 1 : 0;
 
 // e2e: D2's own end-to-end goldens. Inputs come from e2eenum/run.sh (the testCases that e2etests' run() compiles, recorded
@@ -175,7 +180,7 @@ process.exitCode = bad.length ? 1 : 0;
 async function e2e(file, flags) {
   const { execFileSync } = await import('node:child_process');
   const src = (flags.includes('--src') ? flags[flags.indexOf('--src') + 1] : null) ||
-    execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'oss.terrastruct.com/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
+    execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'github.com/d2lang/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
   const cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   let same = 0, noGolden = 0, deferred = 0, errSame = 0;
   const bad = [];
@@ -190,7 +195,8 @@ async function e2e(file, flags) {
     if (r.err) { bad.push({ name: c.name, path: '$err', got: r.err.message, want: 'a diagram' }); continue; }
     const want = JSON.parse(fs.readFileSync(gp, 'utf8'));
     const got = JSON.parse(JSON.stringify(r.diagram));
-    const d = firstDiff(got, want, '$', tolv);
+    const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
+    const d = firstDiff(sortKeys(got), sortKeys(want), "$", tolv); // key order is not compared (v0.9.0 goldens write url.URL fields in another order)
     if (d) bad.push({ name: c.name, ...d }); else same++;
   }
   console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden, ${deferred} deferred (latex)`);

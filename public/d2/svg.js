@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/svg package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.):
+// JavaScript port of D2's lib/svg package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.):
 // the SVG path builder the shapes use, path splitting, and XML escaping / ids.
 
 import { Point, Segment, BezierCurve, euclideanDistance, newPoint } from './geo.js';
@@ -9,13 +9,17 @@ import { goRound, float32, goV, goFixed, goLog10 } from './gomath.js';
 
 // ---- number.go ----
 
-/** FormatFloat (v0.9.0 lib/svg/number.go): integers print without a fraction ("-0" for negative zero), others as %.6f with trailing zeros trimmed */
+/**
+ * FormatFloat serializes an SVG coordinate with the same six decimal places as %f, but omits redundant trailing zeros. Keeping
+ * the original rounding is important: formatting the full float or reducing precision changes geometry.
+ */
 export function formatFloat(value) {
-  if (value >= -9223372036854775808 && value < 9223372036854775808) {
+  // Most laid-out coordinates are integers. The upper bound is exclusive because float64(math.MaxInt64) rounds up to 2^63.
+  if (value >= -(2 ** 63) && value < 2 ** 63) {
     const integer = Math.trunc(value);
     if (value === integer) {
       if (integer === 0 && Object.is(value, -0)) return '-0';
-      return Math.abs(integer) < 9007199254740992 ? String(integer) : BigInt(integer).toString();
+      return BigInt(integer).toString();
     }
   }
   let s = goFixed(value, 6);
@@ -37,10 +41,22 @@ function chopPrecision(f) {
   return result;
 }
 
+/**
+ * PathCommandKind identifies one of the renderer-neutral path operations produced by SvgPathContext. SvgPathContext
+ * normalizes horizontal and vertical SVG commands to PathCommandLine so consumers only need to handle absolute move, line,
+ * cubic, and close operations.
+ */
+export const PathCommandMove = 0, PathCommandLine = 1, PathCommandCubic = 2, PathCommandClose = 3;
+
+/** PathCommand contains absolute path geometry. End is used by move, line, and cubic commands; Control1 and Control2 by cubic ones. */
+const zeroPoint = () => newPoint(0, 0);
+const pathCommand = (Kind, Control1, Control2, End) => ({ Kind, Control1: Control1 ?? zeroPoint(), Control2: Control2 ?? zeroPoint(), End: End ?? zeroPoint() });
+
 export class SvgPathContext {
   constructor(tl, sx, sy) {
     this.Path = [];
     this.Commands = [];
+    this.commands = [];
     this.Start = null;
     this.Current = null;
     this.TopLeft = tl.copy();
@@ -53,11 +69,13 @@ export class SvgPathContext {
   startAt(p) {
     this.Start = p;
     this.Commands.push(`M ${goV(p.x)} ${goV(p.y)}`);
+    this.commands.push(pathCommand(PathCommandMove, null, null, p.copy()));
     this.Current = p.copy();
   }
   Z() {
     this.Path.push(new Segment(this.Current.copy(), this.Start.copy()));
     this.Commands.push('Z');
+    this.commands.push(pathCommand(PathCommandClose));
     this.Current = this.Start.copy();
   }
   L(isLowerCase, x, y) {
@@ -66,6 +84,7 @@ export class SvgPathContext {
     else endPoint = this.absolute(x, y);
     this.Path.push(new Segment(this.Current.copy(), endPoint));
     this.Commands.push(`L ${goV(endPoint.x)} ${goV(endPoint.y)}`);
+    this.commands.push(pathCommand(PathCommandLine, null, null, endPoint.copy()));
     this.Current = endPoint.copy();
   }
   C(isLowerCase, x1, y1, x2, y2, x3, y3) {
@@ -73,6 +92,7 @@ export class SvgPathContext {
     const points = [this.Current.copy(), p(x1, y1), p(x2, y2), p(x3, y3)];
     this.Path.push(new BezierCurve(points));
     this.Commands.push(`C ${goV(points[1].x)} ${goV(points[1].y)} ${goV(points[2].x)} ${goV(points[2].y)} ${goV(points[3].x)} ${goV(points[3].y)}`);
+    this.commands.push(pathCommand(PathCommandCubic, points[1].copy(), points[2].copy(), points[3].copy()));
     this.Current = points[3].copy();
   }
   H(isLowerCase, x) {
@@ -85,6 +105,7 @@ export class SvgPathContext {
     }
     this.Path.push(new Segment(this.Current.copy(), endPoint.copy()));
     this.Commands.push(`H ${goV(endPoint.x)}`);
+    this.commands.push(pathCommand(PathCommandLine, null, null, endPoint.copy()));
     this.Current = endPoint.copy();
   }
   V(isLowerCase, y) {
@@ -97,7 +118,12 @@ export class SvgPathContext {
     }
     this.Path.push(new Segment(this.Current.copy(), endPoint));
     this.Commands.push(`V ${goV(endPoint.y)}`);
+    this.commands.push(pathCommand(PathCommandLine, null, null, endPoint.copy()));
     this.Current = endPoint.copy();
+  }
+  /** PathCommands returns a defensive copy of the absolute typed path commands. */
+  pathCommands() {
+    return this.commands.map((c) => ({ Kind: c.Kind, Control1: c.Control1.copy(), Control2: c.Control2.copy(), End: c.End.copy() }));
   }
   pathData() { return this.Commands.join(' '); }
 }

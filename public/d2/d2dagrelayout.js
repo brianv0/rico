@@ -1,19 +1,12 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2layouts/d2dagrelayout package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.):
+// JavaScript port of D2's d2layouts/d2dagrelayout package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.):
 // layout.go and object_mapper.go, the Go glue around dagre.
 //
-// dagre itself is D2's own dagre.js and setup.js, unmodified, in vendor/ (see vendor/README.txt). Go evaluates them in goja
-// with a fresh runtime per Layout call: dagre.js, setup.js, a script with the graph attributes, a script with every node,
-// parent and edge, `dagre.layout(g)`, and then one `JSON.stringify(g.node(g.nodes()[i]))` per object and one
-// `JSON.stringify(g.edge(g.edges()[i]))` per edge. This port builds exactly those strings (sources of the strings:
-// generateAddNodeLine etc.) and evaluates them with `new Function`, once per call, so dagre's module state (lodash's
-// uniqueId counter) starts fresh as it does in Go. NOTE for the browser: `new Function` needs `'unsafe-eval'` in the
-// page's CSP; load dagre.js as a classic <script> and call setDagreFactory() if that is not acceptable.
-//
-// Loading: `await loadDagre()` (Node: reads vendor/dagre.js; browser: fetches it next to this module), or
-// `setDagreSource(text)` / `setDagreFactory(fn)` with the text or an already compiled `(module, exports) => void`.
+// In v0.9.0 the glue calls dagro, a native Go port of dagre 3.1.1. Here the same calls go to dagre 3.1.1 itself (npm
+// @dagrejs/dagre, MIT), vendored in vendor/dagre.js with the three source corrections dagro applies to it (see
+// vendor/README.txt). dagre is an ES module without module state, so nothing needs `eval`.
 
 import { sortSlice } from './gosort.js';
 import * as d2graph from './d2graph.js';
@@ -22,6 +15,8 @@ import * as geo from './geo.js';
 import * as label from './label.js';
 import * as shape from './shape.js';
 import { goRound, goInt } from './gomath.js';
+import { quote as goQuote } from './url.js';
+import dagre from './vendor/dagre.js';
 
 export const MIN_RANK_SEP = 60;
 export const EDGE_LABEL_GAP = 20;
@@ -30,43 +25,8 @@ export const MIN_SPACING = 10.;
 
 export const DefaultOpts = { nodesep: 60, edgesep: 20 };
 
-// ---- loading dagre.js and setup.js ----
-
-let dagreFactory = null;
-let setupJS = null;
-
-const VENDOR = new URL('./vendor/', import.meta.url);
-
-/** Provides dagre.js as text (compiled once with `new Function`). */
-export function setDagreSource(text) {
-  dagreFactory = new Function('module', 'exports', text);
-}
-
-/** Provides a function `(module, exports)` that runs dagre's UMD bundle (assigning module.exports), for pages that cannot eval. */
-export function setDagreFactory(fn) {
-  dagreFactory = fn;
-}
-
-/** Provides setup.js as text. */
-export function setSetupSource(text) {
-  setupJS = text;
-}
-
-async function readVendor(name) {
-  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-    const fs = await import(/* @vite-ignore */ 'node:fs/promises');
-    return fs.readFile(new URL(name, VENDOR), 'utf8');
-  }
-  const res = await fetch(new URL(name, VENDOR));
-  if (!res.ok) throw new Error(`failed to load ${name}: ${res.status}`);
-  return res.text();
-}
-
-/** Loads vendor/dagre.js and vendor/setup.js unless already provided. */
-export async function loadDagre() {
-  if (dagreFactory === null) setDagreSource(await readVendor('dagre.js'));
-  if (setupJS === null) setupJS = await readVendor('setup.js');
-}
+/** Kept for callers of the previous (JS runtime based) engine: dagre is imported statically now, there is nothing to load. */
+export async function loadDagre() {}
 
 // ---- object mapper (object_mapper.go) ----
 
@@ -89,29 +49,6 @@ class ObjectMapper {
   toObj(id) {
     return this.idToObj.get(id) ?? null;
   }
-
-  generateAddNodeLine(obj, width, height) {
-    const id = this.toID(obj);
-    return `g.setNode(\`${id}\`, { id: \`${id}\`, width: ${width}, height: ${height} });\n`;
-  }
-
-  generateAddParentLine(child, parent) {
-    return `g.setParent(\`${this.toID(child)}\`, \`${this.toID(parent)}\`);\n`;
-  }
-
-  generateAddEdgeLine(from, to, edgeID, width, height) {
-    return `g.setEdge({v:\`${this.toID(from)}\`, w:\`${this.toID(to)}\`, name:\`${escapeID(edgeID)}\`}, { width:${width}, height:${height}, labelpos: \`c\` });\n`;
-  }
-}
-
-function escapeID(id) {
-  // fixes \\
-  id = id.replaceAll('\\', '\\\\');
-  // replaces \n with \\n whenever \n is not preceded by \ (does not replace \\n)
-  id = id.replace(/[^\\]\n/gu, '\\\\n');
-  // avoid an unescaped \r becoming a \n in the layout result
-  id = id.replaceAll('\r', '\\r');
-  return id;
 }
 
 const get0 = (m, k) => m.get(k) ?? 0;
@@ -140,7 +77,6 @@ export function layout(g, opts) {
 
 function layout_(g, opts) {
   if (opts === null || opts === undefined) opts = DefaultOpts;
-  if (dagreFactory === null || setupJS === null) throw new Error('dagre is not loaded: await loadDagre() first');
 
   const rootAttrs = { nodesep: opts.nodesep, edgesep: opts.edgesep, ranksep: 0, rankdir: '' };
   let isHorizontal = false;
@@ -181,27 +117,44 @@ function layout_(g, opts) {
   if (!isHorizontal) rootAttrs.ranksep = Math.max(100, maxLabelHeight + 40);
   else rootAttrs.ranksep = Math.max(100, maxLabelWidth + 40);
 
-  const configJS = setGraphAttrs(rootAttrs);
-
   const mapper = new ObjectMapper();
   for (const obj of objects) mapper.register(obj);
-  let loadScript = '';
+  const resolver = newEndpointResolver(g);
+  // endpointPair is a comparable struct in Go: pairs are keyed by their two (object) ids
+  const pairKey = (src, dst) => `${mapper.toID(src)}\u0000${mapper.toID(dst)}`;
+  const resolvedEndpoints = new Map();
+  const directedPairCounts = new Map();
+  for (const edge of edges) {
+    const [src, dst] = resolver.resolve(edge);
+    resolvedEndpoints.set(edge, { src, dst });
+    const k = pairKey(src, dst);
+    directedPairCounts.set(k, get0(directedPairCounts, k) + 1);
+  }
+
+  const dagreGraph = new dagre.graphlib.Graph({ compound: true, multigraph: true }).setGraph({
+    ranksep: rootAttrs.ranksep,
+    edgesep: rootAttrs.edgesep,
+    nodesep: rootAttrs.nodesep,
+    rankdir: rootAttrs.rankdir,
+  });
   for (const obj of objects) {
-    loadScript += mapper.generateAddNodeLine(obj, goInt(obj.box.Width), goInt(obj.box.Height));
-    if (obj.parent !== g.root) loadScript += mapper.generateAddParentLine(obj, obj.parent);
+    const id = mapper.toID(obj);
+    dagreGraph.setNode(id, {
+      id,
+      width: goInt(obj.box.Width),
+      height: goInt(obj.box.Height),
+    });
+    if (obj.parent !== g.root) dagreGraph.setParent(id, mapper.toID(obj.parent));
   }
 
   for (const edge of edges) {
-    const [src, dst] = getEdgeEndpoints(g, edge);
+    const { src, dst } = resolvedEndpoints.get(edge);
 
     let width = edge.attributes.labelDimensions.width;
     let height = edge.attributes.labelDimensions.height;
 
-    let numEdges = 0;
-    for (const e of edges) {
-      const [otherSrc, otherDst] = getEdgeEndpoints(g, e);
-      if ((otherSrc === src && otherDst === dst) || (otherSrc === dst && otherDst === src)) numEdges++;
-    }
+    let numEdges = get0(directedPairCounts, pairKey(src, dst));
+    if (src !== dst) numEdges += get0(directedPairCounts, pairKey(dst, src));
 
     // We want to leave some gap between multiple edges
     if (numEdges > 1) {
@@ -215,37 +168,59 @@ function layout_(g, opts) {
       }
     }
 
-    loadScript += mapper.generateAddEdgeLine(src, dst, edge.absID(), width, height);
+    dagreGraph.setEdge(mapper.toID(src), mapper.toID(dst), { width, height, labelpos: 'c' }, edge.absID());
   }
 
-  // the strings Go evaluates after `dagre.layout(g)`
-  const nodeScripts = objects.map((_, i) => `JSON.stringify(g.node(g.nodes()[${i}]))`);
-  const edgeScripts = edges.map((_, i) => `JSON.stringify(g.edge(g.edges()[${i}]))`);
-  const script = `${setupJS}\n${configJS}${loadScript}dagre.layout(g);\nreturn [${nodeScripts.join(',')}, ${edgeScripts.join(',')}];`;
+  dagre.layout(dagreGraph);
 
-  const m = { exports: {} };
-  dagreFactory(m, m.exports);
-  const results = new Function('dagre', script)(m.exports);
-
-  for (let i = 0; i < objects.length; i++) {
-    const dn = parseJSON(results[i]);
+  for (const id of dagreGraph.nodes()) {
+    const dn = dagreGraph.node(id);
+    if (dn === null || typeof dn !== 'object') throw new Error(`dagro returned invalid node label for ${goQuote(id)}`);
+    if (typeof dn.id !== 'string') throw new Error(`dagro returned node ${goQuote(id)} without an id`);
     const obj = mapper.toObj(dn.id);
+    if (obj === null) throw new Error(`dagro returned unknown node id ${goQuote(dn.id)}`);
+    const { x, y, width, height } = dn;
+    if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+      throw new Error(`dagro returned invalid geometry for node ${goQuote(id)}`);
+    }
 
     // dagre gives center of node
-    obj.box.TopLeft = geo.newPoint(goRound(dn.x - dn.width / 2), goRound(dn.y - dn.height / 2));
-    obj.box.Width = Math.ceil(dn.width);
-    obj.box.Height = Math.ceil(dn.height);
+    obj.box.TopLeft = geo.newPoint(goRound(x - width / 2), goRound(y - height / 2));
+    obj.box.Width = Math.ceil(width);
+    obj.box.Height = Math.ceil(height);
   }
 
+  const dagreEdges = dagreGraph.edges();
+  if (dagreEdges.length !== edges.length) {
+    throw new Error(`dagro returned ${dagreEdges.length} edges, expected ${edges.length}`);
+  }
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i];
-    const de = parseJSON(results[objects.length + i]);
-    const dpoints = (de.points || []).map((p) => geo.newPoint(p.x ?? 0, p.y ?? 0));
+    const de = dagreGraph.edge(dagreEdges[i]);
+    if (de === null || typeof de !== 'object') throw new Error(`dagro returned invalid edge label for ${goQuote(dagreEdges[i].name)}`);
+    const dagrePoints = de.points;
+    if (!Array.isArray(dagrePoints)) throw new Error(`dagro returned edge ${goQuote(dagreEdges[i].name)} without points`);
 
-    let points = new Array(dpoints.length);
-    for (let j = 0; j < dpoints.length; j++) {
-      if (edge.srcArrow && !edge.dstArrow) points[dpoints.length - j - 1] = dpoints[j].copy();
-      else points[j] = dpoints[j].copy();
+    let points = new Array(dagrePoints.length);
+    for (let j = 0; j < dagrePoints.length; j++) {
+      const p = geo.newPoint(dagrePoints[j].x, dagrePoints[j].y);
+      if (edge.srcArrow && !edge.dstArrow) points[dagrePoints.length - j - 1] = p;
+      else points[j] = p;
+    }
+    // Dagre 3.1 self-loop routes contain repeated control points. Remove only
+    // consecutive duplicates so downstream tangent calculations never see a
+    // zero-length segment.
+    points = deduplicateRoutePoints(points);
+    if (edge.src === edge.dst) {
+      // The self-loop controls describe the loop outside the node, but do not
+      // include usable node-facing endpoints. Center sentinels give
+      // TraceToShape a direction from which to chop the route to each border.
+      const center = edge.src.box.center();
+      points = [center.copy(), ...points];
+      points.push(center.copy());
+    }
+    if (points.length < 2) {
+      throw new Error(`dagro returned edge ${goQuote(dagreEdges[i].name)} without a usable route`);
     }
 
     let startIndex = 0, endIndex = points.length - 1;
@@ -390,76 +365,88 @@ function layout_(g, opts) {
   }
 }
 
-/** json.Unmarshal into a struct: a missing or null number is 0 */
-function parseJSON(s) {
-  const o = JSON.parse(s);
-  for (const k of ['x', 'y', 'width', 'height']) if (o[k] === null || o[k] === undefined) o[k] = 0;
-  if (o.id === undefined || o.id === null) o.id = '';
-  return o;
+function deduplicateRoutePoints(points) {
+  if (points.length < 2) return points;
+  const deduplicated = [points[0]];
+  for (const point of points.slice(1)) {
+    if (!point.equals(deduplicated[deduplicated.length - 1])) deduplicated.push(point);
+  }
+  return deduplicated;
 }
 
-function getEdgeEndpoints(g, edge) {
-  // dagre doesn't work with edges to containers so we connect container edges to their first child instead (going all the way down)
-  // we will chop the edge where it intersects the container border so it only shows the edge from the container
-  let src = edge.src;
-  while (src.children !== null && src.children.size > 0 && src.class === null && src.sqlTable === null) {
-    // We want to get the bottom node of sources, setting its rank higher than all children
-    src = getLongestEdgeChainTail(g, src);
+class EndpointResolver {
+  constructor(g) {
+    this.g = g;
+    this.containers = new Map();
   }
-  let dst = edge.dst;
-  while (dst.children !== null && dst.children.size > 0 && dst.class === null && dst.sqlTable === null) {
-    dst = getLongestEdgeChainHead(g, dst);
+
+  head(container) {
+    return this.endpoints(container).head;
   }
-  if (edge.srcArrow && !edge.dstArrow) {
-    // for `b <- a`, edge.Edge is `a -> b` and we expect this routing result
-    [src, dst] = [dst, src];
+
+  tail(container) {
+    return this.endpoints(container).tail;
   }
-  return [src, dst];
+
+  endpoints(container) {
+    let endpoints = this.containers.get(container);
+    if (endpoints === undefined) {
+      const [head, tail] = getLongestEdgeChainEndpoints(this.g, container);
+      endpoints = { head, tail };
+      this.containers.set(container, endpoints);
+    }
+    return endpoints;
+  }
+
+  resolve(edge) {
+    // dagre doesn't work with edges to containers so we connect container edges to their first child instead (going all the way down)
+    // we will chop the edge where it intersects the container border so it only shows the edge from the container
+    let src = edge.src;
+    while (src.children !== null && src.children.size > 0 && src.class === null && src.sqlTable === null) {
+      // We want to get the bottom node of sources, setting its rank higher than all children
+      src = this.tail(src);
+    }
+    let dst = edge.dst;
+    while (dst.children !== null && dst.children.size > 0 && dst.class === null && dst.sqlTable === null) {
+      dst = this.head(dst);
+    }
+    if (edge.srcArrow && !edge.dstArrow) {
+      // for `b <- a`, edge.Edge is `a -> b` and we expect this routing result
+      [src, dst] = [dst, src];
+    }
+    return [src, dst];
+  }
 }
 
-function setGraphAttrs(attrs) {
-  return `g.setGraph({
-  ranksep: ${attrs.ranksep},
-  edgesep: ${attrs.edgesep},
-  nodesep: ${attrs.nodesep},
-  rankdir: "${attrs.rankdir}",
-});
-`;
+function newEndpointResolver(g) {
+  return new EndpointResolver(g);
 }
 
 const MIN_INT32 = -2147483648;
 
-// getLongestEdgeChainHead finds the longest chain in a container and gets its head
-// If there are multiple chains of the same length, get the head closest to the center
-function getLongestEdgeChainHead(g, container) {
-  const rank = new Map();
-  const chainLength = new Map();
-  const edges = g.edges || [];
-  const children = container.childrenArray || [];
+class ContainerTopology {
+  constructor(container) {
+    this.container = container;
+    this.hasIncoming = new Map();
+    this.outgoing = new Map();
+  }
 
-  for (const obj of children) {
-    let isHead = true;
-    for (const e of edges) {
-      if (inContainer(e.src, container) !== null && inContainer(e.dst, obj) !== null) {
-        isHead = false;
-        break;
-      }
-    }
-    if (!isHead) continue;
-    rank.set(obj, 1);
-    chainLength.set(obj, 1);
-    // BFS
-    let queue = [obj];
-    const visited = new Set();
-    while (queue.length > 0) {
-      const curr = queue[0];
-      queue = queue.slice(1);
-      if (visited.has(curr)) continue;
-      visited.add(curr);
-      for (const e of edges) {
-        const child = inContainer(e.dst, container);
-        if (child === curr) continue;
-        if (child !== null && inContainer(e.src, curr) !== null) {
+  longestChainEndpoints() {
+    const rank = new Map();
+    const chainLength = new Map();
+
+    for (const obj of this.container.childrenArray) {
+      if (this.hasIncoming.get(obj) === true) continue;
+      rank.set(obj, 1);
+      chainLength.set(obj, 1);
+      let queue = [obj];
+      const visited = new Set();
+      while (queue.length > 0) {
+        const curr = queue[0];
+        queue = queue.slice(1);
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+        for (const child of this.outgoing.get(curr) || []) {
           if (get0(rank, curr) + 1 > get0(rank, child)) {
             rank.set(child, get0(rank, curr) + 1);
             chainLength.set(obj, Math.max(get0(chainLength, obj), get0(rank, child)));
@@ -468,70 +455,55 @@ function getLongestEdgeChainHead(g, container) {
         }
       }
     }
-  }
-  let max = MIN_INT32;
-  for (const obj of children) {
-    if (get0(chainLength, obj) > max) max = get0(chainLength, obj);
-  }
 
-  const heads = [];
-  for (let i = 0; i < children.length; i++) {
-    const obj = children[i];
-    if (get0(rank, obj) === 1 && get0(chainLength, obj) === max) heads.push(children[i]);
-  }
+    let maxChainLength = MIN_INT32;
+    let maxRank = MIN_INT32;
+    for (const obj of this.container.childrenArray) {
+      maxChainLength = Math.max(maxChainLength, get0(chainLength, obj));
+      maxRank = Math.max(maxRank, get0(rank, obj));
+    }
 
-  if (heads.length > 0) return heads[Math.floor(heads.length / 2.0)];
-  return children[0];
+    const heads = [], tails = [];
+    for (const obj of this.container.childrenArray) {
+      if (get0(rank, obj) === 1 && get0(chainLength, obj) === maxChainLength) heads.push(obj);
+      if (get0(rank, obj) === maxRank) tails.push(obj);
+    }
+
+    let head = this.container.childrenArray[0];
+    if (heads.length > 0) head = heads[Math.trunc(heads.length / 2)];
+    return [head, tails[Math.trunc(tails.length / 2)]];
+  }
 }
 
-// getLongestEdgeChainTail gets the node at the end of the longest edge chain, because that will be the end of the container
-// and is what external connections should connect with.
-// If there are multiple of same length, get the one closest to the middle
-function getLongestEdgeChainTail(g, container) {
-  const rank = new Map();
-  const edges = g.edges || [];
-  const children = container.childrenArray || [];
+function newContainerTopology(g, container) {
+  const topology = new ContainerTopology(container);
+  for (const edge of g.edges || []) {
+    const src = inContainer(edge.src, container);
+    const dst = inContainer(edge.dst, container);
+    if (src === null || dst === null) continue;
 
-  for (const obj of children) {
-    let isHead = true;
-    for (const e of edges) {
-      if (inContainer(e.src, container) !== null && inContainer(e.dst, obj) !== null) {
-        isHead = false;
-        break;
-      }
+    // The original head test counts every edge from anywhere in the
+    // container to a direct child's subtree, including internal edges.
+    if (dst !== container) topology.hasIncoming.set(dst, true);
+
+    // Preserve edge order and duplicates: the breadth-first walk's rank
+    // updates are order-sensitive even though the graph is usually acyclic.
+    if (src !== dst) {
+      if (!topology.outgoing.has(src)) topology.outgoing.set(src, []);
+      topology.outgoing.get(src).push(dst);
     }
-    if (!isHead) continue;
-    rank.set(obj, 1);
-    // BFS
-    let queue = [obj];
-    const visited = new Set();
-    while (queue.length > 0) {
-      const curr = queue[0];
-      queue = queue.slice(1);
-      if (visited.has(curr)) continue;
-      visited.add(curr);
-      for (const e of edges) {
-        const child = inContainer(e.dst, container);
-        if (child === curr) continue;
-        if (child !== null && inContainer(e.src, curr) !== null) {
-          rank.set(child, Math.max(get0(rank, child), get0(rank, curr) + 1));
-          queue.push(child);
-        }
-      }
+    // A container can enter the old traversal when an edge terminates on
+    // it. From there, every edge whose source is inside it is reachable.
+    if (src !== container && dst !== container) {
+      if (!topology.outgoing.has(container)) topology.outgoing.set(container, []);
+      topology.outgoing.get(container).push(dst);
     }
   }
-  let max = MIN_INT32;
-  for (const obj of children) {
-    if (get0(rank, obj) > max) max = get0(rank, obj);
-  }
+  return topology;
+}
 
-  const tails = [];
-  for (let i = 0; i < children.length; i++) {
-    const obj = children[i];
-    if (get0(rank, obj) === max) tails.push(children[i]);
-  }
-
-  return tails[Math.floor(tails.length / 2.0)];
+function getLongestEdgeChainEndpoints(g, container) {
+  return newContainerTopology(g, container).longestChainEndpoints();
 }
 
 function inContainer(obj, container) {
@@ -710,10 +682,29 @@ function shiftUp(g, start, distance, isHorizontal) {
   }
 }
 
+class CrossRankIndex {
+  constructor() {
+    this.incident = new Map();
+  }
+}
+
+function newCrossRankIndex(g) {
+  const index = new CrossRankIndex();
+  for (const edge of g.edges || []) {
+    if (!index.incident.has(edge.src)) index.incident.set(edge.src, []);
+    index.incident.get(edge.src).push(edge);
+    if (edge.dst !== edge.src) {
+      if (!index.incident.has(edge.dst)) index.incident.set(edge.dst, []);
+      index.incident.get(edge.dst).push(edge);
+    }
+  }
+  return index;
+}
+
 // shift down everything that is below start
 // shift all nodes that are reachable via an edge or being directly below a shifting node or expanding container
 // expand containers to wrap shifted nodes
-function shiftReachableDown(g, obj, start, distance, isHorizontal, isMargin) {
+function shiftReachableDownIndexed(g, index, obj, start, distance, isHorizontal, isMargin) {
   let q = [obj];
 
   const needsMove = new Set();
@@ -799,7 +790,7 @@ function shiftReachableDown(g, obj, start, distance, isHorizontal, isMargin) {
 
       for (const child of curr.childrenArray || []) queue(child);
 
-      for (const e of g.edges || []) {
+      for (const e of index.incident.get(curr) || []) {
         if (shiftedEdges.has(e)) continue;
         if (e.src === curr && e.dst === curr) {
           if (isHorizontal) {
@@ -878,7 +869,11 @@ function shiftReachableDown(g, obj, start, distance, isHorizontal, isMargin) {
   processQueue();
 
   const grown = new Set();
-  for (const o of seen) {
+  // Go ranges over the map `seen`, which processQueue() (called inside the loop) adds to: such entries "may be produced during the
+  // iteration or may be skipped". A Go swiss map that grows while it is iterated keeps iterating its old table, so the entries added
+  // by a grown parent's queue are not visited; a JS Set would visit them all. Iterating a snapshot is what Go shows (measured on
+  // fuzzed layouts: visiting the added entries gives layouts that Go never prints).
+  for (const o of [...seen]) {
     if (o.parent === g.root) continue;
     if (shifted.has(o.parent)) continue;
     if (grown.has(o.parent)) continue;
@@ -1076,6 +1071,7 @@ function adjustRankSpacing(g, rankSep, isHorizontal) {
 }
 
 function adjustCrossRankSpacing(g, rankSep, isHorizontal) {
+  const index = newCrossRankIndex(g);
   let prevMarginTop, prevMarginBottom, prevMarginLeft, prevMarginRight;
   if (isHorizontal) {
     prevMarginLeft = new Map();
@@ -1090,39 +1086,39 @@ function adjustCrossRankSpacing(g, rankSep, isHorizontal) {
     if (!isHorizontal) {
       if (prevMarginBottom.has(obj)) margin.Bottom -= prevMarginBottom.get(obj);
       if (margin.Bottom > 0) {
-        const increased = shiftReachableDown(g, obj, obj.box.TopLeft.y + obj.box.Height, margin.Bottom, isHorizontal, true);
+        const increased = shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.y + obj.box.Height, margin.Bottom, isHorizontal, true);
         for (const o of increased) prevMarginBottom.set(o, Math.max(get0(prevMarginBottom, o), margin.Bottom));
       }
       if (padding.Bottom > 0) {
-        shiftReachableDown(g, obj, obj.box.TopLeft.y + obj.box.Height, padding.Bottom, isHorizontal, false);
+        shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.y + obj.box.Height, padding.Bottom, isHorizontal, false);
         obj.box.Height += padding.Bottom;
       }
       if (prevMarginTop.has(obj)) margin.Top -= prevMarginTop.get(obj);
       if (margin.Top > 0) {
-        const increased = shiftReachableDown(g, obj, obj.box.TopLeft.y, margin.Top, isHorizontal, true);
+        const increased = shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.y, margin.Top, isHorizontal, true);
         for (const o of increased) prevMarginTop.set(o, Math.max(get0(prevMarginTop, o), margin.Top));
       }
       if (padding.Top > 0) {
-        shiftReachableDown(g, obj, obj.box.TopLeft.y, padding.Top, isHorizontal, false);
+        shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.y, padding.Top, isHorizontal, false);
         obj.box.Height += padding.Top;
       }
     } else {
       if (prevMarginRight.has(obj)) margin.Right -= prevMarginRight.get(obj);
       if (margin.Right > 0) {
-        const increased = shiftReachableDown(g, obj, obj.box.TopLeft.x + obj.box.Width, margin.Right, isHorizontal, true);
+        const increased = shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.x + obj.box.Width, margin.Right, isHorizontal, true);
         for (const o of increased) prevMarginRight.set(o, Math.max(get0(prevMarginRight, o), margin.Right));
       }
       if (padding.Right > 0) {
-        shiftReachableDown(g, obj, obj.box.TopLeft.x + obj.box.Width, padding.Right, isHorizontal, false);
+        shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.x + obj.box.Width, padding.Right, isHorizontal, false);
         obj.box.Width += padding.Right;
       }
       if (prevMarginLeft.has(obj)) margin.Left -= prevMarginLeft.get(obj);
       if (margin.Left > 0) {
-        const increased = shiftReachableDown(g, obj, obj.box.TopLeft.x, margin.Left, isHorizontal, true);
+        const increased = shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.x, margin.Left, isHorizontal, true);
         for (const o of increased) prevMarginLeft.set(o, Math.max(get0(prevMarginLeft, o), margin.Left));
       }
       if (padding.Left > 0) {
-        shiftReachableDown(g, obj, obj.box.TopLeft.x, padding.Left, isHorizontal, false);
+        shiftReachableDownIndexed(g, index, obj, obj.box.TopLeft.x, padding.Left, isHorizontal, false);
         obj.box.Width += padding.Left;
       }
     }

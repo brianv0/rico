@@ -1,13 +1,13 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/textmeasure package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.),
+// JavaScript port of D2's lib/textmeasure package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.),
 // itself ported from github.com/faiface/pixel/tree/master/text.
 //
-// Go measures text with github.com/golang/freetype/truetype (no hinting, 72 dpi) on D2's bundled TTFs. Here the same
+// Go measures text with golang.org/x/image/font/opentype (sfnt, no hinting, 72 dpi; v0.7.2 used freetype/truetype) on D2's bundled TTFs. Here the same
 // numbers come from fonts/metrics.json, a dump (tools/d2ref `fontmetrics`) of exactly what that path reads per font:
 // cmap, hmtx/glyf-derived glyph records (advance, bearings, point bounding box or composite components), kern pairs,
-// hhea ascent/descent and unitsPerEm. `loadGlyph` replays freetype's GlyphBuf.Load (26.6 fixed-point rounding included)
+// hhea ascent/descent and unitsPerEm. `loadGlyph` replays sfnt.Font.GlyphBounds (26.6 fixed-point rounding included)
 // over those records, and the atlas code below is Go's, line for line. Canvas measureText is never used.
 
 import { newPoint } from './geo.js';
@@ -15,6 +15,7 @@ import * as d2fonts from './fonts.js';
 import { Graphemes, graphemeClusterCount } from './uniseg.js';
 import { utf8Len, isSpace } from './ast.js';
 import { parseBody } from './htmlparse.js';
+import { inTable, Cf, ODICP, VS, PCM } from './uniprops.js';
 
 export const TAB_SIZE = 4;
 export const SIZELESS_FONT_SIZE = 0;
@@ -64,82 +65,39 @@ class TTFont {
   }
 }
 
-// GlyphBuf.Load with font.HintingNone. State: bbox of points, phantom point X values, pp1x, metricsSet.
+// sfnt.Font.GlyphBounds with font.HintingNone (what x/image/font/opentype, and so D2 v0.9.0's lib/textmeasure/fontface.go, uses).
+// The advance is the hmtx advance scaled on its own; the bounds are the bounding box of the glyph's outline points in font units
+// (compound glyphs: of their transformed, offset component points), scaled point by point with the Y axis flipped. The hmtx
+// bearings, the phantom points and the glyph header box play no part (unlike freetype's GlyphBuf.Load, which v0.7.2 used).
+function unitBounds(f, i, depth) {
+  if (depth >= 32) throw new Error('sfnt: unsupported compound glyph');
+  const rec = f.glyphs[i];
+  if (rec.e) return null;
+  if (!rec.c) return rec.b ? rec.b.slice() : null; // [minX, maxX, minY, maxY]
+  let acc = null;
+  for (const c of rec.c) {
+    let b = unitBounds(f, c.g, depth + 1);
+    if (!b) continue;
+    if (c.t) {
+      if (c.t[1] !== 0 || c.t[2] !== 0) throw new Error('textmeasure: non-diagonal component transform is not supported');
+      // tform: (p * t + half) >> 14 for each point; monotone per axis, so the box corners are enough
+      const tx = (x) => Math.floor((x * c.t[0] + (1 << 13)) / 16384);
+      const ty = (y) => Math.floor((y * c.t[3] + (1 << 13)) / 16384);
+      const xs = [tx(b[0]), tx(b[1])], ys = [ty(b[2]), ty(b[3])];
+      b = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    }
+    b = [b[0] + c.dx, b[1] + c.dx, b[2] + c.dy, b[3] + c.dy];
+    acc = acc ? [Math.min(acc[0], b[0]), Math.max(acc[1], b[1]), Math.min(acc[2], b[2]), Math.max(acc[3], b[3])] : b;
+  }
+  return acc;
+}
+
 function loadGlyph(f, scale, idx) {
-  const g = { pts: null, phantom: [0, 0], pp1x: 0, metricsSet: false };
-
-  const addPts = (b) => {
-    if (!b) return;
-    if (!g.pts) g.pts = b.slice();
-    else {
-      g.pts[0] = Math.min(g.pts[0], b[0]); g.pts[1] = Math.max(g.pts[1], b[1]);
-      g.pts[2] = Math.min(g.pts[2], b[2]); g.pts[3] = Math.max(g.pts[3], b[3]);
-    }
-  };
-
-  const load = (recursion, i, useMyMetrics) => {
-    if (recursion >= 32) throw new Error('freetype: unsupported TrueType feature: excessive compound glyph recursion');
-    const rec = f.glyphs[i];
-    const empty = !!rec.e;
-    const boundsXMin = empty ? 0 : rec.x;
-    g.phantom = [boundsXMin - rec.l, boundsXMin - rec.l + rec.a];
-    if (empty) {
-      g.phantom = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-      return;
-    }
-    let pp1x = 0;
-    if (rec.c) {
-      pp1x = f.scale(scale * (boundsXMin - rec.l));
-      loadCompound(recursion, rec, useMyMetrics);
-    } else {
-      if (rec.b) addPts([f.scale(scale * rec.b[0]), f.scale(scale * rec.b[1]), f.scale(scale * rec.b[2]), f.scale(scale * rec.b[3])]);
-      const pp = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-      pp1x = pp[0];
-      if (useMyMetrics) g.phantom = pp;
-    }
-    if (useMyMetrics && !g.metricsSet) {
-      g.metricsSet = true;
-      g.pp1x = pp1x;
-    }
-  };
-
-  const loadCompound = (recursion, rec, useMyMetrics) => {
-    for (const c of rec.c) {
-      const savedPP = g.phantom;
-      const saved = g.pts;
-      g.pts = null;
-      const componentUMM = useMyMetrics && !!c.u;
-      load(recursion + 1, c.g, componentUMM);
-      if (!c.u) g.phantom = savedPP;
-      let comp = g.pts;
-      if (c.t && comp) {
-        if (c.t[1] !== 0 || c.t[2] !== 0) throw new Error('textmeasure: non-diagonal component transform is not supported');
-        const tx = (x) => Math.floor((x * c.t[0] + (1 << 13)) / 16384);
-        const ty = (y) => Math.floor((y * c.t[3] + (1 << 13)) / 16384);
-        const xs = [tx(comp[0]), tx(comp[1])];
-        const ys = [ty(comp[2]), ty(comp[3])];
-        comp = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-      }
-      let dx = f.scale(scale * c.dx);
-      let dy = f.scale(scale * c.dy);
-      if (c.r) {
-        dx = (dx + 32) & ~63;
-        dy = (dy + 32) & ~63;
-      }
-      g.pts = saved;
-      if (comp) addPts([comp[0] + dx, comp[1] + dx, comp[2] + dy, comp[3] + dy]);
-    }
-    // addPhantomsAndScale(np0, len(Points), false, ...): scales the phantom points (again, if a component set them)
-    const sp = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-    if (!g.metricsSet) g.phantom = sp;
-  };
-
-  load(0, idx, true);
-  const pp1x = g.pp1x;
-  const advanceWidth = g.phantom[1] - g.phantom[0];
-  let bounds; // [minX, minY, maxX, maxY]
-  if (!g.pts) bounds = [0, 0, 0, 0];
-  else bounds = [g.pts[0] - pp1x, g.pts[2], g.pts[1] - pp1x, g.pts[3]];
+  const advanceWidth = f.scale(f.glyphs[idx].a * scale);
+  const u = unitBounds(f, idx, 0);
+  // Y is flipped (OpenType's Y axis points up, the segments' down); f.scale rounds half away from zero, so -scale(y) = scale(-y)
+  const bounds = u ? { minX: f.scale(u[0] * scale), minY: -f.scale(u[3] * scale), maxX: f.scale(u[1] * scale), maxY: -f.scale(u[2] * scale) }
+    : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   return { advanceWidth, bounds };
 }
 
@@ -185,8 +143,7 @@ function fUnion(r, s) {
 class Face {
   constructor(ttf, size) {
     this.f = ttf;
-    const sz = size > 0 ? size : 12;
-    this.scale = Math.trunc(0.5 + (sz * 72 * 64 / 72));
+    this.scale = Math.trunc(0.5 + size * 64);
     this.cache = new Map();
   }
   metrics() {
@@ -208,12 +165,7 @@ class Face {
     if (!this.f.hasGlyph(r)) return [null, 0, false];
     let g = this.cache.get(r);
     if (!g) { g = loadGlyph(this.f, this.scale, this.f.index(r)); this.cache.set(r, g); }
-    const xmin = +g.bounds[0];
-    const ymin = -g.bounds[3];
-    const xmax = +g.bounds[2];
-    const ymax = -g.bounds[1];
-    if (xmin > xmax || ymin > ymax) return [null, 0, false];
-    return [{ minX: xmin, minY: ymin, maxX: xmax, maxY: ymax }, g.advanceWidth, true];
+    return [g.bounds, g.advanceWidth, true];
   }
 }
 
@@ -462,6 +414,47 @@ export class Ruler {
     return w;
   }
 
+  /**
+   * scaleUnicodeLegacy preserves the approximation historically used by D2's Markdown box measurement while filtering controls
+   * that browsers do not advance. (Native painting uses scaleUnicodeCSS, which is not ported.)
+   */
+  scaleUnicodeLegacy(w, fontSpec, s) {
+    const t = this;
+    if (graphemeClusterCount(s) === utf8Len(s)) return w;
+    // Preserve the old fallback algorithm (including its original ink width) after removing controls that Blink gives no
+    // advance. Uniseg can attach such a control to a visible narrow base (for example x + ZWJ), so filtering only wholly
+    // invisible clusters still leaves an atlas replacement glyph. Keep wide emoji/CJK clusters intact: their variation
+    // selectors, tags, and joiners can determine the browser's glyph and terminal-cell width.
+    const [measurementText, filteredIgnorables] = legacyMeasurementText(s);
+    if (filteredIgnorables) w = 0;
+    for (const line of measurementText.split('\n')) {
+      let [lineW] = t.measurePrecise(fontSpec, line);
+      const lineFloor = lineW;
+      const graphemes = new Graphemes(line);
+      const mono = d2fonts.font(d2fonts.SourceCodePro, fontSpec.Size, fontSpec.Style);
+      while (graphemes.next()) {
+        if (graphemes.width() === 1) continue;
+        let previous = 0;
+        let dot = t.Orig.copy();
+        let bounds = newRect();
+        for (const r of graphemes.runes()) {
+          let control;
+          [dot, control] = t.controlRune(r, dot, fontSpec);
+          if (control) continue;
+          let glyphBounds;
+          [, , glyphBounds, dot] = t.atlases.get(d2fonts.fontKey(fontSpec)).drawRune(previous, r, dot);
+          bounds = bounds.union(glyphBounds);
+          previous = r;
+        }
+        lineW -= bounds.w();
+        lineW += t.spaceWidth(mono) * graphemes.width();
+      }
+      if (filteredIgnorables) lineW = Math.max(lineW, lineFloor);
+      w = Math.max(w, lineW);
+    }
+    return w;
+  }
+
   measureMono(font, s) {
     const originalBoundsWithDot = this.boundsWithDot;
     this.boundsWithDot = true;
@@ -553,6 +546,51 @@ export class Ruler {
     if (!this.atlases.has(d2fonts.fontKey(font))) this.addFontSize(font);
     return this.atlases.get(d2fonts.fontKey(font)).glyph(0x20).advance;
   }
+}
+
+function legacyMeasurementText(s) {
+  let out = '';
+  let filtered = false;
+  const graphemes = new Graphemes(s);
+  while (graphemes.next()) {
+    const runes = graphemes.runes();
+    if (isDefaultIgnorableGrapheme(runes)) {
+      filtered = true;
+      continue;
+    }
+    if (graphemes.width() !== 1) {
+      out += String.fromCodePoint(...runes);
+      continue;
+    }
+    for (const r of runes) {
+      if (isDefaultIgnorableRune(r)) {
+        filtered = true;
+        continue;
+      }
+      out += String.fromCodePoint(r);
+    }
+  }
+  if (!filtered) return [s, false];
+  return [out, true];
+}
+
+function isDefaultIgnorableGrapheme(runes) {
+  for (const r of runes) if (!isDefaultIgnorableRune(r)) return false;
+  return runes.length > 0;
+}
+
+function isDefaultIgnorableRune(r) {
+  // Blink gives most format controls and variation selectors no advance, but renders several controls and Unicode "default
+  // ignorables" through fallback fonts. Follow that observed behavior instead of erasing the whole derived Unicode property.
+  if (r === 0x00ad || // conditional; handled by line wrapping
+    r === 0x180f || // Mongolian free variation selector four has fallback ink in Blink
+    r === 0x3164 || r === 0xffa0 || // visibly advancing Hangul fillers
+    (r >= 0xfff9 && r <= 0xfffb) || // interlinear annotations
+    (r >= 0x13430 && r <= 0x1343f) || // Egyptian hieroglyph format controls
+    (r >= 0x1bca0 && r <= 0x1bca3) || // visibly advancing shorthand controls
+    inTable(PCM, r) ||
+    (r < 0x10000 && isSpace(String.fromCharCode(r)))) return false;
+  return inTable(Cf, r) || inTable(ODICP, r) || inTable(VS, r);
 }
 
 /** NewRuler. Needs the font metrics: pass the parsed metrics.json, or call loadMetrics()/setMetrics() first. */
@@ -659,6 +697,48 @@ export function setMarkdownIt(markdownit) {
   // goldmark's strikethrough extension renders <del>
   md.renderer.rules.s_open = () => '<del>';
   md.renderer.rules.s_close = () => '</del>';
+  // goldmark 1.8: table cell alignment is the `align` attribute (markdown-it: a style), and a blockquote always has a line
+  // break after its opening tag.
+  const alignCell = (tokens, idx, options, env, self) => {
+    const t = tokens[idx];
+    const m = /^text-align:(left|right|center)$/.exec(t.attrGet('style') || '');
+    if (m) { t.attrs = t.attrs.filter((a) => a[0] !== 'style'); t.attrSet('align', m[1]); }
+    return self.renderToken(tokens, idx, options);
+  };
+  md.renderer.rules.th_open = alignCell;
+  md.renderer.rules.td_open = alignCell;
+  md.renderer.rules.blockquote_open = () => '<blockquote>\n';
+  // goldmark renders a line break after a tight list item's text when a block follows it (markdown-it only does that for
+  // blocks drawn by renderToken), and gives an unterminated fenced code block at the end of the input its final newline.
+  const afterHidden = (rule) => (tokens, idx, options, env, self) => (idx > 0 && tokens[idx - 1].hidden ? '\n' : '') + rule(tokens, idx, options, env, self);
+  const rules = md.renderer.rules;
+  rules.code_block = afterHidden(rules.code_block);
+  rules.html_block = afterHidden(rules.html_block);
+  const fence = rules.fence;
+  rules.fence = afterHidden((tokens, idx, options, env, self) => {
+    const t = tokens[idx];
+    if (t.content !== '' && !t.content.endsWith('\n')) t.content += '\n';
+    return fence(tokens, idx, options, env, self);
+  });
+  // goldmark 1.8 strips the leading whitespace of a paragraph's continuation lines before parsing its inlines (markdown-it keeps
+  // it, which shows inside code spans).
+  for (const name of ['paragraph', 'lheading']) {
+    const fn = md.block.ruler.__rules__.find((r) => r.name === name).fn;
+    const alt = md.block.ruler.__rules__.find((r) => r.name === name).alt;
+    md.block.ruler.at(name, (state, startLine, endLine, silent) => {
+      const before = state.tokens.length;
+      const ok = fn(state, startLine, endLine, silent);
+      if (ok && !silent) for (let i = before; i < state.tokens.length; i++) if (state.tokens[i].type === 'inline') state.tokens[i].content = state.tokens[i].content.replace(/\n[ \t]+/g, '\n');
+      return ok;
+    }, { alt });
+  }
+  // goldmark 1.8: a closing </pre> alone on a line does not start an HTML block (CommonMark: start condition 7 excludes pre).
+  const htmlBlock = md.block.ruler.__rules__.find((r) => r.name === 'html_block').fn;
+  md.block.ruler.at('html_block', (state, startLine, endLine, silent) => {
+    const pos = state.bMarks[startLine] + state.tShift[startLine];
+    if (/^<\/pre\s*>\s*$/i.test(state.src.slice(pos, state.eMarks[startLine]))) return false;
+    return htmlBlock(state, startLine, endLine, silent);
+  }, { alt: ['paragraph', 'reference', 'blockquote'] });
   markdownRenderer = md;
 }
 
@@ -731,10 +811,33 @@ export function headerToFontSize(baseFontSize, header) {
   return 0;
 }
 
-/** MeasureMarkdown: [width, height] ints */
+/** The error of validateMarkdownSVGNodes: D2 v0.9.0 paints Markdown as native SVG, which supports a subset of HTML. */
+export class MarkdownError extends Error {
+  constructor(message) { super(message); this.name = 'MarkdownError'; }
+}
+
+const markdownSVGElements = new Set(['html', 'head', 'body',
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'blockquote', 'ul', 'ol', 'li', 'pre', 'code',
+  'em', 'b', 'strong', 'del', 's', 'strike', 'a', 'br', 'hr', 'img',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th']);
+
+function validateMarkdownSVGNodes(n) {
+  if (n.type === 'element') {
+    if (!markdownSVGElements.has(n.data)) throw new MarkdownError(`native Markdown SVG does not support HTML element <${n.data}>`);
+  }
+  for (let child = n.firstChild; child != null; child = child.nextSibling) validateMarkdownSVGNodes(child);
+}
+
+/**
+ * MeasureMarkdown: [width, height] ints. D2 v0.9.0 calls LayoutMarkdown (lib/textmeasure/markdown_svg.go), whose dimensions are
+ * the legacy box model below (the native SVG painting that shares that code belongs to the renderer). Throws MarkdownError when
+ * the HTML has an element native SVG does not support.
+ */
 export function measureMarkdown(mdText, ruler, fontFamily, monoFontFamily, fontSize) {
   const render = renderMarkdown(mdText);
   const bodyNode = parseBody(render);
+  validateMarkdownSVGNodes(bodyNode);
 
   const originalLineHeight = ruler.LineHeightFactor;
   ruler.boundsWithDot = true;
@@ -832,6 +935,8 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
           str = str.slice(0, -1);
           if (hasNext(n)) spaceWidths += spaceWidth;
         }
+      } else if (str === '') {
+        return newBlock();
       }
 
       let restore = null;
@@ -846,7 +951,8 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
           w *= FontSize_pre_code_em;
           h *= FontSize_pre_code_em;
         } else {
-          w = ruler.scaleUnicode(w, font, str);
+          // The browser-era Markdown measurer applied its Unicode fallback correction only to proportional text.
+          w = ruler.scaleUnicodeLegacy(w, font, str);
         }
         return { width: w + spaceWidths, height: h, marginTop: 0, marginBottom: 0, extraData: null };
       } finally {
@@ -952,7 +1058,7 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
 
         switch (n.data) {
           case 'blockquote':
-            block.width += (2 * PaddingLR_blockquote_em + BorderLeft_blockquote_em) * fontSize;
+            block.width += 2 * PaddingLR_blockquote_em * fontSize + BorderLeft_blockquote_em * fontSize;
             block.marginBottom = Math.max(block.marginBottom, MarginBottom_blockquote);
             break;
           case 'p':

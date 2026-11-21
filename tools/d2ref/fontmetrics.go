@@ -1,7 +1,8 @@
 package main
 
-// fontmetrics: dumps the tables Go's measuring path (lib/textmeasure + freetype/truetype, no hinting) reads,
-// as compact JSON for public/d2/textmeasure.js.
+// fontmetrics: dumps the tables Go's measuring path (lib/textmeasure + x/image/font/opentype (sfnt), no hinting, with the
+// legacy hhea ascent/descent and `kern` table, see lib/textmeasure/fontface.go) reads, as compact JSON for
+// public/d2/textmeasure.js.
 //
 //	go run . fontmetrics > ../../public/d2/fonts/metrics.json
 
@@ -12,20 +13,22 @@ import (
 	"os"
 	"sort"
 
-	"github.com/golang/freetype/truetype"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 
 	"github.com/d2lang/d2/d2renderers/d2fonts"
 	"github.com/d2lang/d2/lib/textmeasure"
 )
 
-type sfnt struct {
+type sfntTables struct {
 	tables map[string][]byte
 }
 
-func parseSfnt(b []byte) *sfnt {
+func parseSfnt(b []byte) *sfntTables {
 	n := int(binary.BigEndian.Uint16(b[4:]))
-	s := &sfnt{tables: map[string][]byte{}}
+	s := &sfntTables{tables: map[string][]byte{}}
 	for i := 0; i < n; i++ {
 		e := b[12+16*i:]
 		off := binary.BigEndian.Uint32(e[8:])
@@ -100,7 +103,11 @@ func fontmetrics() {
 }
 
 func dumpFont(data []byte, runes []rune) *fontOut {
-	ttf, err := truetype.Parse(data)
+	coll, err := opentype.ParseCollection(data)
+	if err != nil {
+		panic(err)
+	}
+	ttf, err := coll.Font(0)
 	if err != nil {
 		panic(err)
 	}
@@ -255,28 +262,31 @@ func dumpFont(data []byte, runes []rune) *fontOut {
 		fo.Glyphs[fmt.Sprint(i)] = rec
 	}
 
-	face := truetype.NewFace(ttf, &truetype.Options{Size: 16})
+	var buf sfnt.Buffer
 	var idxs []int
 	seen := map[int]bool{}
 	for _, r := range runes {
-		i := int(ttf.Index(r))
+		gi, err := ttf.GlyphIndex(&buf, r)
+		if err != nil {
+			continue
+		}
+		i := int(gi)
+		if _, _, err := ttf.GlyphBounds(&buf, gi, fixed.I(16), font.HintingNone); err != nil {
+			continue
+		}
 		if !seen[i] {
 			seen[i] = true
 			idxs = append(idxs, i)
-		}
-		if _, _, ok := face.GlyphBounds(r); !ok {
-			continue
 		}
 		fo.Cmap[fmt.Sprint(int(r))] = i
 		addGlyph(i)
 	}
 	sort.Ints(idxs)
-	upemScale := fixed.Int26_6(upem)
+	kern := legacyKern(data)
 	for _, a := range idxs {
 		for _, b := range idxs {
-			k := ttf.Kern(upemScale, truetype.Index(a), truetype.Index(b))
-			if k != 0 {
-				fo.Kern = append(fo.Kern, [3]int{a, b, int(k)})
+			if v, ok := kern[uint32(a)<<16|uint32(b)]; ok && v != 0 {
+				fo.Kern = append(fo.Kern, [3]int{a, b, int(v)})
 			}
 		}
 	}
@@ -284,4 +294,23 @@ func dumpFont(data []byte, runes []rune) *fontOut {
 		fo.Kern = [][3]int{}
 	}
 	return fo
+}
+
+// legacyKern is parseLegacyKern of lib/textmeasure/fontface.go: the pairs of a format 0 `kern` table, keyed glyph0<<16|glyph1.
+// (A duplicate pair would be found by sort.Search at its first position, hence the "first wins" below.)
+func legacyKern(src []byte) map[uint32]int16 {
+	out := map[uint32]int16{}
+	table := parseSfnt(src).tables["kern"]
+	if table == nil {
+		return out
+	}
+	n := int(binary.BigEndian.Uint16(table[10:12]))
+	for i := 0; i < n; i++ {
+		o := 18 + 6*i
+		k := binary.BigEndian.Uint32(table[o : o+4])
+		if _, ok := out[k]; !ok {
+			out[k] = int16(binary.BigEndian.Uint16(table[o+4 : o+6]))
+		}
+	}
+	return out
 }

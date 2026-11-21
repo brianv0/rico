@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2themes and d2themes/d2themescatalog packages (oss.terrastruct.com/d2 v0.7.2,
+// JavaScript port of D2's d2themes and d2themes/d2themescatalog packages (github.com/d2lang/d2 v0.9.0,
 // Copyright 2022 Terrastruct Inc.). The theme data below is generated from the Go catalog
 // (`go run . themes` in tools/d2ref, then tools/d2ref/genthemes.py), so every color is Go's. Themes keep Go's JSON
 // shape (id, name, colors.neutrals.n1.., b1.., specialRules). Go copies Theme values; find() returns a copy.
@@ -9,7 +9,7 @@
 // d2themes: darkest (N1) -> lightest (N7)
 
 import * as color from './color.js';
-import { goFixed } from './gomath.js';
+import { formatFloat } from './svg.js';
 import { ShapeSQLTable, ShapeClass } from './target.js';
 
 export const newNeutral = () => ({ n1: '', n2: '', n3: '', n4: '', n5: '', n6: '', n7: '' });
@@ -141,13 +141,13 @@ export class ThemableElement {
     return Object.assign(Object.create(ThemableElement.prototype), this);
   }
 
-  setTranslate(x, y) { this.Transform = `translate(${goFixed(x, 6)} ${goFixed(y, 6)})`; }
+  setTranslate(x, y) { this.Transform = `translate(${formatFloat(x)} ${formatFloat(y)})`; }
 
   setMaskUrl(url) { this.Mask = `url(#${url})`; }
 
   render() {
     const el = this;
-    const f = (v) => goFixed(v, 6);
+    const f = formatFloat;
     let out = '<' + el.tag;
 
     // href has to be at the top for the img bundler to detect <image> tags correctly

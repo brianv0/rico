@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2ast package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's d2ast package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 //
 // Nodes keep Go's JSON shape exactly: properties are the Go JSON field names, and "boxes" are objects
 // with one non-null member (`{ map_key: Key }`, `{ unquoted_string: UnquotedString }`, ...). So

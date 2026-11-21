@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2parser package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's d2parser package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 // Same algorithm, same error messages, same AST (see ast.js). Go's streaming reader with its
 // peek/commit/rewind buffers is modelled over an array of code points with an index.
 

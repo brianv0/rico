@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2layouts/d2sequence package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.):
+// JavaScript port of D2's d2layouts/d2sequence package (D2 v0.9.0, Copyright 2022 Terrastruct Inc.):
 // layout.go, constants.go and sequence_diagram.go. Conventions as in d2graph.js.
 
 import * as d2graph from './d2graph.js';
@@ -62,8 +62,8 @@ const MAX_INT32 = 2147483647;
 const get0 = (m, k) => m.get(k) ?? 0;
 const pos = (s) => label.positionString(s);
 
-/** go2.StringToIntHash: FNV-1a (32 bit) of the UTF-8 bytes */
-function stringToIntHash(s) {
+/** hash/fnv New32a: FNV-1a (32 bit) of the UTF-8 bytes */
+function fnv32a(s) {
   const bytes = new TextEncoder().encode(s);
   let h = 0x811c9dc5;
   for (const b of bytes) {
@@ -360,7 +360,7 @@ export class SequenceDiagram {
       e.src = actor;
       e.srcArrow = false;
       e.dst = new d2graph.GraphObject();
-      e.dst.id = actor.id + `-lifeline-end-${stringToIntHash(actor.id + '-lifeline-end')}`;
+      e.dst.id = lifelineEndID(actor.id);
       e.dstArrow = false;
       e.route = [actorBottom, actorLifelineEnd];
       e.zIndex = LIFELINE_Z_INDEX;
@@ -597,7 +597,12 @@ function newSequenceDiagram(objects, messages) {
         queue = queue.slice(1);
         queue = [...queue, ...(curr.childrenArray || [])];
       }
-    } else actors.push(obj);
+    } else {
+      actors.push(obj);
+      if (obj.isSequenceDiagram()) {
+        throw new Error(`actors in sequence diagrams cannot themselves be sequence diagrams: ${obj.absID()}`);
+      }
+    }
   }
 
   if (actors.length === 0) throw new Error('no actors declared in sequence diagram');
@@ -700,15 +705,23 @@ function getCenter(obj) {
   return getCenter(obj.parent);
 }
 
+const lifelineEndSuffix = '-lifeline-end';
+
+/**
+ * LifelineEndID returns the synthetic endpoint ID for an actor's lifeline.
+ * The hash is formatted as an unsigned 32-bit value so the ID is stable across architectures.
+ */
+export function lifelineEndID(actorID) {
+  return actorID + lifelineEndSuffix + '-' + String(fnv32a(actorID + lifelineEndSuffix));
+}
+
+/** IsLifelineEnd reports whether obj is a synthetic sequence-diagram lifeline endpoint. */
 export function isLifelineEnd(obj) {
   // lifeline ends only have ID and no graph parent or box set
-  if (obj.graph !== null || obj.parent !== null || obj.box !== null) return false;
-  if (!obj.id.includes('-lifeline-end-')) return false;
-  const parts = obj.id.split('-lifeline-end-');
-  if (parts.length > 1) {
-    const hash = parts[parts.length - 1];
-    const actorID = parts.slice(0, parts.length - 1).join('-lifeline-end-');
-    if (String(stringToIntHash(actorID + '-lifeline-end')) === hash) return true;
-  }
-  return false;
+  if (obj === null || obj.graph !== null || obj.parent !== null || obj.box !== null) return false;
+  const marker = lifelineEndSuffix + '-';
+  const markerIndex = obj.id.lastIndexOf(marker);
+  if (markerIndex < 0) return false;
+  // Go slices the ID by bytes; the marker is ASCII, so the UTF-16 index is the same position
+  return obj.id === lifelineEndID(obj.id.slice(0, markerIndex));
 }

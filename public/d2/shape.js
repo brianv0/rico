@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/shape package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
+// JavaScript port of D2's lib/shape package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.).
 // Go's embedded structs become class inheritance: a method that Go dispatches through `FullShape` (the concrete
 // shape) is an ordinary `this.method()` call here. Shapes are created with newShape(type, box).
 
@@ -194,6 +194,7 @@ class ShapeDiamond extends BaseShape {
   }
   perimeter() { return diamondPath(this.Box).Path; }
   getSVGPathData() { return [diamondPath(this.Box).pathData()]; }
+  getPathCommands() { return [diamondPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const totalWidth = 2 * (width + paddingX);
     const totalHeight = 2 * (height + paddingY);
@@ -275,6 +276,7 @@ class ShapeHexagon extends BaseShape {
   }
   perimeter() { return hexagonPath(this.Box).Path; }
   getSVGPathData() { return [hexagonPath(this.Box).pathData()]; }
+  getPathCommands() { return [hexagonPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const totalWidth = 1.5 * (width + paddingX);
     const totalHeight = 1.5 * (height + paddingY);
@@ -313,6 +315,7 @@ class ShapeParallelogram extends BaseShape {
   }
   perimeter() { return parallelogramPath(this.Box).Path; }
   getSVGPathData() { return [parallelogramPath(this.Box).pathData()]; }
+  getPathCommands() { return [parallelogramPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const totalWidth = width + paddingX + parallelWedgeWidth * 2;
     return [Math.ceil(totalWidth), Math.ceil(height + paddingY)];
@@ -349,6 +352,7 @@ class ShapeStep extends BaseShape {
   }
   perimeter() { return stepPath(this.Box).Path; }
   getSVGPathData() { return [stepPath(this.Box).pathData()]; }
+  getPathCommands() { return [stepPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const totalWidth = width + paddingX + 2 * STEP_WEDGE_WIDTH;
     return [Math.ceil(totalWidth), Math.ceil(height + paddingY)];
@@ -388,6 +392,7 @@ class ShapeStoredData extends BaseShape {
   }
   perimeter() { return storedDataPath(this.Box).Path; }
   getSVGPathData() { return [storedDataPath(this.Box).pathData()]; }
+  getPathCommands() { return [storedDataPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const totalWidth = width + paddingX + 2 * storedDataWedgeWidth;
     return [Math.ceil(totalWidth), Math.ceil(height + paddingY)];
@@ -423,6 +428,7 @@ class ShapeDocument extends BaseShape {
   }
   perimeter() { return documentPath(this.Box).Path; }
   getSVGPathData() { return [documentPath(this.Box).pathData()]; }
+  getPathCommands() { return [documentPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const baseHeight = (height + paddingY) * docPathHeight / docPathInnerBottom;
     return [Math.ceil(width + paddingX), Math.ceil(baseHeight)];
@@ -473,6 +479,7 @@ class ShapeCallout extends BaseShape {
   }
   perimeter() { return calloutPath(this.Box).Path; }
   getSVGPathData() { return [calloutPath(this.Box).pathData()]; }
+  getPathCommands() { return [calloutPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     // return the minimum shape dimensions needed to fit content (width x height) in the shape's innerBox with padding
     let baseHeight = height + paddingY;
@@ -577,6 +584,7 @@ class ShapeCloud extends BaseShape {
   }
   perimeter() { return cloudPath(this.Box).Path; }
   getSVGPathData() { return [cloudPath(this.Box).pathData()]; }
+  getPathCommands() { return [cloudPath(this.Box).pathCommands()]; }
   getDefaultPadding() { return [defaultPadding, defaultPadding / 2]; }
 }
 export const newCloud = (box) => new ShapeCloud(box);
@@ -630,6 +638,7 @@ class ShapeCylinder extends BaseShape {
   }
   perimeter() { return cylinderOuterPath(this.Box).Path; }
   getSVGPathData() { return [cylinderOuterPath(this.Box).pathData(), cylinderInnerPath(this.Box).pathData()]; }
+  getPathCommands() { return [cylinderOuterPath(this.Box).pathCommands(), cylinderInnerPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     // 2 arcs top, height + padding, 1 arc bottom
     const totalHeight = height + paddingY + 3 * defaultArcDepth;
@@ -681,6 +690,7 @@ class ShapePackage extends BaseShape {
   }
   perimeter() { return packagePath(this.Box).Path; }
   getSVGPathData() { return [packagePath(this.Box).pathData()]; }
+  getPathCommands() { return [packagePath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const innerHeight = height + paddingY;
     // topHeight=(verticalScalar * totalHeight) and totalHeight=(topHeight + innerHeight)
@@ -748,6 +758,7 @@ class ShapePage extends BaseShape {
   }
   perimeter() { return pageOuterPath(this.Box).Path; }
   getSVGPathData() { return [pageOuterPath(this.Box).pathData(), pageInnerPath(this.Box).pathData()]; }
+  getPathCommands() { return [pageOuterPath(this.Box).pathCommands(), pageInnerPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     let totalWidth = width + paddingX;
     let totalHeight = height + paddingY;
@@ -802,6 +813,7 @@ class ShapePerson extends BaseShape {
   }
   perimeter() { return personPath(this.Box).Path; }
   getSVGPathData() { return [personPath(this.Box).pathData()]; }
+  getPathCommands() { return [personPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     let totalWidth = width + paddingX;
     // see shapePackage
@@ -931,6 +943,7 @@ class ShapeC4Person extends BaseShape {
     return [...bodyPerimeter, headEllipse];
   }
   getSVGPathData() { return [bodyPath(this.Box).pathData(), headPath(this.Box).pathData()]; }
+  getPathCommands() { return [bodyPath(this.Box).pathCommands(), headPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     const contentWidth = width + paddingX;
     const contentHeight = height + paddingY;
@@ -1005,6 +1018,7 @@ class ShapeQueue extends BaseShape {
   }
   perimeter() { return queueOuterPath(this.Box).Path; }
   getSVGPathData() { return [queueOuterPath(this.Box).pathData(), queueInnerPath(this.Box).pathData()]; }
+  getPathCommands() { return [queueOuterPath(this.Box).pathCommands(), queueInnerPath(this.Box).pathCommands()]; }
   getDimensionsToFit(width, height, paddingX, paddingY) {
     // 1 arc left, width+ padding, 2 arcs right
     const totalWidth = 3 * defaultArcDepth + width + paddingX;
@@ -1015,6 +1029,14 @@ class ShapeQueue extends BaseShape {
 export const newQueue = (box) => new ShapeQueue(box);
 
 // ---- shape.go ----
+
+/**
+ * GetPathCommands returns a shape's absolute custom path commands, or null when the shape is represented by another primitive
+ * such as a rectangle or oval.
+ */
+export function getPathCommands(s) {
+  return typeof s.getPathCommands === 'function' ? s.getPathCommands() : null;
+}
 
 export function newShape(shapeType, box) {
   switch (shapeType) {
@@ -1079,15 +1101,6 @@ export function traceToShapeBorder(shape, rectBorderPoint, prevPoint) {
   return newPoint(goRound(closestPoint.x), goRound(closestPoint.y));
 }
 
-export function boxPath(box) {
-  const pc = newSVGPathContext(box.TopLeft, 1, 1);
-  pc.startAt(pc.absolute(0, 0));
-  pc.L(false, box.Width, 0);
-  pc.L(false, box.Width, box.Height);
-  pc.L(false, 0, box.Height);
-  pc.Z();
-  return pc;
-}
 
 /** [width, height] */
 export function limitAR(width, height, aspectRatio) {
