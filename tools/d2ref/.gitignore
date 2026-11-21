@@ -1,3 +1,5 @@
-corpus.jsonl
-measure*.jsonl
-shape*.jsonl
+# Generated inputs (see the generator named at the top of each *corpus/*check/fuzz*.mjs); only hand-written cases are committed.
+*.jsonl
+!extra.jsonl
+!small.jsonl
+!one.jsonl
