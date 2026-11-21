@@ -12,19 +12,23 @@ const chance = (p) => rnd() < p;
 
 const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'x', 'y', 'z', 'api', 'db', 'cache', 'Queue', 'user', 'K8s', 'Ünïcode', '日本', 'long name here', 'w'];
 const labels = ['', '', '', 'hello', 'a longer label text', 'multi\\nline\\nlabel', 'x', '日本語', 'wide label wide label wide label'];
-const shapes = ['rectangle', 'square', 'page', 'parallelogram', 'document', 'cylinder', 'queue', 'package', 'step', 'callout', 'stored_data', 'person', 'diamond', 'oval', 'circle', 'hexagon', 'cloud', 'text', 'image', 'c4-person'];
+const shapes = ['rectangle', 'rectangle', 'square', 'page', 'parallelogram', 'document', 'cylinder', 'queue', 'package', 'step', 'callout', 'stored_data', 'person', 'diamond', 'oval', 'circle', 'hexagon', 'cloud', 'text', 'c4-person'];
+const threeD = ['rectangle', 'square', 'hexagon'];
 const dirs = ['up', 'down', 'left', 'right'];
 const nears = ['top-left', 'top-center', 'top-right', 'center-left', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
-const labelNears = ['outside-top-left', 'outside-top-center', 'outside-top-right', 'outside-left-center', 'outside-right-center', 'outside-bottom-left', 'outside-bottom-center', 'outside-bottom-right', 'inside-top-left', 'inside-bottom-right', 'inside-middle-center'];
+const labelNears = ['top-left', 'top-center', 'top-right', 'center-left', 'center-center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right', 'outside-top-left', 'outside-top-center', 'outside-top-right', 'outside-left-top', 'outside-left-center', 'outside-left-bottom', 'outside-right-top', 'outside-right-center', 'outside-right-bottom', 'outside-bottom-left', 'outside-bottom-center', 'outside-bottom-right', 'border-top-left', 'border-top-center', 'border-left-center', 'border-bottom-right'];
 
 function node(depth) {
   const n = pick(names);
   let body = [];
-  if (chance(0.3)) body.push(`shape: ${pick(shapes)}`);
-  if (chance(0.15)) body.push(`width: ${20 + int(200)}`);
-  if (chance(0.15)) body.push(`height: ${20 + int(150)}`);
+  const shape = chance(0.3) ? pick(shapes) : 'rectangle';
+  if (shape !== 'rectangle' || chance(0.3)) body.push(`shape: ${shape}`);
+  const equal = shape === 'square' || shape === 'circle';
+  if (equal && chance(0.2)) { const v = 20 + int(150); body.push(`width: ${v}`, `height: ${v}`); }
+  if (!equal && chance(0.15)) body.push(`width: ${20 + int(200)}`);
+  if (!equal && chance(0.15)) body.push(`height: ${20 + int(150)}`);
   if (chance(0.12)) body.push(`label: ${JSON.stringify(pick(labels) || 'L')}`.replace(/\\\\n/g, '\\n'));
-  if (chance(0.06)) body.push('style.3d: true');
+  if (threeD.includes(shape) && chance(0.1)) body.push('style.3d: true');
   if (chance(0.06)) body.push('style.multiple: true');
   if (chance(0.05)) body.push('icon: https://icons.terrastruct.com/essentials/time.svg');
   if (chance(0.05)) body.push(`label.near: ${pick(labelNears)}`);
@@ -80,7 +84,6 @@ function grid() {
   if (!lines.length) lines.push('grid-rows: 2');
   for (let i = 0, k = 2 + int(10); i < k; i++) lines.push(chance(0.2) ? node(2) : `c${i}${chance(0.4) ? `: {width: ${20 + int(160)}; height: ${20 + int(100)}}` : ''}`);
   if (chance(0.3)) lines.push(`c0 -> c${1 + int(3)}`);
-  if (chance(0.2)) lines.push('shape: grid');
   if (!n) return lines.join('\n');
   return n + lines.map((l) => '  ' + l.replace(/\n/g, '\n  ')).join('\n') + '\n}';
 }
