@@ -25,8 +25,20 @@ export const FG_COLOR = color.N1;
 /** roughcmp.mjs sets `record(generator) -> generator` to log the calls made into the drawing library. */
 export const debug = { record: null };
 
-function newGenerator() {
+export function newGenerator() {
   const g = rough.generator({ options: { seed: 1 } });
+  // rough-go's path parser is lenient: path data it cannot read (NaN or Inf coordinates of a broken layout, a cut-off command) gives empty
+  // paths, where roughjs throws. The result for such data is always the same, so it is rebuilt from a trivial path with its operations dropped.
+  const path = g.path.bind(g);
+  g.path = (d, options) => {
+    try {
+      return path(d, options);
+    } catch (e) {
+      const drawable = path('M0 0', options);
+      for (const set of drawable.sets) set.ops = [];
+      return drawable;
+    }
+  };
   return debug.record !== null ? debug.record(g) : g;
 }
 

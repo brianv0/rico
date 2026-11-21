@@ -30,7 +30,7 @@ import { strconvCheck } from './strconvcheck.mjs';
 import { sprintfCheck } from './sprintfcheck.mjs';
 import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
-import { svgCheck, svgPrepare } from './svgcheck.mjs';
+import { svgCheck, svgFullCheck, svgPrepare } from './svgcheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -82,6 +82,9 @@ const STAGES = {
   // must print Go's SVG byte for byte. `svg` is the full SVG (fonts embedded), `svgnofonts` blanks the font data on both sides.
   svg: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', flags }),
   svgnofonts: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', nofonts: true, flags }),
+  // the whole JS pipeline (compile with the case's render options, then render) against Go's: use with --sketch for sketch mode
+  svgfull: (c, want, flags) => svgFullCheck(c, want, { flags }),
+  svgfullnofonts: (c, want, flags) => svgFullCheck(c, want, { nofonts: true, flags }),
   // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
   // ported) is reported as deferred.
   layout: (c) => {
@@ -121,7 +124,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
 function runRef(batch) {
   try {
-    return execFileSync('go', ['run', '.', mode === 'svg' || mode === 'svgnofonts' ? 'svgfromdiagram' : mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+    return execFileSync('go', ['run', '.', /^svg/.test(mode) ? 'svgfromdiagram' : mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
     if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];
@@ -129,8 +132,7 @@ function runRef(batch) {
     return [...runRef(batch.slice(0, h)), ...runRef(batch.slice(h))];
   }
 }
-if (mode === 'svg' || mode === 'svgnofonts') await svgPrepare(mode === 'svgnofonts');
-const refMode = mode === 'svgnofonts' ? 'svgfromdiagram' : mode === 'svg' ? 'svgfromdiagram' : mode;
+if (/^svg/.test(mode)) await svgPrepare(/nofonts$/.test(mode));
 const ref = runRef(cases);
 
 // Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
@@ -164,7 +166,7 @@ for (const [i, c] of cases.entries()) {
   try { got = canon(JSON.parse(JSON.stringify(await STAGES[mode](c, want, flags)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; continue; }
   let d = firstDiff(got, canon(want));
-  if (d && mode === 'layout') {
+  if (d && (mode === 'layout' || mode === 'svgfull')) {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
     // between runs. If Go gives the JS answer in some of 100 more runs, the case is Go-unstable, not a mismatch.
     const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));

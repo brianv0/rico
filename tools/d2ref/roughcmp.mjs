@@ -14,7 +14,6 @@ import { init as initD2, compileSync as d2compile } from '../../public/d2/d2lib.
 import { setMarkdownIt } from '../../public/d2/textmeasure.js';
 import { diagramFromJSON } from '../../public/d2/target.js';
 import { URL as GoURL } from '../../public/d2/url.js';
-import rough from '../../public/d2/vendor/rough.js';
 import { render, hooks } from '../../public/d2/d2svg.js';
 import * as d2sketch from '../../public/d2/d2sketch.js';
 import { svgPrepare } from './svgcheck.mjs';
@@ -112,11 +111,12 @@ function pathData() {
   return rnd() < 0.5 ? d + ' Z' : d;
 }
 for (let i = 0; i < fuzzN; i++) {
-  const g = record(rough.generator({ options: { seed: 1 } }));
+  const g = d2sketch.newGenerator(); // recording (debug.record is set) and with d2sketch's handling of unreadable path data
   const sw = pick([1, 2, 3, 4, 5, 6, 8, 10, 15]);
   const stroke = pick(['#0A0F25', 'B1', '#fff', 'red']);
   let d;
-  switch (ri(0, 9)) {
+  switch (ri(0, 10)) {
+    case 10: d = g.path(pick(['M NaN NaN L NaN NaN', 'M 1 2 L NaN 3', 'M 1 2 L 3 Infinity', 'M', 'M 1 2 L', 'M 1 2 C 1 2 3', 'L NaN', 'x', 'M 0 0 L 10 0 Z M NaN', `M${dim()} ${dim()} L ${dim()} NaN`]), pick([base(sw), { roughness: 0.5, seed: 1 }])); break;
     case 0: d = g.rectangle(0, 0, dim(), dim(), base(sw)); break;
     case 1: { const w = dim(), h = dim(); d = g.ellipse(Math.trunc(w / 2), Math.trunc(h / 2), w, h, base(sw)); break; }
     case 2: d = g.line(ri(0, 300), ri(0, 300), dim(), dim(), base(1)); break;
