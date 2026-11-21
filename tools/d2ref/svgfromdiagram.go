@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"encoding/json"
 	"io/fs"
 
@@ -138,5 +139,51 @@ func svgFromDiagram(in input, ruler *textmeasure.Ruler, fsys fs.FS) interface{} 
 		b, err = d2svg.Render(diagram, ro)
 		svgOut = string(b)
 	}
-	return map[string]interface{}{"diagram": diagram, "ro": roJSON(ro), "svg": svgOut, "err": errString(err)}
+	return map[string]interface{}{"diagram": diagram, "ro": roJSON(ro), "svg": svgOut, "err": errString(err), "userinfo": collectUserinfo(diagram)}
+}
+
+// collectUserinfo lists the credentials of the icon URLs in the order public/d2 svgcheck.mjs `fixIcons` visits them (shapes, connections, root,
+// legend shapes, legend connections, then layers, scenarios, steps): a url.Userinfo marshals as {}, so the diagram JSON loses them.
+func collectUserinfo(d *d2target.Diagram) []map[string]interface{} {
+	out := []map[string]interface{}{}
+	add := func(u *url.URL) {
+		if u == nil {
+			return
+		}
+		if u.User == nil {
+			out = append(out, nil)
+			return
+		}
+		pw, set := u.User.Password()
+		out = append(out, map[string]interface{}{"user": u.User.Username(), "password": pw, "passwordSet": set})
+	}
+	var walk func(d *d2target.Diagram)
+	walk = func(d *d2target.Diagram) {
+		for _, s := range d.Shapes {
+			add(s.Icon)
+		}
+		for _, c := range d.Connections {
+			add(c.Icon)
+		}
+		add(d.Root.Icon)
+		if d.Legend != nil {
+			for _, s := range d.Legend.Shapes {
+				add(s.Icon)
+			}
+			for _, c := range d.Legend.Connections {
+				add(c.Icon)
+			}
+		}
+		for _, l := range d.Layers {
+			walk(l)
+		}
+		for _, l := range d.Scenarios {
+			walk(l)
+		}
+		for _, l := range d.Steps {
+			walk(l)
+		}
+	}
+	walk(d)
+	return out
 }

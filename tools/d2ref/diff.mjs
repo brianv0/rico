@@ -127,7 +127,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
 function runRef(batch) {
   try {
-    return execFileSync('go', ['run', '.', /^svg/.test(mode) ? 'svgfromdiagram' : mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+    return execFileSync('go', ['run', '.', /^svg/.test(mode) ? 'svgfromdiagram' : mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, timeout: 15000 + 150 * batch.length, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
     if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];

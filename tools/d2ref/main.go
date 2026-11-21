@@ -209,6 +209,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return latexCheck(in)
 	case "regexp2":
 		return regexp2Probe(in)
+	case "regexp2groups":
+		return regexp2Groups(in)
 	case "highlight":
 		return highlightCheck(in)
 	case "linebreak":
