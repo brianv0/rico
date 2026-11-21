@@ -224,11 +224,11 @@ await step('quote option: code selections quote their source lines as a fenced b
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((t) => /edited quote/.test(t.innerText) && !t.classList.contains('local')));
   await deleteMine(page.locator('#margin .thread', { hasText: 'edited quote' })); // leave no trace
 });
-await step('a selection offers a Comment icon; the composer opens beside the text, not over it; clearing the selection hides it', async () => {
+await step('a selection offers Comment and Suggest icons; the composer opens beside the text, not over it; clearing the selection hides them', async () => {
   await dragRaw('First', 'First paragraph');
   await page.waitForSelector('#selbar:not([hidden])');
   assert.equal(await page.locator('#composer').isHidden(), true, 'nothing pops up until an icon is clicked');
-  assert.equal(await page.locator('#selbar button:visible').count(), 1);
+  assert.equal(await page.locator('#selbar button:visible').count(), 2, 'Comment and Suggest');
   const geo = () => page.evaluate(() => {
     const r = (e) => e.getBoundingClientRect();
     const p = [...document.querySelectorAll('#doc p')].find((x) => !x.closest('.rm'));
@@ -941,6 +941,70 @@ await step('outdated threads render faded with their quote struck through', asyn
   assert.match(await card.locator('blockquote').evaluate((e) => getComputedStyle(e).textDecorationLine), /line-through/);
   assert.match(await card.innerText(), /Outdated/);
   await page.screenshot({ path: path.join(root, 'e2e', 'outdated.png') });
+});
+
+await step('Suggest edit: raw source lines, live red/green preview, posts a ```suggestion block', async () => {
+  await gotoPlan();
+  await dragRaw('Second paragraph', 'testing');
+  await page.waitForSelector('#selbar:not([hidden])');
+  assert.equal(await page.locator('#sb-suggest').isEnabled(), true);
+  await page.click('#sb-suggest');
+  await page.waitForSelector('#composer:not([hidden])');
+  assert.equal(await page.locator('#c-suggest').isVisible(), true);
+  assert.equal(await page.locator('#c-sugtext').inputValue(), 'Second paragraph is hard wrapped\nacross two lines for testing.', 'the RAW source lines, not rendered text');
+  assert.match(await page.locator('#c-range').innerText(), /Suggests an edit to lines 5–6/);
+  assert.equal(await page.locator('#c-sugdiff .sg-add, #c-sugdiff .sg-del').count(), 0, 'unchanged: no diff yet');
+  const n0 = fake.ops.length;
+  await page.click('#c-add');
+  assert.match(await page.locator('#c-err').innerText(), /No change yet/);
+  assert.equal(fake.ops.length, n0);
+  await page.fill('#c-sugtext', 'Second paragraph is hard-wrapped\nacross two lines for testing.');
+  assert.equal(await page.locator('#c-sugdiff .sg-del').count(), 1);
+  assert.equal(await page.locator('#c-sugdiff .sg-add').count(), 1);
+  assert.equal(await page.locator('#c-sugdiff .sg-ctx').count(), 1);
+  assert.match(await page.locator('#c-sugdiff .sg-add').innerText(), /hard-wrapped/);
+  await page.fill('#c-body', 'Hyphenate?');
+  await page.screenshot({ path: path.join(root, 'e2e', 'suggest.png'), clip: { x: 280, y: 80, width: 1120, height: 520 } });
+  const op = await sendAndWait();
+  assert.deepEqual({ op: op.op, start_line: op.start_line, line: op.line, side: op.side }, { op: 'comment', start_line: 5, line: 6, side: 'RIGHT' });
+  assert.equal(op.body, 'Hyphenate?\n\n```suggestion\nSecond paragraph is hard-wrapped\nacross two lines for testing.\n```');
+  const card = page.locator('#margin .thread', { hasText: 'Hyphenate?' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /Hyphenate/.test(x.innerText) && !x.classList.contains('local')));
+  assert.equal(await card.locator('.sugg .sg-del').count(), 1, 'the thread shows the suggestion as a diff against the lines it replaces');
+  assert.equal(await card.locator('.sugg .sg-add').count(), 1);
+  assert.equal(await card.locator('.sugg-head').innerText(), 'Suggested change');
+  await page.screenshot({ path: path.join(root, 'e2e', 'thread.png') });
+  await deleteMine(card);
+});
+await step('Suggest edit: an empty replacement deletes the lines; offered only where GitHub can apply it', async () => {
+  await dragRaw('First paragraph', 'First paragraph here');
+  await page.click('#sb-suggest');
+  await page.fill('#c-sugtext', '');
+  const op = await sendAndWait();
+  assert.equal(op.body, '```suggestion\n```');
+  assert.equal(op.line, 3);
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => x.querySelector('.sugg') && !x.classList.contains('local')));
+  await deleteMine(page.locator('#margin .thread', { has: page.locator('.sugg') }));
+  const why = async (a, b) => { await dragRaw(a, b); await page.waitForSelector('#selbar:not([hidden])'); const d = await page.locator('#sb-suggest').isDisabled(); const t = await page.locator('#sb-suggest').getAttribute('title'); await page.mouse.click(5, 5); await page.waitForSelector('#selbar', { state: 'hidden' }); return { d, t }; };
+  const outside = await why('Far away', 'the diff');
+  assert.equal(outside.d, true); assert.match(outside.t, /outside the diff/);
+  const hunks = await why('item two', 'const a');
+  assert.equal(hunks.d, true); assert.match(hunks.t, /another hunk/);
+  await page.locator('#files button[data-path="docs/removed.md"]').click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/removed.md' && document.querySelector('#doc .rm'));
+  const removed = await why('This paragraph', 'removed entirely');
+  assert.equal(removed.d, true); assert.match(removed.t, /removed text/);
+  await gotoPlan();
+});
+await step('an unsent suggestion survives a reload, edited text and all', async () => {
+  await dragRaw('First paragraph', 'First paragraph here');
+  await page.click('#sb-suggest');
+  await page.fill('#c-sugtext', 'First paragraph, rewritten.');
+  await page.waitForTimeout(100);
+  await reload();
+  await page.waitForSelector('#composer:not([hidden])');
+  assert.equal(await page.locator('#c-sugtext').inputValue(), 'First paragraph, rewritten.');
+  await page.click('#c-cancel');
 });
 
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));

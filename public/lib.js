@@ -240,6 +240,54 @@ export function buildLineComment(c) {
   return item;
 }
 
+// ---------- suggested edits ----------
+
+/** Can this selection carry a GitHub suggestion? Only whole new-file lines inside one hunk can. */
+export function canSuggest(sel) {
+  if (!sel) return { ok: false, reason: 'Select some text first.' };
+  if (sel.side === 'LEFT' || sel.touchesRemoved) return { ok: false, reason: 'Suggestions edit the new file, and this is removed text.' };
+  if (!sel.anchor) return { ok: false, reason: 'This text is outside the diff, so GitHub cannot attach a suggestion to it.' };
+  if (!sel.anchor.exact) return { ok: false, reason: 'Part of the selection is outside the diff or in another hunk. Select within one hunk.' };
+  return { ok: true, reason: '' };
+}
+
+/** The comment body for a suggestion: an optional note, then a ```suggestion block holding the replacement lines. */
+export function suggestionBody(newText, note = '') {
+  const text = String(newText).replace(/\r/g, '').replace(/\n$/, '');
+  let f = '```';
+  while (text.includes(f)) f += '`';
+  const block = text === '' ? `${f}suggestion\n${f}` : `${f}suggestion\n${text}\n${f}`; // an empty block deletes the lines
+  return [String(note).trim(), block].filter(Boolean).join('\n\n');
+}
+
+/** Line diff for the live preview: [{type: 'ctx' | 'del' | 'add', text}] (LCS; falls back to replace-all for huge input). */
+export function lineDiff(a, b) {
+  const x = Array.isArray(a) ? a : String(a).split('\n');
+  const y = Array.isArray(b) ? b : String(b).split('\n');
+  if (x.length * y.length > 250000) return [...x.map((text) => ({ type: 'del', text })), ...y.map((text) => ({ type: 'add', text }))];
+  const n = x.length;
+  const m = y.length;
+  const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) t[i][j] = x[i] === y[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (x[i] === y[j]) { out.push({ type: 'ctx', text: x[i] }); i++; j++; }
+    else if (t[i + 1][j] >= t[i][j + 1]) out.push({ type: 'del', text: x[i++] });
+    else out.push({ type: 'add', text: y[j++] });
+  }
+  while (i < n) out.push({ type: 'del', text: x[i++] });
+  while (j < m) out.push({ type: 'add', text: y[j++] });
+  return out;
+}
+
+/** Pull the replacement lines out of a comment body's ```suggestion block (null when there is none). */
+export function parseSuggestion(body) {
+  const m = /(^|\n)(`{3,})suggestion[^\n]*\n([\s\S]*?)(?:\n)?\2[ \t]*(?:\n|$)/.exec(String(body || ''));
+  return m ? m[3] : null;
+}
+
 /**
  * Text outside the diff cannot be a line comment: it becomes a normal PR comment that says where it is
  * (file and lines), quotes the text, and carries the comment. parseQuote reads the quote back to place it.

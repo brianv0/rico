@@ -69,6 +69,12 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
 - **Exact words.** GitHub keeps whole lines; Rico's selections are word-precise. A partial-line comment carries a short blockquote of
   the selected words, and when comments load Rico finds that quote in its line and highlights exactly those words (CSS Custom Highlight
   API; a comment without a findable quote highlights the block). Nothing is hidden in comment bodies. Outdated comments render faded, their quote struck through.
+- **Suggest edit.** The pill's second icon opens an editor with the *raw markdown source lines* the selection covers and a live
+  red/green preview; it posts a GitHub ` ```suggestion ` comment (the author sees *Apply suggestion*). Suggestions replace whole
+  lines, and are offered only on new-file (right-side) lines inside one hunk: the icon is disabled, with the reason as its tooltip,
+  for removed text, text outside the diff, or a selection that spans hunks. An empty replacement suggests deleting the lines. Existing
+  suggestions render in threads as a diff against the lines they replace. A suggestion is a normal comment: *Comment* posts it now,
+  *Start a review* batches it.
 - Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
   markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 

@@ -345,3 +345,16 @@ textarea { resize: vertical; padding: 8px 12px; }
 .banner[hidden] { display: none; }
 #selbar button[hidden] { display: none; }
 .Counter[hidden] { display: none; }
+
+/* suggest an edit */
+#c-suggest { margin-top: 6px; }
+#c-suggest .sg-label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; } #c-suggest .sg-label small { font-weight: 400; color: var(--fg-muted); }
+#c-sugtext { font: 12px/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.sugdiff, .sugg { margin-top: 6px; font: 12px/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.sugdiff:empty { display: none; }
+.sugdiff > div, .sugg > div:not(.sugg-head) { display: flex; gap: 6px; padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sg-add { background: var(--diff-add-bg); } .sg-del { background: var(--diff-del-bg); }
+.sg-mark { flex: none; width: 1ch; color: var(--fg-muted); user-select: none; }
+.sugg { margin: 6px 12px; } .thread .sugg code { padding: 0; background: none; font: inherit; }
+.sugg-head { padding: 4px 8px; font: 600 12px var(--font); color: var(--fg-muted); background: var(--bg-inset); border-bottom: 1px solid var(--border); }
+#selbar button:disabled { opacity: .35; cursor: not-allowed; } #selbar button:disabled:hover { background: none; color: var(--fg); }

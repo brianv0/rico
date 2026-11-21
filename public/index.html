@@ -82,7 +82,7 @@
       <p class="empty intro examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p></div>
     <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
       <button type="button" id="sb-comment" title="Comment (Ctrl/Cmd+Alt+M)" aria-label="Comment on the selection"></button>
-      <button type="button" id="sb-suggest" title="Suggest an edit" aria-label="Suggest an edit" hidden></button>
+      <button type="button" id="sb-suggest" title="Suggest an edit" aria-label="Suggest an edit"></button>
     </div>
     <div id="composer" hidden>
       <blockquote id="c-quote"></blockquote>
@@ -90,6 +90,11 @@
       <div hidden><!-- what the icon chose: the composer's own state, not shown -->
         <div class="qrow"><label><input type="checkbox" id="c-qinc"> Include quote</label><button type="button" id="c-qedit" class="linkish" aria-expanded="false">edit</button><span id="c-qnote"></span></div>
       <textarea id="c-qtext" rows="4" hidden spellcheck="false" aria-label="Quote (markdown)"></textarea>
+      </div>
+      <div id="c-suggest" hidden>
+        <label for="c-sugtext" class="sg-label">Replace the selected lines with <small>(source markdown, whole lines)</small></label>
+        <textarea id="c-sugtext" rows="4" spellcheck="false" aria-label="Suggested replacement for the selected lines"></textarea>
+        <div id="c-sugdiff" class="sugdiff" aria-label="Preview of the change"></div>
       </div>
       <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to post, Esc to dismiss)"></textarea>
       <div id="c-err" class="err" role="alert"></div>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, canSuggest, suggestionBody, lineDiff, parseSuggestion, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -424,4 +424,31 @@ test('quoteParts splits a multi-block quote into the paragraphs to look for', as
   const { quoteParts } = await import('../public/lib.js');
   assert.deepEqual(quoteParts('First here.\n\nSecond one\nwrapped'), ['First here.', 'Second one\nwrapped']);
   assert.deepEqual(quoteParts(''), []);
+});
+
+test('canSuggest: only whole new-file lines inside one hunk, with a reason otherwise', () => {
+  const ok = { side: 'RIGHT', anchor: { start: 3, end: 4, exact: true } };
+  assert.deepEqual(canSuggest(ok), { ok: true, reason: '' });
+  assert.match(canSuggest({ ...ok, side: 'LEFT' }).reason, /removed text/);
+  assert.match(canSuggest({ ...ok, touchesRemoved: true }).reason, /removed text/);
+  assert.match(canSuggest({ side: 'RIGHT', anchor: null }).reason, /outside the diff/);
+  assert.match(canSuggest({ ...ok, anchor: { start: 5, end: 6, exact: false } }).reason, /another hunk/);
+  assert.equal(canSuggest(null).ok, false);
+});
+
+test('suggestionBody wraps the replacement in a suggestion block, keeps a note, deletes with an empty block, and survives backticks', () => {
+  assert.equal(suggestionBody('new line'), '```suggestion\nnew line\n```');
+  assert.equal(suggestionBody('a\nb\n', ' Please reword '), 'Please reword\n\n```suggestion\na\nb\n```');
+  assert.equal(suggestionBody(''), '```suggestion\n```');
+  assert.equal(suggestionBody('use ```js\nx\n```'), '````suggestion\nuse ```js\nx\n```\n````');
+  assert.equal(parseSuggestion(suggestionBody('a\nb', 'note')), 'a\nb');
+  assert.equal(parseSuggestion(suggestionBody('use ```js\nx\n```')), 'use ```js\nx\n```');
+  assert.equal(parseSuggestion('```js\nnot one\n```'), null);
+});
+
+test('lineDiff: unchanged lines stay context, changes are del then add, empty edits delete', () => {
+  assert.deepEqual(lineDiff(['a', 'b', 'c'], ['a', 'B', 'c']), [{ type: 'ctx', text: 'a' }, { type: 'del', text: 'b' }, { type: 'add', text: 'B' }, { type: 'ctx', text: 'c' }]);
+  assert.deepEqual(lineDiff('a\nb', 'a'), [{ type: 'ctx', text: 'a' }, { type: 'del', text: 'b' }]);
+  assert.deepEqual(lineDiff(['x'], []), [{ type: 'del', text: 'x' }]);
+  assert.deepEqual(lineDiff(['x'], ['x']).map((r) => r.type), ['ctx']);
 });

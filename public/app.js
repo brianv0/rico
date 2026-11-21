@@ -1,5 +1,5 @@
 import {
-  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts,
+  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -887,6 +887,23 @@ function reactionsRow(c, th, rerender) {
   return row;
 }
 
+/** A ```suggestion block reads as a diff against the lines it replaces, like on GitHub. */
+function showSuggestions(text, th) {
+  for (const code of text.querySelectorAll('pre > code.language-suggestion')) {
+    const next = code.textContent.replace(/\n$/, '');
+    const old = th.kind === 'review' && th.side !== 'LEFT' && !th.outdated ? views.get(th.path)?.lines?.slice(th.start - 1, th.end) : null;
+    const box = el('div', 'sugg');
+    box.append(el('div', 'sugg-head', 'Suggested change'));
+    for (const r of old ? lineDiff(old, next === '' ? [] : next.split('\n')) : (next === '' ? [] : next.split('\n')).map((t) => ({ type: 'add', text: t }))) {
+      const row = el('div', 'sg-' + r.type);
+      row.append(el('span', 'sg-mark', r.type === 'add' ? '+' : r.type === 'del' ? '−' : ' '), el('code', null, r.text || ' '));
+      box.append(row);
+    }
+    code.parentElement.replaceWith(box);
+  }
+}
+
+const armedDeletes = new Map(); // comment id -> when its Delete was first clicked
 function msgEl(c, th, rerender) {
   const d = el('div', 'msg' + (c.failed ? ' failed' : ''));
   const who = el('div', 'who');
@@ -898,6 +915,7 @@ function msgEl(c, th, rerender) {
   if (c.pending) who.append(el('span', 'badge', 'Pending'));
   const text = el('div', 'text markdown-body');
   text.innerHTML = safeHtml(mdc.render(c.body));
+  showSuggestions(text, th);
   const err = el('div', 'err');
   if (!c.posting && !c.failed && !state.preview && (c.canUpdate || c.canDelete)) {
     const acts = el('span', 'macts');
@@ -928,11 +946,16 @@ function msgEl(c, th, rerender) {
       acts.append(edit);
     }
     if (c.canDelete) {
-      const del = btn('Delete', 'linkish danger');
-      let armed = null;
+      const armed = () => armedDeletes.get(c.id) > Date.now() - 4000; // survives a re-render and a refresh (new objects) between the two clicks
+      const del = btn(armed() ? 'Really delete?' : 'Delete', 'linkish danger');
       del.addEventListener('click', async () => {
-        if (!armed) { del.textContent = 'Really delete?'; armed = setTimeout(() => { del.textContent = 'Delete'; armed = null; }, 4000); return; }
-        clearTimeout(armed);
+        if (!armed()) {
+          armedDeletes.set(c.id, Date.now());
+          del.textContent = 'Really delete?';
+          setTimeout(() => { if (!armed() && del.isConnected) del.textContent = 'Delete'; }, 4100);
+          return;
+        }
+        armedDeletes.delete(c.id);
         del.disabled = true;
         try {
           await apiPost('/api/comment/delete', { ...prRef(), kind: th.kind, commentId: c.id });
@@ -940,7 +963,7 @@ function msgEl(c, th, rerender) {
           if (!th.msgs.length) removeThread(th);
           rerender();
           refreshComments(true);
-        } catch (e) { showErr(err, e); del.disabled = false; del.textContent = 'Delete'; armed = null; }
+        } catch (e) { showErr(err, e); del.disabled = false; del.textContent = 'Delete'; }
       });
       acts.append(del);
     }
@@ -1523,6 +1546,10 @@ function showSelbar(sel, pt) {
     pt = { x: last.right, y: last.bottom - 8 };
   }
   sel.pt = pt;
+  const cs = canSuggest(sel);
+  const sg = $('#sb-suggest');
+  sg.disabled = !cs.ok;
+  sg.title = cs.ok ? 'Suggest an edit' : `Can’t suggest here: ${cs.reason}`;
   selbar.hidden = false;
   const w = selbar.offsetWidth;
   selbar.style.top = (pt.y - wrap.top + 12) + 'px';
@@ -1531,6 +1558,13 @@ function showSelbar(sel, pt) {
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 
 $('#sb-comment').addEventListener('mousedown', (e) => e.preventDefault()); // keep the text selection alive
+$('#sb-suggest').addEventListener('mousedown', (e) => e.preventDefault());
+$('#sb-suggest').addEventListener('click', () => {
+  const sel = state.sel;
+  if (!sel || !canSuggest(sel).ok) return;
+  hideSelbar();
+  showComposer(sel, true);
+});
 $('#sb-comment').addEventListener('click', () => {
   const sel = state.sel;
   if (!sel) return;
@@ -1570,8 +1604,25 @@ function setSelHighlight(range) {
   if (range) CSS.highlights.set('rico-sel', new Highlight(range));
 }
 
-function showComposer(sel) {
+const SUG_PLACEHOLDER = 'Add a note (optional)…  (Ctrl/Cmd+Enter to post, Esc to dismiss)';
+const srcOf = (sel) => state.lines.slice(sel.anchor.start - 1, sel.anchor.end);
+function renderSugDiff() {
+  const p = state.pending;
+  const box = $('#c-sugdiff');
+  box.textContent = '';
+  if (!p?.suggest) return;
+  const next = $('#c-sugtext').value.replace(/\n$/, '');
+  for (const r of lineDiff(srcOf(p), next === '' ? [] : next.split('\n'))) {
+    const row = el('div', 'sg-' + r.type);
+    row.append(el('span', 'sg-mark', r.type === 'add' ? '+' : r.type === 'del' ? '−' : ' '), el('code', null, r.text || ' '));
+    box.append(row);
+  }
+}
+$('#c-sugtext').addEventListener('input', () => { renderSugDiff(); persistComposer(); placeComposer(state.pending.range, state.pending.rect); });
+
+function showComposer(sel, suggest = sel.suggest) {
   sel.view = sel.view || cur;
+  sel.suggest = !!suggest && canSuggest(sel).ok;
   state.pending = sel;
   const pv = previewLines(sel.quote);
   const q = $('#c-quote');
@@ -1600,11 +1651,20 @@ function showComposer(sel) {
   $('#c-qtext').hidden = true;
   $('#c-qedit').setAttribute('aria-expanded', 'false');
   $('#c-body').value = sel.body || '';
+  $('#c-suggest').hidden = !sel.suggest;
+  $('#c-body').placeholder = sel.suggest ? SUG_PLACEHOLDER : 'Leave a comment…  (Ctrl/Cmd+Enter to post, Esc to dismiss)';
+  if (sel.suggest) {
+    $('#c-sugtext').value = sel.sugText ?? srcOf(sel).join('\n');
+    $('#c-quote').hidden = true;
+    rEl.textContent = `Suggests an edit to ${sel.anchor.start === sel.anchor.end ? 'line ' + sel.anchor.start : `lines ${sel.anchor.start}–${sel.anchor.end}`} (whole lines; the author can apply it with one click)`;
+    rEl.classList.remove('warn');
+    renderSugDiff();
+  }
   composer.hidden = false;
   setSelHighlight(sel.about || sel.rows ? null : sel.range); // an element or a diff line highlights itself, not a text range
   for (const r of sel.rows || []) r.classList.add('d-sel');
   placeComposer(sel.range, sel.rect);
-  $('#c-body').focus({ preventScroll: true });
+  (sel.suggest ? $('#c-sugtext') : $('#c-body')).focus({ preventScroll: true });
 }
 
 function placeComposer(range, rect) {
@@ -1663,25 +1723,30 @@ $('#cards').addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shif
 function persistComposer() {
   const p = state.pending;
   const body = $('#c-body').value;
-  if (!p || !body.trim() || !p.view) return draftSet('composer', null);
-  const { start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram } = p;
-  draftSet('composer', { path: p.view.file.filename, start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram, body });
+  const edited = !!p?.suggest && $('#c-sugtext').value !== srcOf(p).join('\n');
+  if (!p || (!body.trim() && !edited) || !p.view) return draftSet('composer', null);
+  const { start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram, suggest } = p;
+  draftSet('composer', { path: p.view.file.filename, start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram, body, suggest, sugText: suggest ? $('#c-sugtext').value : undefined });
 }
 
 const hasPending = () => [...state.threads, ...state.leftThreads].some((t) => t.msgs.some((m) => m.pending));
 
 async function submitComposer(mode) {
   const p = state.pending;
-  const body = $('#c-body').value.trim();
-  if (!p || !body) return $('#c-body').focus();
+  let body = $('#c-body').value.trim();
   const err = $('#c-err');
   err.textContent = '';
+  if (p?.suggest) { // a suggestion: the replacement lines are the comment, the note is optional
+    const next = $('#c-sugtext').value;
+    if (next.replace(/\n$/, '') === srcOf(p).join('\n')) return showErr(err, { message: 'No change yet: edit the lines above to suggest something.' });
+    body = suggestionBody(next, body);
+  } else if (!p || !body) return $('#c-body').focus();
   if (state.preview) { persistComposer(); return showErr(err, { message: 'Sign in with GitHub to comment.', signin: true }); }
   const view = p.view;
   const c = {
     path: view.file.filename, side: p.side || 'RIGHT', start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
     about: p.aboutShort || '', // diagram element, so the comment says what it is about on GitHub
-    includeQuote: p.anchor ? $('#c-qinc').checked : true,
+    includeQuote: p.suggest ? false : p.anchor ? $('#c-qinc').checked : true, // a suggestion is its own quote
     quoteMd: $('#c-qtext').value.trim(), // markdown actually posted
   };
   draftSet('composer', null);
@@ -1748,7 +1813,7 @@ $('#c-add').addEventListener('click', () => submitComposer('single'));
 $('#c-review').addEventListener('click', () => submitComposer('review'));
 $('#c-body').addEventListener('input', persistComposer);
 $('#c-cancel').addEventListener('click', () => { draftSet('composer', null); hideComposer(); window.getSelection().removeAllRanges(); });
-$('#c-body').addEventListener('keydown', (e) => {
+for (const box of [$('#c-body'), $('#c-sugtext')]) box.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitComposer(e.shiftKey ? 'review' : 'single'); }
   if (e.key === 'Escape') { draftSet('composer', null); hideComposer(); window.getSelection().removeAllRanges(); }
 });
@@ -1878,6 +1943,7 @@ async function refreshComments(force = false) {
   if (state.pr !== p) return; // another PR was opened meanwhile
   etags = data.etags || etags;
   if (data.headSha && data.headSha !== p.headSha) showStale(data.headSha);
+  else if (data.headSha && state.stale) { state.stale = null; $('#stale').hidden = true; } // it moved back (a force-push undone)
   if (data.unchanged) return;
   const sig = JSON.stringify([data.comments, data.prComments, data.pendingReview]);
   if (sig === state.lastSig) return;
