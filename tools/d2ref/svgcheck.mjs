@@ -34,6 +34,7 @@ export async function svgPrepare(nofonts) {
     hooks.fonts = m;
   }
   try { hooks.markdown = await import('../../public/d2/mdlayout.js'); } catch (e) { /* not ported yet */ }
+  await (await import('../../public/d2/linebreak.js')).loadFullTables();
   hooks.highlight = await import('../../public/d2/highlight.js');
   for (const f of Object.values(hooks.highlight.index.files)) await hooks.highlight.loadLexer(f);
   hooks.patterns = await import('../../public/d2/d2svgpatterns.js');

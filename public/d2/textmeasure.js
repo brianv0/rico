@@ -57,6 +57,8 @@ class TTFont {
   /** Font.Index(r); runes whose glyph can't be loaded are absent from the dump */
   index(r) { return this.cmap[r]; }
   hasGlyph(r) { return this.cmap[r] !== undefined; }
+  /** the glyph record of glyph i (see fonts/metrics.json) */
+  glyph(i) { return this.glyphs[i]; }
   /** Font.Kern(scale, i0, i1) */
   kernAt(scale, i0, i1) {
     const k = this.kern.get(i0 * 65536 + i1);
@@ -71,7 +73,8 @@ class TTFont {
 // bearings, the phantom points and the glyph header box play no part (unlike freetype's GlyphBuf.Load, which v0.7.2 used).
 function unitBounds(f, i, depth) {
   if (depth >= 32) throw new Error('sfnt: unsupported compound glyph');
-  const rec = f.glyphs[i];
+  const rec = f.glyph(i);
+  if (!rec) throw new Error('sfnt: cannot load glyph');
   if (rec.e) return null;
   if (!rec.c) return rec.b ? rec.b.slice() : null; // [minX, maxX, minY, maxY]
   let acc = null;
@@ -92,8 +95,8 @@ function unitBounds(f, i, depth) {
   return acc;
 }
 
-function loadGlyph(f, scale, idx) {
-  const advanceWidth = f.scale(f.glyphs[idx].a * scale);
+export function loadGlyph(f, scale, idx) {
+  const advanceWidth = f.scale(f.glyph(idx).a * scale);
   const u = unitBounds(f, idx, 0);
   // Y is flipped (OpenType's Y axis points up, the segments' down); f.scale rounds half away from zero, so -scale(y) = scale(-y)
   const bounds = u ? { minX: f.scale(u[0] * scale), minY: -f.scale(u[3] * scale), maxX: f.scale(u[1] * scale), maxY: -f.scale(u[2] * scale) }
@@ -128,7 +131,7 @@ const newRect = () => new Rect(newPoint(0, 0), newPoint(0, 0));
 
 // fixed.Rectangle26_6
 const fEmpty = (r) => r.minX >= r.maxX || r.minY >= r.maxY;
-function fUnion(r, s) {
+export function fUnion(r, s) {
   if (fEmpty(r)) return s;
   if (fEmpty(s)) return r;
   r = { ...r };
@@ -579,7 +582,7 @@ function isDefaultIgnorableGrapheme(runes) {
   return runes.length > 0;
 }
 
-function isDefaultIgnorableRune(r) {
+export function isDefaultIgnorableRune(r) {
   // Blink gives most format controls and variation selectors no advance, but renders several controls and Unicode "default
   // ignorables" through fallback fonts. Follow that observed behavior instead of erasing the whole derived Unicode property.
   if (r === 0x00ad || // conditional; handled by line wrapping

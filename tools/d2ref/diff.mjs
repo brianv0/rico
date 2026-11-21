@@ -160,7 +160,7 @@ for (const [i, c] of cases.entries()) {
   if (want.panic) { panics++; continue; } // Go itself panicked: nothing to match
   let got;
   try { got = canon(JSON.parse(JSON.stringify(await STAGES[mode](c, want, flags)))); } catch (e) { got = { threw: String(e.stack || e) }; }
-  if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; continue; }
+  if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; if (flags.includes('--defer')) console.log(`deferred #${i} ${got.deferred} ${c.from ?? ''}`); continue; }
   let d = firstDiff(got, canon(want));
   if (d && mode === 'layout') {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
