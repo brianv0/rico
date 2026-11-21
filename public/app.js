@@ -1554,6 +1554,36 @@ $('#tree-toggle').addEventListener('click', () => {
 $('#brand-mark').innerHTML = icon('comment-discussion');
 $('#rc-caret').innerHTML = icon('triangle-down');
 
+// ---------- theme: follow the system, or force light / dark ----------
+const THEMES = ['auto', 'light', 'dark'];
+const themeNow = () => { try { const t = localStorage.getItem('rico:theme'); return THEMES.includes(t) ? t : 'auto'; } catch { return 'auto'; } };
+async function applyThemeSheets() {
+  const t = themeNow();
+  const media = (name, on) => { const l = document.querySelector(`link[href="/vendor/hljs-${name}.css"]`); if (l) l.media = t === 'auto' ? `(prefers-color-scheme: ${name})` : (t === name ? 'all' : 'not all'); };
+  media('light'); media('dark');
+  if (t === 'auto') return;
+  try { // github-markdown-css switches on prefers-color-scheme inside one file; pin the branch we want
+    const css = await (await fetch('/vendor/github-markdown.css')).text();
+    const st = document.createElement('style');
+    st.id = 'gmd-forced';
+    st.textContent = css.replace(/@media \(prefers-color-scheme: (dark|light)\)/g, (_, k) => (k === t ? '@media all' : '@media not all'));
+    document.head.append(st);
+    document.getElementById('gmd')?.remove();
+  } catch { /* keep the system-following sheet */ }
+}
+function setupTheme() {
+  const b = $('#theme');
+  const label = () => { b.textContent = { auto: 'Theme: auto', light: 'Theme: light', dark: 'Theme: dark' }[themeNow()]; };
+  label();
+  b.addEventListener('click', () => {
+    const next = THEMES[(THEMES.indexOf(themeNow()) + 1) % THEMES.length];
+    try { localStorage.setItem('rico:theme', next); } catch { /* private mode */ }
+    location.reload(); // diagrams are rendered in the theme's colours, so start clean
+  });
+  applyThemeSheets();
+}
+setupTheme();
+
 // ---------- boot ----------
 $('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value); });
 const h = new URLSearchParams(location.hash.slice(1));

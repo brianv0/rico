@@ -9,7 +9,8 @@ export const diagramLang = (info) => {
 };
 
 const fail = (messages, unavailable = false) => Object.assign(new Error(messages.join('; ')), { messages, unavailable });
-const prefersDark = () => typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+const forcedTheme = () => (typeof document !== 'undefined' ? document.documentElement.dataset.theme : '') || '';
+const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
 
 /**
  * The document shown inside the diagram's sandboxed iframe. The frame has no scripts (sandbox), and
@@ -40,7 +41,7 @@ async function renderD2(source) {
   let r;
   try { r = await d2.compile(source); } catch (e) { throw fail(d2Errors(e)); }
   const ro = r.renderOptions || {};
-  const svg = await d2.render(r.diagram, { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
+  const svg = await d2.render(r.diagram, forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
   const maps = d2LineMaps(r.diagram, r.graph);
   return {
     svg,

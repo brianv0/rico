@@ -7,7 +7,8 @@
 <title>Rico</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230969da'/%3E%3Cpath d='M8 9h16v10H15l-5 4v-4H8z' fill='white'/%3E%3C/svg%3E">
 <!-- GitHub's own markdown styles (github-markdown-css) and code colours (highlight.js github themes) -->
-<link rel="stylesheet" href="/vendor/github-markdown.css">
+<script>try{var t=localStorage.getItem("rico:theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
+<link id="gmd" rel="stylesheet" href="/vendor/github-markdown.css">
 <link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/style.css">
@@ -20,6 +21,7 @@
     <button type="submit" class="btn">Load PR</button>
   </form>
   <div id="status" role="status"></div>
+  <button id="theme" class="btn" type="button" title="Colour theme: follow the system, or force light or dark"></button>
   <div id="who"></div>
 </header>
 
