@@ -34,7 +34,8 @@ export async function svgPrepare(nofonts) {
     hooks.fonts = m;
   }
   try { hooks.markdown = await import('../../public/d2/mdlayout.js'); } catch (e) { /* not ported yet */ }
-  try { hooks.highlight = await import('../../public/d2/highlight.js'); } catch (e) { /* not ported yet */ }
+  hooks.highlight = await import('../../public/d2/highlight.js');
+  for (const f of Object.values(hooks.highlight.index.files)) await hooks.highlight.loadLexer(f);
   hooks.patterns = await import('../../public/d2/d2svgpatterns.js');
   await hooks.patterns.loadPattern('paper');
   await hooks.patterns.loadPattern('grain');

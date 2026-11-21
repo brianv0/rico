@@ -51,7 +51,7 @@ export class Deferred extends Error {
 
 /**
  * Thrown by `render` when it needs something that is loaded lazily (and has not been loaded yet): `renderAsync` loads it and
- * retries. kind is 'metrics' | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain).
+ * retries. kind is 'metrics' | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' (the highlight.js module) | 'lexer' (name is the file under lexers/) | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain).
  */
 export class NeedAsset extends Error {
   constructor(kind, name = '') { super(`d2svg: ${kind} ${name} is not loaded (use renderAsync, or load it first)`); this.name = 'NeedAsset'; this.kind = kind; this.assetName = name; }
@@ -2616,6 +2616,7 @@ const loaders = {
   async font(name) { await hooks.fonts.loadFont(name); },
   async markdown() { hooks.markdown = await import('./mdlayout.js'); },
   async highlight() { hooks.highlight = await import('./highlight.js'); },
+  async lexer(file) { hooks.highlight ??= await import('./highlight.js'); await hooks.highlight.loadLexer(file); },
   async patterns() { hooks.patterns = await import('./d2svgpatterns.js'); },
   async pattern(name) { hooks.patterns ??= await import('./d2svgpatterns.js'); await hooks.patterns.loadPattern(name); },
 };

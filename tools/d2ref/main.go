@@ -89,6 +89,10 @@ func main() {
 		corpus(os.Args[2])
 		return
 	}
+	if os.Args[1] == "chromadump" {
+		chromadump(os.Args[2:])
+		return
+	}
 	if os.Args[1] == "themes" {
 		themesdump()
 		return
@@ -188,6 +192,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
 	case "zlib":
 		return zlibCheck(in)
+	case "highlight":
+		return highlightCheck(in)
 	case "linebreak":
 		return linebreakCheck(in)
 	case "svgfromdiagram":
