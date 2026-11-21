@@ -378,6 +378,8 @@ Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagr
 
 ### Notes for the ELK and TALA stages
 
+- **TALA: the foundation, the Go harness and the plan are in [d2-tala-port.md](d2-tala-port.md)** (the paragraph below predates it).
+
 - ELK: v0.9.0 is `elk-go` ("a native Go port of the ELK behavior used by D2", target ELK.js 0.12.0 exactly; its own tests compare ordered JSON against the official bundle).
   The dagre result suggests the same plan: vendor npm `elkjs@0.12.0` (`elk.bundled.js` is large; check whether `elk-api.js` plus a worker-less layout is smaller and whether
   `layered`'s D2 profile is all that is needed), port `d2elklayout/layout.go` (new in v0.9.0: `descendant_shifter.go`, `spatial_index.go`, route-around-containers fixes,

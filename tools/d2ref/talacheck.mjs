@@ -421,7 +421,7 @@ function opNodes(g) {
 export function opsStage(c) {
   let g;
   try { g = graphFromFixture(c); } catch (e) { if (e.name !== 'GoError') throw e; return { err: e.message }; }
-  const want = c.args && c.args.length ? c.args : ['orders', 'validate', 'clone', 'geometry', 'pairs', 'edges', 'split', 'abduct', 'transactions', 'nodes'];
+  const want = c.args && c.args.length ? c.args : ['orders', 'validate', 'clone', 'geometry', 'pairs', 'edges', 'split', 'abduct', 'transactions', 'nodes', 'graphbounds'];
   const out = {};
   const geo_ = (fn) => (positioned(g) ? fn(g) : { skipped: true });
   const table = {
@@ -435,6 +435,7 @@ export function opsStage(c) {
     abduct: () => opAbduct(g),
     transactions: () => geo_(opTransactions),
     nodes: () => geo_(opNodes),
+    graphbounds: () => geo_(opGraphBounds),
   };
   for (const op of want) {
     try { out[op] = table[op](); } catch (e) {
@@ -443,5 +444,26 @@ export function opsStage(c) {
       out[op] = { threw: String(e.stack || e).split('\n').slice(0, 3).join(' | ') };
     }
   }
+  return out;
+}
+
+import * as graphbounds from '../../public/d2/tala/graphbounds.js';
+function opGraphBounds(g) {
+  const guard = limits.newWorkGuard(ctx(), 'x', limits.MaxEngineWorkUnits);
+  const e = (fn) => { try { return [fn(), null]; } catch (x) { if (x.name !== 'GoError') throw x; return [[null, null], x.message]; } };
+  const out = {};
+  let [[tl, br], err] = e(() => graphbounds.boundingBox(g.nodes, guard));
+  out.bounds = [P(tl), P(br), err, guard.used()];
+  [[tl, br], err] = e(() => graphbounds.fixedBoundingBox(g.nodes, guard));
+  out.fixed = [P(tl), P(br), err, guard.used()];
+  out.nodes = g.nodes.slice(0, 60).map((n) => {
+    const [[a, b], e1] = e(() => graphbounds.nodeBoundingBox(n, g.nodes, guard));
+    const [[a2, b2], e2] = e(() => graphbounds.nodeBoundingBox(n, null, guard));
+    return [P(a), P(b), e1, P(a2), P(b2), e2, guard.used()];
+  });
+  [[tl, br], err] = e(() => graphbounds.fixedBoundingBox(g.nodes.slice(0, Math.trunc(g.nodes.length / 2)), guard));
+  out.half = [P(tl), P(br), err, guard.used()];
+  [[tl, br], err] = e(() => graphbounds.fixedBoundingBox([], guard));
+  out.empty = [P(tl), P(br), err, guard.used()];
   return out;
 }

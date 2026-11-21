@@ -50,6 +50,7 @@ type input struct {
 	FS             map[string]string `json:"fs"`
 	Seeds          []int64           `json:"seeds"`
 	MaxConcurrency int               `json:"maxConcurrency"`
+	ThemeID        *int64            `json:"themeID"`
 
 	// rand mode
 	Seed int64    `json:"seed"`
@@ -242,7 +243,7 @@ func runD2(mode string, in input, ruler *textmeasure.Ruler) interface{} {
 			return d2talalayout.RouteEdges, nil
 		},
 	}
-	ro := &d2svg.RenderOpts{}
+	ro := &d2svg.RenderOpts{ThemeID: in.ThemeID}
 	start := time.Now()
 	diagram, _, err := d2lib.Compile(ctx, in.Text, copts, ro)
 	elapsed := time.Since(start)

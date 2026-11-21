@@ -11,6 +11,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/d2lang/d2/d2layouts/d2talalayout/internal/graphbounds"
 	"github.com/d2lang/d2/d2layouts/d2talalayout/internal/graphjson"
 	"github.com/d2lang/d2/d2layouts/d2talalayout/internal/layoutgraph"
 	"github.com/d2lang/d2/d2layouts/d2talalayout/internal/limits"
@@ -103,7 +104,7 @@ func runOps(in input) (res interface{}) {
 		json.Unmarshal(in.Args, &want)
 	}
 	if len(want) == 0 {
-		want = []string{"orders", "validate", "clone", "geometry", "pairs", "edges", "split", "abduct", "transactions", "nodes"}
+		want = []string{"orders", "validate", "clone", "geometry", "pairs", "edges", "split", "abduct", "transactions", "nodes", "graphbounds"}
 	}
 	out := map[string]interface{}{}
 	for _, op := range want {
@@ -150,6 +151,12 @@ func runOps(in input) (res interface{}) {
 					out[op] = map[string]bool{"skipped": true}
 				} else {
 					out[op] = opTransactions(ctx, g)
+				}
+			case "graphbounds":
+				if !positioned(g) {
+					out[op] = map[string]bool{"skipped": true}
+				} else {
+					out[op] = opGraphBounds(ctx, g)
 				}
 			case "nodes":
 				if !positioned(g) {
@@ -562,5 +569,31 @@ func opNodes(g *layoutgraph.Graph) interface{} {
 	}
 	out["connected"] = conn
 	_ = math.Pi
+	return out
+}
+
+func opGraphBounds(ctx context.Context, g *layoutgraph.Graph) interface{} {
+	guard, _ := limits.NewWorkGuard(ctx, "x", limits.MaxEngineWorkUnits)
+	nodes := layoutgraph.Nodes(g.Nodes)
+	out := map[string]interface{}{}
+	tl, br, err := graphbounds.BoundingBox(nodes, guard)
+	out["bounds"] = []interface{}{p2(tl), p2(br), errStr(err), guard.Used()}
+	tl, br, err = graphbounds.FixedBoundingBox(nodes, guard)
+	out["fixed"] = []interface{}{p2(tl), p2(br), errStr(err), guard.Used()}
+	per := []interface{}{}
+	for i, n := range g.Nodes {
+		if i >= 60 {
+			break
+		}
+		tl, br, err := graphbounds.NodeBoundingBox(n, nodes, guard)
+		tl2, br2, err2 := graphbounds.NodeBoundingBox(n, nil, guard)
+		per = append(per, []interface{}{p2(tl), p2(br), errStr(err), p2(tl2), p2(br2), errStr(err2), guard.Used()})
+	}
+	out["nodes"] = per
+	sub := layoutgraph.Nodes(g.Nodes[:len(g.Nodes)/2])
+	tl, br, err = graphbounds.FixedBoundingBox(sub, guard)
+	out["half"] = []interface{}{p2(tl), p2(br), errStr(err), guard.Used()}
+	tl, br, err = graphbounds.FixedBoundingBox(nil, guard)
+	out["empty"] = []interface{}{p2(tl), p2(br), errStr(err), guard.Used()}
 	return out
 }
