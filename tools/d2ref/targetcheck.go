@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 
-	"oss.terrastruct.com/d2/d2target"
-	"oss.terrastruct.com/d2/lib/geo"
+	"github.com/d2lang/d2/d2target"
+	"github.com/d2lang/d2/lib/geo"
 )
 
 // targetCheck takes {"diagram": <d2target.Diagram JSON>} (as printed by `layout`), loads it into the Go structs and

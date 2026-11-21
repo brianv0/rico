@@ -1,10 +1,10 @@
 package main
 
 import (
-	"oss.terrastruct.com/d2/d2graph"
-	"oss.terrastruct.com/d2/d2renderers/d2fonts"
-	"oss.terrastruct.com/d2/d2target"
-	"oss.terrastruct.com/d2/lib/textmeasure"
+	"github.com/d2lang/d2/d2graph"
+	"github.com/d2lang/d2/d2renderers/d2fonts"
+	"github.com/d2lang/d2/d2target"
+	"github.com/d2lang/d2/lib/textmeasure"
 )
 
 // measure runs the call shapes d2graph.SetDimensions uses: markdown labels go to textmeasure.MeasureMarkdown,

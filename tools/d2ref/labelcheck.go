@@ -1,8 +1,8 @@
 package main
 
 import (
-	"oss.terrastruct.com/d2/lib/geo"
-	"oss.terrastruct.com/d2/lib/label"
+	"github.com/d2lang/d2/lib/geo"
+	"github.com/d2lang/d2/lib/label"
 )
 
 // labelCheck exercises lib/label for every Position over one box (Width x Height at 10,20) and, if given, one route.

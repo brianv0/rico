@@ -7,7 +7,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 
-	"oss.terrastruct.com/d2/lib/textmeasure"
+	"github.com/d2lang/d2/lib/textmeasure"
 )
 
 // mdtree prints the HTML tree goquery builds from the rendered markdown (debugging aid for htmlparse.js).

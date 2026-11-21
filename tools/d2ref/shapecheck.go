@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"math"
 
-	"oss.terrastruct.com/d2/lib/geo"
-	"oss.terrastruct.com/d2/lib/shape"
+	"github.com/d2lang/d2/lib/geo"
+	"github.com/d2lang/d2/lib/shape"
 )
 
 // F is a float64 whose JSON form survives NaN and Inf (as strings), so the JS side can reproduce it.

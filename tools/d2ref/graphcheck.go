@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 
-	"oss.terrastruct.com/d2/d2compiler"
-	"oss.terrastruct.com/d2/d2graph"
+	"github.com/d2lang/d2/d2compiler"
+	"github.com/d2lang/d2/d2graph"
 )
 
 // graphMethods compiles in.Text and calls d2graph's read-only methods on every object and edge of every board.

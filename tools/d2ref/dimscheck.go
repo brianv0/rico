@@ -3,9 +3,9 @@ package main
 import (
 	"strings"
 
-	"oss.terrastruct.com/d2/d2compiler"
-	"oss.terrastruct.com/d2/d2graph"
-	"oss.terrastruct.com/d2/lib/textmeasure"
+	"github.com/d2lang/d2/d2compiler"
+	"github.com/d2lang/d2/d2graph"
+	"github.com/d2lang/d2/lib/textmeasure"
 )
 
 // dimsCheck compiles in.Text, applies the default theme and calls SetDimensions on every board, printing what it set:

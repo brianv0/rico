@@ -15,8 +15,8 @@ import (
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/math/fixed"
 
-	"oss.terrastruct.com/d2/d2renderers/d2fonts"
-	"oss.terrastruct.com/d2/lib/textmeasure"
+	"github.com/d2lang/d2/d2renderers/d2fonts"
+	"github.com/d2lang/d2/lib/textmeasure"
 )
 
 type sfnt struct {

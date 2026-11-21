@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"os"
 
-	"oss.terrastruct.com/d2/d2themes"
-	"oss.terrastruct.com/d2/d2themes/d2themescatalog"
+	"github.com/d2lang/d2/d2themes"
+	"github.com/d2lang/d2/d2themes/d2themescatalog"
 )
 
 // themesdump prints the theme catalog as JSON (go run . themes), the source of public/d2/themes.js's data:

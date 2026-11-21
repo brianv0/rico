@@ -4,8 +4,33 @@ Goal: render `d2` blocks in Rico with plain JavaScript in the browser, instead o
 build (`@terrastruct/d2`: 8.2 MB, 6.0 MB gzipped, about 0.8 s before the first diagram). Target: the default
 (dagre) path around 100–150 KB gzipped, with ELK, sketch mode and LaTeX loaded only when a diagram uses them.
 
-Source: D2 **v0.7.2** (`oss.terrastruct.com/d2`, MPL-2.0). Every ported file keeps the MPL header that
-`public/d2/parser.js` has. Rico itself stays MIT; MPL is per file, so that is fine.
+Source: D2 **v0.9.0** (`github.com/d2lang/d2`, MPL-2.0; Go module path changed from `oss.terrastruct.com/d2`, whose
+last release is v0.7.2). Every ported file keeps the MPL header that `public/d2/parser.js` has. Rico itself stays
+MIT; MPL is per file, so that is fine.
+
+## Target version: v0.9.0 (changed from v0.7.2)
+
+The port was started against v0.7.2 by mistake (the old module path's last release). Everything verified up to
+commit `0cbfdae` was measured against v0.7.2; the Status table below shows those numbers until a row is re-verified.
+The reference runner (`tools/d2ref`) now builds against v0.9.0 (needs Go 1.27, which `GOTOOLCHAIN=auto` downloads),
+and `corpus.jsonl` must be regenerated from the v0.9.0 source:
+
+```bash
+curl -sSLo d2.zip https://proxy.golang.org/github.com/d2lang/d2/@v/v0.9.0.zip && unzip -q d2.zip   # github.com/d2lang/d2@v0.9.0/
+cd tools/d2ref && go run . corpus <path to github.com/d2lang/d2@v0.9.0> > corpus.jsonl            # 1077 snippets
+```
+
+What changed upstream after v0.7.2 (v0.8.x, v0.9.0 changelogs):
+- The embedded JS runtimes are gone. dagre is now native Go (`github.com/d2lang/dagro`, "Dagre 3.1.1 behavior": node
+  order, coordinates, routes and compound sizes changed on purpose), ELK is native Go (`elk-go`, "ELK.js 0.12.0
+  behavior"), LaTeX is `mathjax-go`, sketch is `rough-go` ("Rough.js 4.6.6 behavior"). npm has the JS originals
+  (`@dagrejs/dagre` 3.1.x, `elkjs` 0.12.x, `roughjs` 4.6.6, `mathjax-full` 3.2.2): prefer vendoring those and porting
+  only D2's glue code, and let the harness decide whether the output matches the Go ports.
+- **TALA** (`d2layouts/d2talalayout`, about 64k lines of Go, no JS original) is open source and bundled. Load lazily.
+- SVG: markdown labels are native SVG text (not `foreignObject`); SVGs are about 24% smaller; font/CSS assembly changed.
+- Faster compile/layout internals (glob, imports, grid), new scene/raster pipeline (`d2scene`, `d2scenebuild`) that
+  the SVG path does not use, so it is out of scope.
+- Initial v0.9.0 diff of the v0.7.2-era JS: parse 1077/1077; ir 1052/1077; graph 1060/1077; layout 942/1073.
 
 ## Status
 
@@ -26,7 +51,7 @@ Not needed: `d2oracle`, `d2lsp`, `d2format` (except what `d2ir` calls), `d2plugi
 the first JSON path that differs.
 
 ```bash
-curl -sSLo d2.zip https://proxy.golang.org/oss.terrastruct.com/d2/@v/v0.7.2.zip && unzip -q d2.zip   # D2 source
+curl -sSLo d2.zip https://proxy.golang.org/github.com/d2lang/d2/@v/v0.9.0.zip && unzip -q d2.zip   # D2 source
 cd tools/d2ref
 go run . corpus ../../oss.terrastruct.com/d2@v0.7.2 > corpus.jsonl   # ~1000 snippets from D2's own tests (53 with imported files)
 node diff.mjs parse corpus.jsonl            # and again with --utf16

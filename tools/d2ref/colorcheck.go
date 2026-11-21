@@ -1,7 +1,7 @@
 package main
 
 import (
-	"oss.terrastruct.com/d2/lib/color"
+	"github.com/d2lang/d2/lib/color"
 )
 
 // colorCheck runs the lib/color entry points on one string (in.Text).
