@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2ir package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.): the tree
+// JavaScript port of D2's d2ir package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.): the tree
 // that keeps track of the resolved value of D2 keys (globs, imports, vars, spreads, filters, boards).
 //
 // Same algorithm, same names (camelCase), same error messages as d2ir.go, compile.go, import.go, merge.go,
@@ -108,7 +108,7 @@ const parseBool = (s) => (['1', 't', 'T', 'TRUE', 'true', 'True'].includes(s) ? 
 /** Value of a Scalar: `value` is a scalar box. */
 export class Scalar {
   constructor(o = {}) { this.parent = null; this.value = null; Object.assign(this, o); }
-  copy(newParent) { const s = shallow(this); s.parent = newParent; return s; }
+  copy(newParent) { const s = shallow(this); s.parent = newParent; s.value = cloneASTScalarBox(s.value); return s; }
   equal(n2) {
     const s2 = n2;
     if (isStringBox(this.value) && isStringBox(s2.value)) return ss(this.value) === ss(s2.value);
@@ -128,7 +128,7 @@ const TYPE = { null: 'null', suspension: 'suspension', boolean: 'boolean', numbe
 const boxType = (b) => { const k = boxKind(b); return k === 'block_string' ? b[k].tag + ' block string' : TYPE[k]; };
 
 export class IRMap {
-  constructor(o = {}) { this.parent = null; this.importAST = null; this.fields = null; this.edges = null; this.globs = null; Object.assign(this, o); }
+  constructor(o = {}) { this.parent = null; this.importAST = null; this.fields = null; this.edges = null; this.globs = null; this.structureVersion = 0; Object.assign(this, o); }
 
   initRoot() {
     this.parent = new Field({
@@ -146,6 +146,7 @@ export class IRMap {
 
   copy(newParent) {
     const m = shallow(this);
+    m.structureVersion = 0;
     m.parent = newParent;
     const pfields = m.fields || [];
     m.fields = [];
@@ -154,6 +155,43 @@ export class IRMap {
     for (let i = 0; i < (m.edges || []).length; i++) m.edges[i] = m.edges[i].copy(m);
     if (m.parent === null) m.initRoot();
     return m;
+  }
+
+  // Fields and Edges retain source order. structureVersion changes whenever a field or edge is added or removed in this map or
+  // any descendant (lazy globs use it instead of recounting the whole IR around every compiled key). The Go lookup indexes
+  // (fieldIndex, edgeIndex) are derived accelerators only and are not ported.
+  markStructureChanged() {
+    for (let current = this; current !== null; current = parentMap(current)) current.structureVersion++;
+  }
+
+  appendField(f) {
+    this.fields = [...(this.fields || []), f];
+    this.markStructureChanged();
+  }
+
+  insertField(index, f) {
+    const fs = this.fields || [];
+    this.fields = [...fs.slice(0, index), f, ...fs.slice(index)];
+    this.markStructureChanged();
+  }
+
+  removeField(index) {
+    const f = this.fields[index];
+    this.fields.splice(index, 1);
+    this.markStructureChanged();
+    return f;
+  }
+
+  appendEdge(e) {
+    this.edges = [...(this.edges || []), e];
+    this.markStructureChanged();
+  }
+
+  removeEdge(index) {
+    const e = this.edges[index];
+    this.edges.splice(index, 1);
+    this.markStructureChanged();
+    return e;
   }
 
   /** Root reports whether the Map is the root of the D2 tree. */
@@ -236,19 +274,23 @@ export class IRMap {
     if (refctx && keyHasGlob(refctx.key) && c) gctx = c.getGlobContext(refctx);
 
     const fa = [];
-    const err = m.ensureField(i, kp, refctx, create, gctx, c, fa);
+    const created = [];
+    const err = m.ensureField(i, kp, refctx, create, gctx, c, fa, created);
+    if (c && c.applyingLazyWorklist && c.globRefContextStack.length > 0) {
+      if (created.length > 0) c.enqueueLazyGlobFields(...fa);
+    }
     if (fa.length > 0 && c && c.globRefContextStack.length === 0) {
-      for (const gctx2 of c.globContexts()) {
-        const old = c.lazyGlobBeingApplied;
-        c.lazyGlobBeingApplied = true;
-        c.compileKey(gctx2.refctx);
-        c.lazyGlobBeingApplied = old;
+      if (created.length > 0) {
+        c.enqueueLazyPostTargets(...fa);
+        c.applyLazyGlobs(fa);
+      } else {
+        c.applyLazyGlobs(null);
       }
     }
     return [fa, err];
   }
 
-  ensureField(i, kp, refctx, create, gctx, c, fa) {
+  ensureField(i, kp, refctx, create, gctx, c, fa, created) {
     const m = this;
     const filter = (f, passthrough) => {
       if (gctx) {
@@ -274,28 +316,40 @@ export class IRMap {
 
     const us = kp.path[i].unquoted_string;
     if (us && us.pattern !== undefined && us.pattern !== null) {
-      const mg = m.multiGlob(us.pattern);
-      if (mg) {
+      let mg, multi;
+      if (c && c.lazyGlobTarget !== null && gctx && (isDoubleGlob(us.pattern) || isTripleGlob(us.pattern))) {
+        mg = m.multiGlobMatchesToward(c.lazyGlobTarget, us.pattern);
+        multi = true;
+      } else {
+        mg = m.multiGlob(us.pattern);
+        multi = mg !== null;
+      }
+      if (multi) {
         const fa2 = mg;
         if (i === kp.path.length - 1) faAppend(...fa2);
         else {
           for (const f of fa2) {
             if (!filter(f, true)) continue;
             if (!f.map()) f.composite = new IRMap({ parent: f });
-            const err = f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa);
+            const err = f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa, created);
             if (err) return err;
           }
         }
         return null;
       }
-      for (const f of (m.fields || []).slice()) {
+      let fields = (m.fields || []).slice();
+      if (c && c.lazyGlobTarget !== null && gctx) {
+        const candidate = m.directChildToward(c.lazyGlobTarget);
+        fields = candidate !== null ? [candidate] : [];
+      }
+      for (const f of fields) {
         if (!f.name) continue;
         if (matchPattern(ss(f.name), us.pattern)) {
           if (i === kp.path.length - 1) faAppend(f);
           else {
             if (!filter(f, true)) continue;
             if (!f.map()) f.composite = new IRMap({ parent: f });
-            const err = f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa);
+            const err = f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa, created);
             if (err) return err;
           }
         }
@@ -333,10 +387,10 @@ export class IRMap {
 
       // Don't add references for fake common KeyPath from trimCommon in CreateEdge.
       if (refctx) {
-        f.references = [...(f.references || []), new FieldReference({
+        f.appendReference(new FieldReference({
           string: kp.path[i], keyPath: kp, context_: refctx,
           dueToGlob_: c.globRefContextStack.length > 0, dueToLazyGlob_: c.lazyGlobBeingApplied,
-        })];
+        }));
       }
 
       if (i + 1 === kp.path.length) {
@@ -346,31 +400,32 @@ export class IRMap {
       if (!filter(f, true)) return null;
       if (f.composite instanceof IRArray) return errorf(kp.path[i], 'cannot index into array');
       if (!f.map()) f.composite = new IRMap({ parent: f });
-      return f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa);
+      return f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa, created);
     }
 
     if (!create) return null;
-    const shape = parentShape(m);
     if (!(ReservedKeywords.has(goLower(ss(head))) && isUnquoted(head)) && c.globRefContextStack.length > 0) {
+      const shape = parentShape(m);
       if (shape === ShapeClass || shape === ShapeSQLTable) return null;
     }
     const f = new Field({ parent: m, name: kp.path[i] });
     try {
       // Don't add references for fake common KeyPath from trimCommon in CreateEdge.
       if (refctx) {
-        f.references = [...(f.references || []), new FieldReference({
+        f.appendReference(new FieldReference({
           string: kp.path[i], keyPath: kp, context_: refctx,
           dueToGlob_: c.globRefContextStack.length > 0, dueToLazyGlob_: c.lazyGlobBeingApplied,
-        })];
+        }));
       }
       if (!filter(f, true)) return null;
-      m.fields = [...(m.fields || []), f];
+      m.appendField(f);
+      created.push(f);
       if (i + 1 === kp.path.length) {
         faAppend(f);
         return null;
       }
       if (!f.composite) f.composite = new IRMap({ parent: f });
-      return f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa);
+      return f.map().ensureField(i + 1, kp, refctx, create, gctx, c, fa, created);
     } finally {
       if (!(i < keyPathFirstGlob(kp))) {
         for (const grefctx of c.globRefContextStack) {
@@ -399,12 +454,33 @@ export class IRMap {
     const edges = resolvedM.edges || [];
     for (let i = 0; i < edges.length; i++) {
       const e = edges[i];
-      if (e.id.match(resolvedEID)) {
-        edges.splice(i, 1);
-        return e;
-      }
+      if (e.id.match(resolvedEID)) return resolvedM.removeEdge(i);
     }
     return null;
+  }
+
+  deleteEdgesForFieldReferences(f) {
+    const m = this;
+    for (const fr of f.references || []) {
+      let currM = m;
+      while (currM) {
+        // Go ranges over a header whose backing array DeleteEdge shifts under it: elements after a deletion are
+        // seen one place early, and the last one is seen again at the end.
+        const arr = currM.edges || [];
+        const n0 = arr.length, last = arr[n0 - 1];
+        for (let k = 0; k < n0; k++) {
+          const e = k < arr.length ? arr[k] : last;
+          for (const er of e.references || []) {
+            if (er.context_ === fr.context_) {
+              currM.deleteEdge(e.id);
+              break;
+            }
+          }
+        }
+        if (nodeBoardKind(currM) !== '') break;
+        currM = parentMap(currM);
+      }
+    }
   }
 
   deleteField(...ida) {
@@ -418,27 +494,8 @@ export class IRMap {
       const f = fields[i];
       if (!equalFold(ss(f.name), s)) continue;
       if (rest.length === 0) {
-        for (const fr of f.references || []) {
-          let currM = m;
-          while (currM) {
-            // Go ranges over a header whose backing array DeleteEdge shifts under it: elements after a deletion are
-            // seen one place early, and the last one is seen again at the end.
-            const arr = currM.edges || [];
-            const n0 = arr.length, last = arr[n0 - 1];
-            for (let k = 0; k < n0; k++) {
-              const e = k < arr.length ? arr[k] : last;
-              for (const er of e.references || []) {
-                if (er.context_ === fr.context_) {
-                  currM.deleteEdge(e.id);
-                  break;
-                }
-              }
-            }
-            if (nodeBoardKind(currM) !== '') break;
-            currM = parentMap(currM);
-          }
-        }
-        m.fields.splice(i, 1);
+        m.deleteEdgesForFieldReferences(f);
+        m.removeField(i);
 
         // If a field was deleted from a keyword-holder keyword and that holder is empty,
         // then that holder becomes meaningless and should be deleted too
@@ -449,7 +506,7 @@ export class IRMap {
             const kf = keywordHolderParentMap.fields || [];
             for (let j = 0; j < kf.length; j++) {
               if (ss(kf[j].name) === keywordHolder && isUnquoted(kf[j].name)) {
-                kf.splice(j, 1);
+                keywordHolderParentMap.removeField(j);
                 break;
               }
             }
@@ -692,7 +749,7 @@ export class IRMap {
       gctx.appliedEdges.add(ks);
     }
 
-    m.edges = [...(m.edges || []), e];
+    m.appendEdge(e);
     return [[e], null];
   }
 
@@ -712,10 +769,10 @@ export class IRMap {
     const f = this.getField(sb);
     if (!f) return;
 
-    f.references = [...(f.references || []), new FieldReference({
+    f.appendReference(new FieldReference({
       string: sb, keyPath: kp, context_: refctx,
       dueToGlob_: c.globRefContextStack.length > 0, dueToLazyGlob_: c.lazyGlobBeingApplied,
-    })];
+    }));
     if (i + 1 === kp.path.length) return;
     if (f.map()) f.map().appendFieldReferences(i + 1, kp, refctx, c);
   }
@@ -780,11 +837,47 @@ export class IRMap {
     return null;
   }
 
+  /**
+   * pathToField returns the source-ordered field path from m to target. A null result means target is outside m's subtree.
+   */
+  pathToField(target) {
+    const reverse = [];
+    for (let current = target; current !== null;) {
+      const parent = parentMap(current);
+      if (parent === null) return null;
+      reverse.push(current);
+      if (parent === this) return reverse.reverse();
+      current = parentField(parent);
+    }
+    return null;
+  }
+
+  directChildToward(target) {
+    const path = this.pathToField(target);
+    if (path === null || path.length === 0) return null;
+    return path[0];
+  }
+
+  /**
+   * multiGlobMatchesToward returns the fields in the changed top-level branch toward target that the existing recursive glob
+   * traversal would append. A whole branch is replayed (rather than only the target path) so reference and filter ordering
+   * remains identical within the affected branch.
+   */
+  multiGlobMatchesToward(target, pattern) {
+    const path = this.pathToField(target);
+    if (path === null || path.length === 0) return [];
+    const matches = [];
+    if (isDoubleGlob(pattern)) { _doubleGlobField(path[0], matches); return matches; }
+    if (isTripleGlob(pattern)) { _tripleGlobField(path[0], matches); return matches; }
+    return [];
+  }
+
   _doubleGlob(fa) {
     for (const f of (this.fields || []).slice()) {
       if (!f.name) continue;
-      if (ReservedKeywords.has(ss(f.name)) && isUnquoted(f.name)) {
-        if (BoardKeywords.has(ss(f.name))) continue;
+      const name = ss(f.name);
+      if (ReservedKeywords.has(name) && isUnquoted(f.name)) {
+        if (skipDoubleGlobSubtree(name)) continue;
         if (f.map()) f.map()._doubleGlob(fa);
         continue;
       }
@@ -880,6 +973,23 @@ export class Field {
     return f;
   }
 
+  /**
+   * appendReference records a source reference once. Lazy glob rules are reevaluated as the IR grows, but replaying the same
+   * rule against the same field does not create a new source location.
+   */
+  appendReference(ref) {
+    if (ref.dueToLazyGlob_) {
+      for (const existing of this.references || []) {
+        if (sameReferenceContext(existing.context_, ref.context_) &&
+          same(existing.keyPath, ref.keyPath) &&
+          unbox(existing.string) === unbox(ref.string) &&
+          existing.dueToGlob_ === ref.dueToGlob_ &&
+          existing.dueToLazyGlob_ === ref.dueToLazyGlob_) return;
+      }
+    }
+    this.references = [...(this.references || []), ref];
+  }
+
   root() { return this.parent === null; }
   primary() { return this.primary_; }
   map() { return this.composite ? this.composite.map() : null; }
@@ -946,16 +1056,17 @@ export class EdgeID {
     if (this.index !== null && eid2.index !== null) {
       if (this.index !== eid2.index) return false;
     }
-    const sp = this.srcPath || [], sp2 = eid2.srcPath || [];
-    if (sp.length !== sp2.length) return false;
-    if (this.srcArrow !== eid2.srcArrow) return false;
-    for (let i = 0; i < sp.length; i++) if (!equalFold(ss(sp[i]), ss(sp2[i]))) return false;
 
-    const dp = this.dstPath || [], dp2 = eid2.dstPath || [];
-    if (dp.length !== dp2.length) return false;
-    if (this.dstArrow !== eid2.dstArrow) return false;
-    for (let i = 0; i < dp.length; i++) if (!equalFold(ss(dp[i]), ss(dp2[i]))) return false;
-    return true;
+    const direct = edgePathEqual(this.srcPath, eid2.srcPath) &&
+      this.srcArrow === eid2.srcArrow &&
+      edgePathEqual(this.dstPath, eid2.dstPath) &&
+      this.dstArrow === eid2.dstArrow;
+    if (direct) return true;
+
+    return edgePathEqual(this.srcPath, eid2.dstPath) &&
+      this.srcArrow === eid2.dstArrow &&
+      edgePathEqual(this.dstPath, eid2.srcPath) &&
+      this.dstArrow === eid2.srcArrow;
   }
 
   /**
@@ -1002,6 +1113,13 @@ export class EdgeID {
   }
 }
 
+function edgePathEqual(p1, p2) {
+  const a = p1 || [], b = p2 || [];
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!equalFold(ss(a[i]), ss(b[i]))) return false;
+  return true;
+}
+
 export function newEdgeIDs(k) {
   const eida = [];
   for (const ke of k.edges || []) {
@@ -1030,10 +1148,22 @@ export class Edge {
   copy(newParent) {
     const e = shallow(this);
     e.parent = newParent;
+    if (e.id) e.id = e.id.copy();
     e.references = cp(e.references);
     if (e.primary_) e.primary_ = e.primary_.copy(e);
     if (e.map_) e.map_ = e.map_.copy(e);
     return e;
+  }
+
+  appendReference(ref) {
+    if (ref.dueToLazyGlob_) {
+      for (const existing of this.references || []) {
+        if (sameReferenceContext(existing.context_, ref.context_) &&
+          existing.dueToGlob_ === ref.dueToGlob_ &&
+          existing.dueToLazyGlob_ === ref.dueToLazyGlob_) return;
+      }
+    }
+    this.references = [...(this.references || []), ref];
   }
 
   primary() { return this.primary_; }
@@ -1152,6 +1282,12 @@ export class FieldReference {
   toJSON() {
     return { string: unbox(this.string) ?? null, key_path: this.keyPath ?? null, context: this.context_, due_to_glob: this.dueToGlob_, due_to_lazy_glob: this.dueToLazyGlob_ };
   }
+}
+
+function sameReferenceContext(a, b) {
+  return a === b || (a != null && b != null &&
+    same(a.key, b.key) && same(a.edge, b.edge) &&
+    same(a.scope, b.scope) && same(a.scopeMap, b.scopeMap) && same(a.scopeAST, b.scopeAST));
 }
 
 export class EdgeReference {
@@ -1382,24 +1518,51 @@ function reverseIDA(slice) {
 export function copyBase(m, newParent) {
   if (m === null) return new IRMap().copy(newParent);
 
-  const layers = m.deleteField('layers');
-  const scenarios = m.deleteField('scenarios');
-  const steps = m.deleteField('steps');
-
-  const m2 = m.copy(newParent);
-  if (layers) m.fields = [...(m.fields || []), layers];
-  if (scenarios) m.fields = [...(m.fields || []), scenarios];
-  if (steps) m.fields = [...(m.fields || []), steps];
-  return m2;
+  // The historical delete-and-restore implementation also canonicalized board fields to layers, scenarios, steps at the end
+  // of the source map. Preserve that observable ordering without reporting a structural mutation: the field set is
+  // unchanged, and compile generations are for glob membership.
+  const baseFields = [];
+  let layers = null, scenarios = null, steps = null;
+  for (const field of m.fields || []) {
+    if (field.name) {
+      if (layers === null && equalFold(ss(field.name), 'layers')) { layers = field; continue; }
+      if (scenarios === null && equalFold(ss(field.name), 'scenarios')) { scenarios = field; continue; }
+      if (steps === null && equalFold(ss(field.name), 'steps')) { steps = field; continue; }
+    }
+    baseFields.push(field);
+  }
+  for (const board of [layers, scenarios, steps]) {
+    if (board !== null) m.deleteEdgesForFieldReferences(board);
+  }
+  const base = shallow(m);
+  base.fields = baseFields;
+  const copy = base.copy(newParent);
+  if (m.fields !== null) {
+    m.fields = [...baseFields];
+    for (const board of [layers, scenarios, steps]) {
+      if (board !== null) m.fields.push(board);
+    }
+  }
+  return copy;
 }
 
 // ---- merge.go ----
+
+function structureCounts(m) {
+  if (m === null) return [0, 0];
+  return [m.fieldCountRecursive(), m.edgeCountRecursive()];
+}
+
+function markStructureCountDelta(parent, beforeFields, beforeEdges, after) {
+  const [afterFields, afterEdges] = structureCounts(after);
+  if ((beforeFields !== afterFields || beforeEdges !== afterEdges) && parent !== null) parent.markStructureChanged();
+}
 
 export function overlayMap(base, overlay) {
   for (const of of (overlay.fields || []).slice()) {
     const bf = base.getField(of.name);
     if (!bf) {
-      base.fields = [...(base.fields || []), of.copy(base)];
+      base.appendField(of.copy(base));
       continue;
     }
     overlayField(bf, of);
@@ -1408,7 +1571,7 @@ export function overlayMap(base, overlay) {
   for (const oe of (overlay.edges || []).slice()) {
     const bea = base.getEdges(oe.id, null, null);
     if (!bea || bea.length === 0) {
-      base.edges = [...(base.edges || []), oe.copy(base)];
+      base.appendEdge(oe.copy(base));
       continue;
     }
     overlayEdge(bea[0], oe);
@@ -1424,9 +1587,7 @@ export function expandSubstitution(m, resolved, placeholder) {
   for (const of of (resolved.fields || []).slice()) {
     const bf = m.getField(of.name);
     if (!bf) {
-      // append(m.Fields[:fi], append([]*Field{of.Copy(m)}, m.Fields[fi:]...)...)
-      const f = m.fields || [];
-      m.fields = [...f.slice(0, fi), of.copy(m), ...f.slice(fi)];
+      m.insertField(fi, of.copy(m));
       fi++;
       continue;
     }
@@ -1439,7 +1600,7 @@ export function expandSubstitution(m, resolved, placeholder) {
   for (const oe of (resolved.edges || []).slice()) {
     const bea = m.getEdges(oe.id, null, null);
     if (!bea || bea.length === 0) {
-      m.edges = [...(m.edges || []), oe.copy(m)];
+      m.appendEdge(oe.copy(m));
       continue;
     }
     overlayEdge(bea[0], oe);
@@ -1451,7 +1612,11 @@ export function overlayField(bf, of) {
 
   if (of.composite) {
     if (bf.map() && of.map()) overlayMap(bf.map(), of.map());
-    else bf.composite = of.composite.copy(bf);
+    else {
+      const [beforeFields, beforeEdges] = structureCounts(bf.map());
+      bf.composite = of.composite.copy(bf);
+      markStructureCountDelta(parentMap(bf), beforeFields, beforeEdges, bf.map());
+    }
   }
 
   bf.references = [...(bf.references || []), ...(of.references || [])];
@@ -1462,7 +1627,11 @@ export function overlayEdge(be, oe) {
   if (oe.primary_) be.primary_ = oe.primary_.copy(be);
   if (oe.map_) {
     if (be.map_) overlayMap(be.map(), oe.map_);
-    else be.map_ = oe.map_.copy(be);
+    else {
+      const [beforeFields, beforeEdges] = structureCounts(be.map());
+      be.map_ = oe.map_.copy(be);
+      markStructureCountDelta(parentMap(be), beforeFields, beforeEdges, be.map());
+    }
   }
   be.references = [...(be.references || []), ...(oe.references || [])];
   if (be.references.length === 0) be.references = null;
@@ -1477,6 +1646,37 @@ const toBin = (s) => String.fromCharCode(...enc.encode(s));
 const fromBin = (b) => dec.decode(Uint8Array.from(b, (c) => c.charCodeAt(0)));
 const lowerBin = (b) => toBin(goLower(fromBin(b)));
 
+function _doubleGlobField(f, matches) {
+  if (f === null || !f.name) return;
+  const name = ss(f.name);
+  if (ReservedKeywords.has(name) && isUnquoted(f.name)) {
+    if (skipDoubleGlobSubtree(name)) return;
+    if (f.map()) f.map()._doubleGlob(matches);
+    return;
+  }
+  if (nodeBoardKind(f) === '') matches.push(f);
+  if (f.map()) f.map()._doubleGlob(matches);
+}
+
+function skipDoubleGlobSubtree(name) {
+  if (BoardKeywords.has(name)) return true;
+  // Classes and variables are definitions, not diagram objects. Applying recursive globs inside either map can mutate
+  // definitions before use.
+  return name === 'classes' || name === 'vars';
+}
+
+function _tripleGlobField(f, matches) {
+  if (f === null || !f.name) return;
+  const name = ss(f.name);
+  if (ReservedKeywords.has(name) && isUnquoted(f.name)) {
+    if (!BoardKeywords.has(name)) return;
+    if (f.map()) f.map()._tripleGlob(matches);
+    return;
+  }
+  if (nodeBoardKind(f) === '') matches.push(f);
+  if (f.map()) f.map()._tripleGlob(matches);
+}
+
 export function matchPattern(s, pattern) {
   if (pattern.length === 0) return true;
   if (ReservedKeywords.has(s)) return false;
@@ -1485,19 +1685,23 @@ export function matchPattern(s, pattern) {
   pattern = pattern.map(toBin);
   for (let i = 0; i < pattern.length; i++) {
     if (pattern[i] === '*') {
-      // * so match next.
-      if (i !== pattern.length - 1) {
-        const j = lowerBin(s).indexOf(lowerBin(pattern[i + 1]));
-        if (j === -1) return false;
-        s = s.slice(j + pattern[i + 1].length);
-        i++;
-      }
+      if (i === pattern.length - 1) return true;
+
+      const next = lowerBin(pattern[i + 1]);
+      const lowerS = lowerBin(s);
+      if (i + 1 === pattern.length - 1) return lowerS.endsWith(next);
+
+      // Match the earliest occurrence so the remaining wildcards have the largest possible suffix to search.
+      const j = lowerS.indexOf(next);
+      if (j === -1) return false;
+      s = s.slice(j + pattern[i + 1].length);
+      i++;
     } else {
       if (!lowerBin(s).startsWith(lowerBin(pattern[i]))) return false;
       s = s.slice(pattern[i].length);
     }
   }
-  return true;
+  return s === '';
 }
 
 // ---- compile.go ----
@@ -1551,6 +1755,17 @@ class Compiler {
     this.globRefContextStack = []; // Used to prevent field globs causing infinite loops.
     this.mapRefContextStack = []; // Used to check whether ampersands are allowed in the current map.
     this.lazyGlobBeingApplied = false;
+    // Lazy field globs are evaluated against newly created fields through a deterministic worklist. This avoids rescanning
+    // the entire IR after each insertion while retaining source-order rule application.
+    this.lazyGlobTarget = null;
+    this.lazyGlobWorklist = [];
+    this.lazyGlobQueued = null;
+    this.applyingLazyWorklist = false;
+    this.lazySettledVersions = null;
+    this.lazyPostTargets = [];
+    this.lazyPostQueued = null;
+    // parsedImports is an immutable per-compilation cache of parsed import ASTs; callers always receive deep copies.
+    this.parsedImports = new Map();
   }
 
   errorf(n, msg) { this.err.errs.push(errorf(n, msg)); }
@@ -1571,12 +1786,12 @@ class Compiler {
 
       if (!lClasses) {
         lClasses = classes.copy(l);
-        l.fields = [...(l.fields || []), lClasses];
+        l.appendField(lClasses);
       } else if (lClasses.map()) {
         const base = classes.copy(l);
         overlayMap(base.map(), lClasses.map());
         l.deleteField('classes');
-        l.fields = [...(l.fields || []), base];
+        l.appendField(base);
       }
 
       this.overlayClasses(l);
@@ -1732,7 +1947,7 @@ class Compiler {
               const mf = m.fields || [];
               for (let k = 0; k < mf.length; k++) {
                 if (node === mf[k]) {
-                  mf.splice(k, 1);
+                  m.removeField(k);
                   removedField = true;
                   break;
                 }
@@ -1963,10 +2178,10 @@ class Compiler {
             primary_: new Scalar({ value: { unquoted_string: { range: makeRange(',0:0:0-0:0:0'), value: [{ substitution: n.substitution }] } } }),
             references: [new FieldReference({ context_: new RefContext({ scope: ast, scopeMap: dst, scopeAST }) })],
           });
-          dst.fields = [...(dst.fields || []), f];
+          dst.appendField(f);
         } else if (n.import) {
           // Spread import
-          const [impn, ok2] = this._import(n.import);
+          const [impn, ok2] = this._import(n.import, dst);
           if (!ok2) continue;
           if (!impn.map()) {
             this.errorf(n.import, 'cannot spread import non map into map');
@@ -2027,6 +2242,7 @@ class Compiler {
   }
 
   compileKey(refctx) {
+    const postTargetStart = this.lazyPostTargets.length;
     let pushed = false;
     try {
       if (keyHasGlob(refctx.key)) {
@@ -2040,11 +2256,17 @@ class Compiler {
         pushed = true;
         this.ensureGlobContext(refctx);
       }
-      const oldFields = refctx.scopeMap.fieldCountRecursive();
-      const oldEdges = refctx.scopeMap.edgeCountRecursive();
+      const oldVersion = refctx.scopeMap.structureVersion;
       if ((refctx.key.edges || []).length === 0) this.compileField(refctx.scopeMap, refctx.key.key, refctx);
       else this.compileEdges(refctx);
-      if (oldFields !== refctx.scopeMap.fieldCountRecursive() || oldEdges !== refctx.scopeMap.edgeCountRecursive()) {
+      const root = rootMap(refctx.scopeMap);
+      let settled = this.lazySettledVersions !== null && this.lazySettledVersions.get(root) === root.structureVersion;
+      if (oldVersion !== refctx.scopeMap.structureVersion && !this.applyingLazyWorklist && this.lazyPostTargets.length > postTargetStart) {
+        const targets = this.takeLazyPostTargets(postTargetStart);
+        this.applyLazyGlobs(targets);
+        settled = true;
+      }
+      if (oldVersion !== refctx.scopeMap.structureVersion && !this.applyingLazyWorklist && !settled) {
         for (const gctx2 of this.globContexts()) {
           const old = this.lazyGlobBeingApplied;
           this.lazyGlobBeingApplied = true;
@@ -2054,6 +2276,106 @@ class Compiler {
       }
     } finally {
       if (pushed) this.globRefContextStack = this.globRefContextStack.slice(0, -1);
+    }
+  }
+
+  takeLazyPostTargets(start) {
+    const targets = this.lazyPostTargets.slice(start);
+    this.lazyPostTargets = this.lazyPostTargets.slice(0, start);
+    if (this.lazyPostQueued !== null) {
+      for (const target of targets) this.lazyPostQueued.delete(target);
+      if (this.lazyPostQueued.size === 0) this.lazyPostQueued = null;
+    }
+    return targets;
+  }
+
+  enqueueLazyPostTargets(...fields) {
+    if (this.lazyPostQueued === null) this.lazyPostQueued = new Set();
+    for (const f of fields) {
+      if (f === null) continue;
+      if (this.lazyPostQueued.has(f)) continue;
+      this.lazyPostQueued.add(f);
+      this.lazyPostTargets.push(f);
+    }
+  }
+
+  enqueueLazyGlobFields(...fields) {
+    if (fields.length === 0) return;
+    if (this.lazyGlobQueued === null) this.lazyGlobQueued = new Set();
+    for (const f of fields) {
+      if (f === null) continue;
+      if (this.lazyGlobQueued.has(f)) continue;
+      this.lazyGlobQueued.add(f);
+      this.lazyGlobWorklist.push(f);
+    }
+  }
+
+  applyLazyGlobs(created) {
+    if (created === null || created.length === 0) {
+      for (const gctx of this.globContexts()) {
+        const old = this.lazyGlobBeingApplied;
+        this.lazyGlobBeingApplied = true;
+        this.compileKey(gctx.refctx);
+        this.lazyGlobBeingApplied = old;
+      }
+      return;
+    }
+
+    if (this.applyingLazyWorklist) {
+      this.enqueueLazyGlobFields(...created);
+      return;
+    }
+    const root = rootMap(parentMap(created[0]));
+    if (this.globContexts().length === 0) {
+      // Preserve the settled version and pending post-targets: a later key or nested value can introduce globs. There is no
+      // worklist to run yet.
+      if (this.lazySettledVersions === null) this.lazySettledVersions = new Map();
+      this.lazySettledVersions.set(root, root.structureVersion);
+      return;
+    }
+
+    this.applyingLazyWorklist = true;
+    try {
+      this.enqueueLazyGlobFields(...created);
+
+      while (this.lazyGlobWorklist.length > 0) {
+        const target = this.lazyGlobWorklist.shift();
+
+        const edgeGlobs = [];
+        for (const gctx of this.globContexts()) {
+          if ((gctx.refctx.key.edges || []).length > 0) {
+            edgeGlobs.push(gctx);
+            continue;
+          }
+          this.lazyGlobTarget = target;
+          const old = this.lazyGlobBeingApplied;
+          this.lazyGlobBeingApplied = true;
+          this.compileKey(gctx.refctx);
+          this.lazyGlobBeingApplied = old;
+        }
+        this.lazyGlobTarget = null;
+
+        // Edge globs can depend on edges emitted by earlier glob rules. Preserve the old fixed-point behavior, but only for
+        // edge rules; field rules have already been applied to the precise changed fields above.
+        const root2 = rootMap(parentMap(target));
+        while (edgeGlobs.length > 0) {
+          const before = root2.structureVersion;
+          for (const gctx of edgeGlobs) {
+            const old = this.lazyGlobBeingApplied;
+            this.lazyGlobBeingApplied = true;
+            this.compileKey(gctx.refctx);
+            this.lazyGlobBeingApplied = old;
+          }
+          if (before === root2.structureVersion) break;
+        }
+      }
+    } finally {
+      if (this.lazySettledVersions === null) this.lazySettledVersions = new Map();
+      this.lazySettledVersions.set(root, root.structureVersion);
+      this.applyingLazyWorklist = false;
+      this.lazyGlobTarget = null;
+      this.lazyGlobWorklist = [];
+      this.lazyGlobQueued = null;
     }
   }
 
@@ -2367,7 +2689,7 @@ class Compiler {
       }
     } else if (refctx.key.value.import) {
       // Non-spread import
-      const [n, ok] = this._import(refctx.key.value.import);
+      const [n, ok] = this._import(refctx.key.value.import, f);
       if (!ok) return;
       n.setImportAST(refctx.key.value.import);
       let existingEdges = null;
@@ -2375,7 +2697,11 @@ class Compiler {
       const originalF = f.copy(refctx.scopeMap);
       if (n instanceof Field) {
         if (n.primary_) f.primary_ = n.primary_.copy(f);
-        if (n.composite) f.composite = n.composite.copy(f);
+        if (n.composite) {
+          const [beforeFields, beforeEdges] = structureCounts(f.map());
+          f.composite = n.composite.copy(f);
+          markStructureCountDelta(parentMap(f), beforeFields, beforeEdges, f.map());
+        }
       } else if (n instanceof IRMap) {
         f.composite = new IRMap({ parent: f });
         switch (nodeBoardKind(f)) {
@@ -2410,7 +2736,7 @@ class Compiler {
           for (const currentEdge of f.map().edges || []) {
             if (currentEdge.id.match(edge.id)) { exists = true; break; }
           }
-          if (!exists) f.map().edges = [...(f.map().edges || []), edge];
+          if (!exists) f.map().appendEdge(edge);
         }
       }
     } else if (unbox(scalarBox(refctx.key.value))) {
@@ -2648,7 +2974,7 @@ class Compiler {
             }
           }
 
-          e.references = [...(e.references || []), new EdgeReference({ context_: refctx, dueToGlob_: this.globRefContextStack.length > 0, dueToLazyGlob_: this.lazyGlobBeingApplied })];
+          e.appendReference(new EdgeReference({ context_: refctx, dueToGlob_: this.globRefContextStack.length > 0, dueToLazyGlob_: this.lazyGlobBeingApplied }));
           refctx.scopeMap.appendFieldReferences(0, refctx.edge.src, refctx, this);
           refctx.scopeMap.appendFieldReferences(0, refctx.edge.dst, refctx, this);
         }
@@ -2703,7 +3029,7 @@ class Compiler {
         irv = new Scalar({ parent: dst, value: scalarBox(an) });
       } else if (k === 'import') {
         const v = an.import;
-        const [n, ok] = this._import(v);
+        const [n, ok] = this._import(v, dst);
         if (!ok) continue;
         n.setImportAST(v);
         if (n instanceof Field) {
@@ -2763,9 +3089,15 @@ class Compiler {
   popImportStack() { this.importStack.pop(); }
 
   /** Returns either an IRMap or a Field. */
-  _import(imp) {
+  // Returns either IRMap or Field. importer (the node the import is attached to) only decides whether Go may reuse a cached IR
+  // template of the imported file; this port compiles the file every time, which gives the same IR.
+  _import(imp, importer) {
     const [ir, ok] = this.__import(imp);
     if (!ok) return [null, false];
+    return this.selectImport(ir, imp);
+  }
+
+  selectImport(ir, imp) {
     nilScopeMap(ir);
     const ida = importIDA(imp);
     if (ida && ida.length > 0) {
@@ -2796,14 +3128,11 @@ class Compiler {
         if (!this.seenImports.has(impPath)) this.imports = [...(this.imports || []), importPathWithPre(imp)];
       }
 
-      const [text, err] = this.readFile(impPath);
-      if (err !== null) {
-        this.errorf(imp, `failed to import ${goQuote(impPath)}: ${err}`);
+      const [ast, openErr, ok2] = this.loadImportAST(impPath, this.err);
+      if (!ok2) {
+        if (openErr !== null) this.errorf(imp, `failed to import ${goQuote(impPath)}: ${openErr}`);
         return [null, false];
       }
-
-      const { ast, err: perr } = parse(impPath, text, { utf16: this.utf16Pos, parseError: this.err });
-      if (perr) return [null, false];
 
       const ir = new IRMap();
       ir.initRoot();
@@ -2836,13 +3165,10 @@ class Compiler {
       if (!impPath.startsWith('/')) impPath = pathJoin(pathDir(this.importStack[this.importStack.length - 1]), impPath);
     }
 
-    const [text, err] = this.readFile(impPath);
-    if (err !== null) return [null, false];
-
     // Use a separate parse error to avoid polluting the main one
     const localErr = new ParseError();
-    const { ast, err: perr } = parse(impPath, text, { utf16: this.utf16Pos, parseError: localErr });
-    if (perr) return [null, false];
+    const [ast, , ok] = this.loadImportAST(impPath, localErr);
+    if (!ok) return [null, false];
 
     const ir = new IRMap();
     ir.initRoot();
@@ -2851,6 +3177,21 @@ class Compiler {
     this.compileMap(ir, ast, ast);
 
     return [ir, true];
+  }
+
+  // Returns [ast, openErr, ok]. The parsed AST is cached per compilation and every caller gets a deep copy: substitution
+  // resolution coalesces strings in place.
+  loadImportAST(impPath, parseErr) {
+    const cached = this.parsedImports.get(impPath);
+    if (cached) return [cloneASTMap(cached), null, true];
+
+    const [text, err] = this.readFile(impPath);
+    if (err !== null) return [null, err, false];
+
+    const { ast, err: perr } = parse(impPath, text, { utf16: this.utf16Pos, parseError: parseErr });
+    if (perr) return [null, null, false];
+    this.parsedImports.set(impPath, ast);
+    return [cloneASTMap(ast), null, true];
   }
 
   isContainer(m) {
@@ -2960,6 +3301,125 @@ function goSpliceSpread(vals, i, spread) {
 
 function formatCyclicChain(cyclicChain) {
   return cyclicChain.map((p) => p + ' -> ').join('') + cyclicChain[0];
+}
+
+// ---- import_cache.go: deep copies of parsed ASTs ----
+// Go's copies turn nil slices into empty ones ("value": [] instead of null), which shows in the JSON.
+
+function cloneASTMap(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  dst.nodes = [];
+  for (const bx of src.nodes || []) {
+    switch (boxKind(bx)) {
+      case 'comment': dst.nodes.push({ comment: shallow(bx.comment) }); break;
+      case 'block_comment': dst.nodes.push({ block_comment: shallow(bx.block_comment) }); break;
+      case 'substitution': dst.nodes.push({ substitution: cloneASTSubstitution(bx.substitution) }); break;
+      case 'import': dst.nodes.push({ import: cloneASTImport(bx.import) }); break;
+      case 'map_key': dst.nodes.push({ map_key: cloneASTKey(bx.map_key) }); break;
+    }
+  }
+  return dst;
+}
+
+function cloneASTArray(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  dst.nodes = [];
+  for (const bx of src.nodes || []) {
+    switch (boxKind(bx)) {
+      case 'comment': dst.nodes.push({ comment: shallow(bx.comment) }); break;
+      case 'block_comment': dst.nodes.push({ block_comment: shallow(bx.block_comment) }); break;
+      case 'substitution': dst.nodes.push({ substitution: cloneASTSubstitution(bx.substitution) }); break;
+      case 'import': dst.nodes.push({ import: cloneASTImport(bx.import) }); break;
+      case 'array': dst.nodes.push({ array: cloneASTArray(bx.array) }); break;
+      case 'map': dst.nodes.push({ map: cloneASTMap(bx.map) }); break;
+      default: dst.nodes.push(cloneASTScalarBox(bx));
+    }
+  }
+  return dst;
+}
+
+function cloneASTKey(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  if (src.key) dst.key = cloneASTKeyPath(src.key);
+  if (src.edge_key) dst.edge_key = cloneASTKeyPath(src.edge_key);
+  dst.primary = cloneASTScalarBox(src.primary);
+  dst.value = cloneASTValueBox(src.value);
+  if (src.edge_index) dst.edge_index = shallow(src.edge_index);
+  if (src.edges !== undefined) {
+    dst.edges = (src.edges || []).map((edge) => {
+      const e = shallow(edge);
+      e.src = cloneASTKeyPath(edge.src);
+      e.dst = cloneASTKeyPath(edge.dst);
+      return e;
+    });
+  }
+  return dst;
+}
+
+function cloneASTKeyPath(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  dst.path = (src.path || []).map(cloneASTStringBox);
+  return dst;
+}
+
+function cloneASTStringBox(src) {
+  if (!src || !unbox(src)) return null;
+  return cloneASTScalarBox(src);
+}
+
+function cloneASTSubstitution(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  dst.path = (src.path || []).map(cloneASTStringBox);
+  return dst;
+}
+
+function cloneASTImport(src) {
+  if (!src) return null;
+  const dst = shallow(src);
+  dst.path = (src.path || []).map(cloneASTStringBox);
+  return dst;
+}
+
+function cloneASTValueBox(src) {
+  switch (boxKind(src)) {
+    case null: return {};
+    case 'map': return { map: cloneASTMap(src.map) };
+    case 'array': return { array: cloneASTArray(src.array) };
+    case 'import': return { import: cloneASTImport(src.import) };
+    default: return cloneASTScalarBox(src);
+  }
+}
+
+function cloneASTScalarBox(src) {
+  const k = boxKind(src);
+  if (k === null) return src === null || src === undefined ? src : {};
+  const n = src[k];
+  const copy = shallow(n);
+  switch (k) {
+    case 'unquoted_string':
+      if (n.pattern !== undefined) copy.pattern = n.pattern === null ? null : n.pattern.slice();
+      copy.value = cloneASTInterpolation(n.value);
+      break;
+    case 'double_quoted_string':
+      copy.value = cloneASTInterpolation(n.value);
+      break;
+  }
+  return { [k]: copy };
+}
+
+function cloneASTInterpolation(src) {
+  return (src || []).map((bx) => {
+    const o = {};
+    if (bx.string !== undefined) o.string = bx.string;
+    if (bx.raw_string !== undefined) o.raw_string = bx.raw_string;
+    if (bx.substitution) o.substitution = cloneASTSubstitution(bx.substitution);
+    return o;
+  });
 }
 
 function nilScopeMap(n) {

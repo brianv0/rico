@@ -126,7 +126,7 @@ const ref = runRef(cases);
 
 // Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
 // *string addresses); those differ on every run, so addresses are blanked in error messages (`errmsg` of an AST error, `err` of the graph stage) and nowhere else.
-const canon = (v, k) => (Array.isArray(v) ? v.map((x) => canon(x)) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2], k2)])) : (k === 'errmsg' || k === 'err') && typeof v === 'string' ? v.replace(/0xc[0-9a-f]{9}/g, '0xc000000000') : v);
+const canon = (v, k) => (Array.isArray(v) ? v.map((x) => canon(x)) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2], k2)])) : (k === 'errmsg' || k === 'err') && typeof v === 'string' ? v.replace(/0x[0-9a-f]{9,12}\b/g, '0xc000000000') : v);
 const tol = Number(flag('--tol', 0)); // --tol 1e-9: numbers within a relative tolerance count as equal-within-tolerance
 function firstDiff(a, b, p = '$', t = 0) {
   if (JSON.stringify(a) === JSON.stringify(b)) return null;
