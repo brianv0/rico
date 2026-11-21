@@ -71,6 +71,21 @@ Cases may carry `"fs": {"x.d2": "..."}`; the main file is then `index.d2` (the `
 `memfs`, and the JS port takes `{ fs }`). Without `fs`, Go's `d2ir` reads the real disk, so an import in a case with no `fs`
 fails with `open x.d2: no such file or directory`; the JS port never reads the disk and prints the same message.
 
+Layout-stage tools (all in `tools/d2ref`; build the Go side once with `go build -o /tmp/d2ref .` and pass the binary where a tool takes `bin`):
+
+```bash
+node diff.mjs layout corpus.jsonl [--utf16]      # {diagram, err} of d2lib.Compile (dagre), reruns Go 100 times on a mismatch to detect Go-unstable output
+node diff.mjs e2e e2e.jsonl                      # D2's own board.exp.json goldens; e2eenum/run.sh <writable copy of the D2 tree> regenerates e2e.jsonl
+node diff.mjs dims corpus.jsonl                  # state right after SetDimensions; diff.mjs measure measure.jsonl (measurecorpus.mjs [--big] makes it)
+node extralayout.mjs > extralayout.jsonl         # hand-written v0.9.0 cases (self-loops, parallel edges, nested diagrams, markdown, glyph rounding)
+node fuzzlayout.mjs 3000 7 > f.jsonl             # generated programs for layout (nesting, edges, labels, grids, sequences, near, shapes); fuzzgrid.mjs, fuzzseq.mjs
+node fuzz.mjs corpus.jsonl 3000 7 > f.jsonl      # mutated corpus (mostly exercises the front end)
+node dagrocmp.mjs f.jsonl /tmp/d2ref             # engine level: dagre.js against dagro on the graphs the glue builds
+node cmp.mjs case.d2 /tmp/d2ref 100              # one case: JS vs Go tables, and how many different Go outputs there are
+node shrink.mjs f.jsonl 123 /tmp/d2ref           # greedy reducer of a failing case
+node errstats.mjs f.jsonl                        # how many generated cases compile (a generator that mostly errors tests nothing)
+```
+
 `node --test` covers Rico; the D2 diff needs Go, so it is a separate command and not part of `npm test`.
 
 ## Rules
