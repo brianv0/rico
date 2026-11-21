@@ -56,7 +56,7 @@ export async function compile(input, compileOpts, renderOpts) {
 export function compileSync(input, compileOpts, renderOpts) {
   compileOpts = compileOpts || {};
   renderOpts = renderOpts || {};
-  if (!compileOpts.ruler) compileOpts.ruler = defaultRuler ||= newRuler();
+  if (compileOpts.ruler === undefined) compileOpts.ruler = defaultRuler ||= newRuler(); // ruler: null means none (only measuredTexts)
 
   const { g, config: config0, err } = compileGraph(compileOpts.inputPath || '', input, { utf16: !!compileOpts.utf16, fs: compileOpts.fs });
   if (err) return { diagram: null, graph: null, err };
@@ -88,7 +88,7 @@ function compile_(g, compileOpts, renderOpts) {
   if (terr !== null) throw new Error(terr);
 
   if ((g.objects || []).length > 0) {
-    const serr = g.setDimensions(compileOpts.measuredTexts || null, compileOpts.ruler, compileOpts.fontFamily ?? null, compileOpts.monoFontFamily ?? null);
+    const serr = g.setDimensions(compileOpts.measuredTexts || null, compileOpts.ruler || null, compileOpts.fontFamily ?? null, compileOpts.monoFontFamily ?? null);
     if (serr !== null) throw new Error(serr);
 
     const coreLayout = getLayout(compileOpts);

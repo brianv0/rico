@@ -101,7 +101,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		out.Encode(run(os.Args[1], in, ruler))
+		if err := out.Encode(run(os.Args[1], in, ruler)); err != nil {
+			// e.g. NaN in a float field: encoding/json refuses and prints nothing; keep the output aligned with the input
+			out.Encode(map[string]string{"panic": err.Error()})
+		}
 	}
 }
 
