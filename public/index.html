@@ -39,7 +39,7 @@
     <span id="totals"></span>
     <span class="spacer"></span>
     <div class="review-wrap">
-      <button id="review-btn" class="btn btn-primary" type="button" aria-haspopup="dialog" aria-expanded="false">Review changes <span id="rc-count" class="Counter" hidden></span><span id="rc-caret"></span></button>
+      <button id="review-btn" class="btn btn-primary" type="button" aria-haspopup="dialog" aria-expanded="false"><span id="rc-label">Review changes</span> <span id="rc-count" class="Counter" hidden></span><span id="rc-caret"></span></button>
       <div id="review-pop" class="Popover" role="dialog" aria-label="Finish your review" hidden>
         <div class="pop-head"><strong>Finish your review</strong><button id="review-close" class="btn-link" type="button" aria-label="Close">×</button></div>
         <div class="pop-body">
@@ -54,7 +54,7 @@
             <div id="list"><p class="empty">No pending comments.</p></div>
           </details>
         </div>
-        <div class="pop-foot"><div id="result"></div><button id="submit" class="btn btn-primary" type="button" disabled>Submit review</button></div>
+        <div class="pop-foot"><div id="result"></div><button id="discard" class="btn" type="button" hidden>Discard review</button><button id="submit" class="btn btn-primary" type="button" disabled>Submit review</button></div>
       </div>
     </div>
   </div>
@@ -74,13 +74,15 @@
       <span><i class="k chg"></i>changed</span>
       <span><i class="k del"></i>removed</span>
       <span><i class="k ctx"></i>commentable context</span>
-      <span><i class="k out"></i>outside the diff (goes in review summary)</span>
+      <span><i class="k out"></i>outside the diff (posted on the pull request)</span>
     </div>
+    <div id="stale" class="banner" role="status" hidden><span class="msg-text"></span> <button id="stale-reload" class="btn" type="button">Reload</button></div>
+    <section id="general" hidden aria-label="Comments on the pull request"></section>
     <div id="cards"><p class="empty intro">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p>
       <p class="empty intro examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p></div>
     <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
-      <button type="button" id="sb-quote" title="Comment and quote the selected text" aria-label="Comment and quote the selected text"></button>
-      <button type="button" id="sb-lines" title="Comment on the selected lines (quotes only when it helps)" aria-label="Comment on the selected lines"></button>
+      <button type="button" id="sb-comment" title="Comment (Ctrl/Cmd+Alt+M)" aria-label="Comment on the selection"></button>
+      <button type="button" id="sb-suggest" title="Suggest an edit" aria-label="Suggest an edit" hidden></button>
     </div>
     <div id="composer" hidden>
       <blockquote id="c-quote"></blockquote>
@@ -89,8 +91,9 @@
         <div class="qrow"><label><input type="checkbox" id="c-qinc"> Include quote</label><button type="button" id="c-qedit" class="linkish" aria-expanded="false">edit</button><span id="c-qnote"></span></div>
       <textarea id="c-qtext" rows="4" hidden spellcheck="false" aria-label="Quote (markdown)"></textarea>
       </div>
-      <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to add, Esc to dismiss)"></textarea>
-      <div class="row"><button id="c-add" class="btn btn-primary" type="button">Add review comment</button><button id="c-cancel" class="btn" type="button">Cancel</button></div>
+      <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to post, Esc to dismiss)"></textarea>
+      <div id="c-err" class="err" role="alert"></div>
+      <div class="row"><button id="c-add" class="btn btn-primary" type="button">Comment</button><button id="c-review" class="btn" type="button">Start a review</button><button id="c-cancel" class="btn" type="button">Cancel</button></div>
     </div>
   </main>
 </div>

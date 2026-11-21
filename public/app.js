@@ -1,5 +1,5 @@
 import {
-  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildReview,
+  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -174,7 +174,11 @@ const state = {
   file: null, // current file entry
   lines: [],
   diff: { hunks: [], added: new Set() },
-  comments: [],
+  prThreads: [], // PR-level ("issue") comments: placed in the margin by their quote, or listed under General
+  me: null, // login of the viewer ("your own comments"); null when signed out
+  preview: false, // signed out in the hosted app: read-only
+  pendingReview: null, // the viewer's pending GitHub review on this PR: {id, databaseId} | null
+  canThread: false, // GraphQL worked: thread ids and permissions are known
   pending: null, // composer draft: {start, end, quote, anchor, range}
   viewed: new Set(), // files marked "Viewed" (kept in this browser)
   closedDirs: new Set(), // collapsed folders in the file tree
@@ -203,11 +207,15 @@ async function api(path, opts) {
   const text = await res.text();
   if (!res.ok) {
     let m = text;
-    try { const j = JSON.parse(text); m = j.error || m; if (j.signin) needSignin = true; } catch { /* plain text */ }
-    throw new Error(m);
+    let signin = false;
+    try { const j = JSON.parse(text); m = j.error || m; if (j.signin) { needSignin = true; signin = true; } } catch { /* plain text */ }
+    throw Object.assign(new Error(m), { signin, status: res.status });
   }
   return text;
 }
+/** POST JSON to one of our own write routes and parse the reply. */
+const apiPost = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Rico': '1' }, body: JSON.stringify(body) }).then(JSON.parse);
+const prRef = () => ({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number });
 
 // hosted mode shows who is signed in; locally the server's own token is used and there is nothing to sign into
 async function showWho() {
@@ -215,6 +223,9 @@ async function showWho() {
   try {
     const res = await fetch('/api/me');
     const me = await res.json().catch(() => ({}));
+    state.me = me.login || null;
+    state.meAvatar = me.avatar || null;
+    state.preview = !!me.preview;
     if (res.ok && me.preview) { // signed out, reading public PRs
       who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
       const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
@@ -229,21 +240,28 @@ async function showWho() {
 }
 
 // ---------- persistence ----------
+// Comments live on GitHub now; only the review summary, "viewed" marks and unsent text stay in this browser.
 const storeKey = () => `rico:${state.pr.owner}/${state.pr.repo}#${state.pr.number}:${state.pr.headSha}`;
+const prKey = () => `rico:${state.pr.owner}/${state.pr.repo}#${state.pr.number}`;
 function save() {
-  try { localStorage.setItem(storeKey(), JSON.stringify({ comments: state.comments, summary: $('#summary').value })); } catch { /* private mode */ }
+  try { localStorage.setItem(storeKey(), JSON.stringify({ summary: $('#summary').value })); } catch { /* private mode */ }
 }
 const viewedKey = () => storeKey() + ':viewed';
 function saveViewed() { try { localStorage.setItem(viewedKey(), JSON.stringify([...state.viewed])); } catch { /* ignore */ } }
 function restore() {
   state.viewed = new Set();
   try { state.viewed = new Set(JSON.parse(localStorage.getItem(viewedKey()) || '[]')); } catch { /* ignore */ }
-  state.comments = [];
   $('#summary').value = '';
   try {
     const v = JSON.parse(localStorage.getItem(storeKey()) || 'null');
-    if (v) { state.comments = v.comments || []; $('#summary').value = v.summary || ''; }
+    if (v) $('#summary').value = v.summary || '';
   } catch { /* ignore */ }
+}
+// Unsent text (the comment box, reply boxes) survives a reload or a sign-in round trip. Keyed by PR, not commit.
+const draftKey = (k) => `${prKey()}:draft:${k}`;
+function draftGet(k) { try { return JSON.parse(localStorage.getItem(draftKey(k)) || 'null'); } catch { return null; } }
+function draftSet(k, v) {
+  try { if (v == null || v === '') localStorage.removeItem(draftKey(k)); else localStorage.setItem(draftKey(k), JSON.stringify(v)); } catch { /* ignore */ }
 }
 
 // ---------- loading ----------
@@ -270,7 +288,10 @@ async function loadPr(ref, wantFile, wantSha = '') {
     if (wantSha && pr.headSha && !pr.headSha.startsWith(wantSha)) {
       setTimeout(() => status(`This link was made at commit ${wantSha}; the PR is now at ${pr.headSha.slice(0, 7)}, so lines and comments may have moved.`, true), 0);
     }
-    ({ threads: state.threads, removed: state.removed, left: state.leftThreads } = groupThreads(pr.comments || []));
+    applyComments(pr);
+    state.placed = new Map();
+    state.lastSig = JSON.stringify([pr.comments, pr.prComments, pr.pendingReview]);
+    etags = {};
     restore();
     renderHeader();
     renderPanel();
@@ -290,6 +311,7 @@ async function loadPr(ref, wantFile, wantSha = '') {
     // Do NOT force the first file active again here: the user may have opened another file while these loads ran.
     if (wantFile && cur === views.get(first.filename)) scrollToCard(first.filename);
     renderFiles();
+    restoreComposer();
   } catch (e) {
     status(e.message, true);
     return;
@@ -367,7 +389,7 @@ function renderFiles() {
       const f = n.file;
       const stIcon = { added: 'diff-added', removed: 'diff-removed', renamed: 'diff-renamed' }[f.status] || 'diff-modified';
       const stCls = { added: 'st-added', removed: 'st-removed', renamed: 'st-renamed' }[f.status] || 'st-modified';
-      const count = state.threads.filter((t) => t.path === n.path).length + state.comments.filter((c) => c.path === n.path).length;
+      const count = state.threads.filter((t) => t.path === n.path).length;
       const inner = `${icon(stIcon, { cls: stCls })}<span class="nm" title="${esc(n.path)}">${esc(n.name)}</span>`
         + (state.viewed.has(n.path) ? `<span class="tick" title="Viewed">${icon('check')}</span>` : '')
         + (count ? `<span class="Counter" title="${count} comment${count > 1 ? 's' : ''}">${count}</span>` : '');
@@ -488,8 +510,9 @@ const viewOfNode = (n) => {
   const c = e && e.closest && e.closest('.file-card');
   return c ? views.get(c.dataset.path) || null : null;
 };
-const refreshView = (v) => { if (v.mode === 'source') renderSource(v); else withView(v, renderMargin); };
-const refreshAll = () => { for (const v of views.values()) if (v.loaded) { if (v.mode === 'source') renderSource(v); else withView(v, paintBlocks); } };
+const afterChange = () => { renderPanel(); renderFiles(); };
+const refreshView = (v) => { if (v.mode === 'source') renderSource(v); else withView(v, renderMargin); afterChange(); };
+const refreshAll = () => { for (const v of views.values()) if (v.loaded) { if (v.mode === 'source') renderSource(v); else withView(v, paintBlocks); } afterChange(); };
 const scrollToCard = (path) => views.get(path)?.card.scrollIntoView({ block: 'start' });
 
 async function loadView(v) {
@@ -613,12 +636,9 @@ function renderSource(v) {
       const side = r.type === 'del' ? 'LEFT' : 'RIGHT';
       const line = side === 'LEFT' ? r.old : r.new;
       const here = all.filter((t) => !t.outdated && t.side === side && t.end === line);
-      const drafts = state.comments.filter((c) => c.path === path && (c.side || 'RIGHT') === side && c.end === line);
       // context lines exist on both sides: a LEFT thread on a context line sits under it too
       const ctxLeft = r.type === 'ctx' ? all.filter((t) => !t.outdated && t.side === 'LEFT' && t.end === r.old) : [];
-      const ctxLeftDrafts = r.type === 'ctx' ? state.comments.filter((c) => c.path === path && c.side === 'LEFT' && c.end === r.old) : [];
       const cards = [...here, ...ctxLeft].map((t) => { placed.add(t.id); return threadCard(t); });
-      cards.push(...[...drafts, ...ctxLeftDrafts].map((c) => draftCard(c)));
       if (cards.length) tb.append(threadRow(cards));
     }
     const rest = all.filter((t) => !placed.has(t.id));
@@ -739,7 +759,6 @@ function paintBlocks() {
     const b = blockLines(el);
     if (isRemoved(el)) { // old-numbered: only left-side comments and threads concern it
       el.classList.add('gone');
-      if (state.comments.some((c) => c.path === state.file.filename && c.side === 'LEFT' && overlaps(b, c.start, c.end))) el.classList.add('has-c');
       if (state.leftThreads.some((t) => t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-t');
       continue;
     }
@@ -748,13 +767,13 @@ function paintBlocks() {
     if (changed && !wholeFileAdded) el.classList.add('chg');
     else if (state.diff.hunks.some((h) => overlaps(b, h.start, h.end))) el.classList.add('ctx');
     else el.classList.add('out');
-    if (state.comments.some((c) => c.path === state.file.filename && c.side !== 'LEFT' && overlaps(b, c.start, c.end))) el.classList.add('has-c');
+    if (state.threads.some((t) => t.pending && t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-c');
     if (state.threads.some((t) => t.path === state.file.filename && overlaps(b, t.start, t.end))) el.classList.add('has-t');
   }
   renderMargin();
 }
 
-// ---------- existing review threads + drafts in the margin ----------
+// ---------- threads in the margin (existing, pending, and the one you just posted) ----------
 function groupThreads(list) {
   const byId = new Map(list.map((c) => [c.id, c]));
   const rootOf = (c) => { let r = c; for (let i = 0; r.replyTo && byId.has(r.replyTo) && i < 50; i++) r = byId.get(r.replyTo); return r; };
@@ -771,11 +790,27 @@ function groupThreads(list) {
     msgs.sort((a, b) => (a.id === root.id ? -1 : b.id === root.id ? 1 : Date.parse(a.createdAt) - Date.parse(b.createdAt)));
     const end = root.line ?? root.originalLine ?? 1;
     const start = Math.min(end, root.startLine ?? root.originalStartLine ?? end);
-    const th = { id: root.id, path: root.path, start, end, msgs, side: root.side === 'LEFT' ? 'LEFT' : 'RIGHT', outdated: root.line == null, fileLevel: root.line == null && root.originalLine == null };
+    const th = { id: root.id, kind: 'review', path: root.path, start, end, msgs, side: root.side === 'LEFT' ? 'LEFT' : 'RIGHT', outdated: root.line == null, fileLevel: root.line == null && root.originalLine == null, info: root.thread || null, pending: !!root.pending };
     if (th.side === 'LEFT') { removed.push(root.path); left.push(th); continue; } // base-file line numbers: shown in the source diff
     threads.push(th);
   }
   return { threads, removed, left };
+}
+
+const issueThread = (c) => ({ id: 'i' + c.id, kind: 'issue', msgs: [c], side: 'RIGHT' });
+
+/** Take comments from the server (the PR, or a refresh), keeping the ones still being posted. */
+function applyComments(data) {
+  const local = [...state.threads, ...state.leftThreads].filter((t) => t.local);
+  const g = groupThreads(data.comments || []);
+  state.threads = g.threads;
+  state.leftThreads = g.left;
+  state.removed = g.removed;
+  for (const t of local) (t.side === 'LEFT' ? state.leftThreads : state.threads).push(t);
+  state.prThreads = [...(data.prComments || []).map(issueThread), ...state.prThreads.filter((t) => t.local)];
+  if (data.viewer) state.me = data.viewer;
+  state.pendingReview = data.pendingReview || null;
+  state.canThread = !!data.canThread;
 }
 
 const hue = (str) => [...str].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) % 360, 7);
@@ -800,90 +835,243 @@ function avatarEl(user, url) {
   return img;
 }
 
-function msgEl(c) {
-  const d = el('div', 'msg');
+const EMOJI = { '+1': '👍', '-1': '👎', laugh: '😄', hooray: '🎉', confused: '😕', heart: '❤️', rocket: '🚀', eyes: '👀' };
+const btn = (label, cls = 'btn', title) => { const b = el('button', cls, label); b.type = 'button'; if (title) b.title = title; return b; };
+/** Show an error under a form; a signed-out failure also offers the way back in (the typed text is already saved). */
+function showErr(node, e) {
+  node.textContent = e.message || String(e);
+  if (e.signin || (state.preview && /sign in/i.test(e.message || ''))) {
+    const a = node.appendChild(el('a', null, ' Sign in with GitHub'));
+    a.href = signinUrl();
+    node.append(' — your text is saved and will be here when you are back.');
+  }
+}
+
+function reactionsRow(c, th, rerender) {
+  const row = el('div', 'reacts');
+  const err = el('div', 'err');
+  const toggle = async (content) => {
+    const mine = (c.reactions || []).find((r) => r.content === content && r.mine);
+    if (mine && !c.nodeId) return;
+    const before = JSON.stringify(c.reactions || []);
+    const list = (c.reactions || []).map((r) => ({ ...r }));
+    const cur1 = list.find((r) => r.content === content);
+    if (mine) { cur1.count--; cur1.mine = false; } else if (cur1) { cur1.count++; cur1.mine = true; } else list.push({ content, count: 1, mine: true });
+    c.reactions = list.filter((r) => r.count > 0);
+    rerender();
+    try {
+      await apiPost('/api/reaction', { ...prRef(), kind: th.kind, commentId: c.id, content, ...(mine ? { remove: true, nodeId: c.nodeId } : {}) });
+    } catch (e) { c.reactions = JSON.parse(before); rerender(); showErr(err, e); row.append(err); }
+  };
+  for (const r of c.reactions || []) {
+    const b = btn(`${EMOJI[r.content] || r.content} ${r.count}`, 'react' + (r.mine ? ' mine' : ''), `${r.content}${r.mine ? ' (you)' : ''}`);
+    b.disabled = state.preview;
+    b.addEventListener('click', () => toggle(r.content));
+    row.append(b);
+  }
+  if (!state.preview) {
+    const add = btn('☺', 'react add', 'Add a reaction');
+    add.setAttribute('aria-label', 'Add a reaction');
+    add.addEventListener('click', () => {
+      const old = row.querySelector('.picker');
+      if (old) return old.remove();
+      const pick = el('span', 'picker');
+      for (const [k, e] of Object.entries(EMOJI)) { const b = btn(e, 'react', k); b.addEventListener('click', () => toggle(k)); pick.append(b); }
+      row.append(pick);
+    });
+    row.append(add);
+  }
+  return row;
+}
+
+function msgEl(c, th, rerender) {
+  const d = el('div', 'msg' + (c.failed ? ' failed' : ''));
   const who = el('div', 'who');
-  const when = el('a', null, `commented ${ago(c.createdAt)}`);
-  if (/^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; }
+  const when = el('a', null, c.posting ? 'posting…' : `commented ${ago(c.createdAt)}`);
+  if (!c.posting && /^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; when.title = 'Link to this comment on GitHub'; }
   who.append(avatarEl(c.user, c.avatar), el('b', null, c.user), when);
+  if (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000) who.append(el('span', 'edited', 'edited'));
   if (ASSOC[c.assoc]) who.append(el('span', 'badge', ASSOC[c.assoc]));
+  if (c.pending) who.append(el('span', 'badge', 'Pending'));
   const text = el('div', 'text markdown-body');
   text.innerHTML = safeHtml(mdc.render(c.body));
+  const err = el('div', 'err');
+  if (!c.posting && !c.failed && !state.preview && (c.canUpdate || c.canDelete)) {
+    const acts = el('span', 'macts');
+    if (c.canUpdate) {
+      const edit = btn('Edit', 'linkish');
+      edit.addEventListener('click', () => {
+        const ta = el('textarea');
+        ta.rows = 4; ta.value = c.body;
+        const save1 = btn('Update comment', 'btn btn-primary');
+        const cancel = btn('Cancel');
+        const form = el('div', 'reply');
+        const row = el('div', 'row');
+        row.append(save1, cancel);
+        form.append(ta, row, err);
+        text.replaceWith(form);
+        ta.focus();
+        cancel.addEventListener('click', rerender);
+        save1.addEventListener('click', async () => {
+          if (!ta.value.trim()) return;
+          save1.disabled = true;
+          try {
+            const res = await apiPost('/api/comment/edit', { ...prRef(), kind: th.kind, commentId: c.id, text: ta.value });
+            c.body = res.body; c.updatedAt = res.updatedAt;
+            rerender();
+          } catch (e) { showErr(err, e); save1.disabled = false; }
+        });
+      });
+      acts.append(edit);
+    }
+    if (c.canDelete) {
+      const del = btn('Delete', 'linkish danger');
+      let armed = null;
+      del.addEventListener('click', async () => {
+        if (!armed) { del.textContent = 'Really delete?'; armed = setTimeout(() => { del.textContent = 'Delete'; armed = null; }, 4000); return; }
+        clearTimeout(armed);
+        del.disabled = true;
+        try {
+          await apiPost('/api/comment/delete', { ...prRef(), kind: th.kind, commentId: c.id });
+          th.msgs = th.msgs.filter((m) => m !== c);
+          if (!th.msgs.length) removeThread(th);
+          rerender();
+          refreshComments(true);
+        } catch (e) { showErr(err, e); del.disabled = false; del.textContent = 'Delete'; armed = null; }
+      });
+      acts.append(del);
+    }
+    who.append(acts);
+  }
   d.append(who, text);
+  if (c.failed) {
+    err.textContent = '';
+    showErr(err, { message: `Not posted: ${c.failed}`, signin: c.signin });
+    const row = el('div', 'row');
+    const retry = btn('Try again', 'btn btn-primary');
+    retry.addEventListener('click', () => th.retry && th.retry());
+    const drop = btn('Discard');
+    drop.addEventListener('click', () => { removeThread(th); rerender(); });
+    row.append(retry, drop);
+    d.append(err, row);
+  } else if (!c.posting && (c.reactions?.length || !state.preview)) d.append(reactionsRow(c, th, rerender), err);
+  else d.append(err);
   return d;
 }
 
-function threadCard(th) {
+function removeThread(th) {
+  state.threads = state.threads.filter((t) => t !== th);
+  state.leftThreads = state.leftThreads.filter((t) => t !== th);
+  state.prThreads = state.prThreads.filter((t) => t !== th);
+}
+
+function threadCard(th, rerender) {
   const owner = cur; // the file this thread belongs to (callbacks may run while another file is active)
-  const card = el('div', 'thread' + (th.outdated ? ' outdated' : ''));
+  rerender = rerender || (() => refreshView(owner));
+  const resolved = !!th.info?.resolved;
+  const card = el('div', 'thread' + (th.outdated ? ' outdated' : '') + (th.pending ? ' pending' : '') + (th.kind === 'issue' ? ' pr-level' : '') + (resolved ? ' resolved' : '') + (th.local ? ' local' : ''));
   card.dataset.id = th.id;
+  if (resolved && !th.open) { // a resolved thread folds to one line, like Google Docs
+    const first = th.msgs[0];
+    const m = el('div', 'rmark');
+    const show = btn('Show', 'linkish');
+    show.addEventListener('click', () => { th.open = true; rerender(); });
+    m.append(el('span', 'tick', '✓'), el('span', null, ' Resolved · '), el('b', null, first.user), el('span', 'rtext', ' ' + first.body.replace(/\s+/g, ' ').slice(0, 70)), show);
+    card.append(m);
+    return card;
+  }
   th.msgs.forEach((m, i) => {
-    const d = msgEl(m);
+    const d = msgEl(m, th, rerender);
     if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : 'Outdated'));
+    if (i === 0 && th.kind === 'issue') d.querySelector('.who').append(el('span', 'badge', 'On the pull request'));
     card.append(d);
   });
+  if (th.local) return card;
   const acts = el('div', 'tacts');
-  const replyBtn = el('button', 'btn', 'Reply');
-  replyBtn.type = 'button';
-  replyBtn.addEventListener('click', () => {
-    const form = el('div', 'reply');
-    const ta = el('textarea');
-    ta.rows = 2; ta.placeholder = 'Reply… (Ctrl/Cmd+Enter to send)';
-    const row = el('div', 'row');
-    const send = el('button', 'btn btn-primary', 'Reply'); send.type = 'button';
-    const cancel = el('button', 'btn', 'Cancel'); cancel.type = 'button';
-    const err = el('div', 'err');
-    const doSend = async () => {
-      const text = ta.value.trim();
-      if (!text) return;
-      send.disabled = true;
-      try {
-        const res = await api('/api/reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Rico': '1' },
-          body: JSON.stringify({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number, commentId: th.id, text }),
-        }).then(JSON.parse);
-        th.msgs.push(res);
-        refreshView(owner);
-      } catch (e) { err.textContent = e.message; send.disabled = false; }
+  if (th.kind === 'review' && th.info?.canReply !== false) {
+    const replyBtn = btn('Reply');
+    const openReply = (text = '', focus = true) => {
+      const form = el('div', 'reply');
+      const ta = el('textarea');
+      ta.rows = 2; ta.placeholder = 'Reply… (Ctrl/Cmd+Enter to send)'; ta.value = text;
+      const row = el('div', 'row');
+      const send = btn('Reply', 'btn btn-primary');
+      const cancel = btn('Cancel');
+      const err = el('div', 'err');
+      const doSend = async () => {
+        const body = ta.value.trim();
+        if (!body) return;
+        send.disabled = true;
+        err.textContent = '';
+        try {
+          const res = await apiPost('/api/reply', { ...prRef(), commentId: th.id, text: body });
+          res.canUpdate = res.canDelete = true;
+          th.msgs.push(res);
+          draftSet('reply:' + th.id, null);
+          rerender();
+        } catch (e) { showErr(err, e); send.disabled = false; }
+      };
+      send.addEventListener('click', doSend);
+      cancel.addEventListener('click', () => { draftSet('reply:' + th.id, null); form.remove(); replyBtn.hidden = false; rerender(); });
+      ta.addEventListener('input', () => draftSet('reply:' + th.id, ta.value));
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSend(); } if (e.key === 'Escape') cancel.click(); });
+      row.append(send, cancel);
+      form.append(ta, row, err);
+      replyBtn.hidden = true;
+      acts.before(form);
+      if (focus) ta.focus();
+      if (focus) withView(owner, layoutMargin);
     };
-    send.addEventListener('click', doSend);
-    cancel.addEventListener('click', () => { form.remove(); replyBtn.hidden = false; withView(owner, layoutMargin); });
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSend(); } if (e.key === 'Escape') cancel.click(); });
-    row.append(send, cancel);
-    form.append(ta, row, err);
-    replyBtn.hidden = true;
-    acts.before(form);
-    ta.focus();
-    withView(owner, layoutMargin);
-  });
-  acts.append(replyBtn);
-  card.append(acts);
+    replyBtn.addEventListener('click', () => openReply());
+    acts.append(replyBtn);
+    const saved = draftGet('reply:' + th.id);
+    if (saved) queueMicrotask(() => { if (card.isConnected !== false && !card.querySelector('.reply')) openReply(saved, false); });
+  }
+  if (th.kind === 'review' && !state.preview && th.info) {
+    const flip = async (resolve) => {
+      const b = card.querySelector('.rbtn');
+      b.disabled = true;
+      try {
+        const out = await apiPost('/api/thread/resolve', { ...prRef(), threadId: th.info.id, resolved: resolve });
+        Object.assign(th.info, { resolved: out.resolved, canResolve: out.canResolve, canUnresolve: out.canUnresolve });
+        th.open = false;
+        rerender();
+      } catch (e) { b.disabled = false; const er = el('div', 'err'); showErr(er, e); card.append(er); }
+    };
+    if (resolved) { const b = btn('Reopen', 'btn rbtn'); b.disabled = !th.info.canUnresolve; b.addEventListener('click', () => flip(false)); acts.append(b); const hide = btn('Hide', 'linkish'); hide.addEventListener('click', () => { th.open = false; rerender(); }); acts.append(hide); }
+    else if (th.info.canResolve) { const b = btn('Resolve', 'btn rbtn'); b.addEventListener('click', () => flip(true)); acts.append(b); }
+  }
+  if (acts.childNodes.length) card.append(acts);
   return card;
-}
-
-function draftCard(c) {
-  const card = el('div', 'thread draft');
-  const msg = el('div', 'msg');
-  const who = el('div', 'who');
-  who.append(el('b', null, 'You'), el('span', 'badge', 'Pending'), el('span', null, 'not posted yet'));
-  const text = el('div', 'text', c.body);
-  text.style.whiteSpace = 'pre-wrap';
-  msg.append(who, text);
-  const acts = el('div', 'tacts');
-  const del = el('button', 'btn', 'Delete'); del.type = 'button';
-  del.addEventListener('click', () => deleteComment(c.id));
-  acts.append(del);
-  card.append(msg, acts);
-  return card;
-}
-
-function deleteComment(id) {
-  state.comments = state.comments.filter((x) => x.id !== id);
-  save(); refreshAll(); renderPanel(); renderFiles();
 }
 
 let marginItems = [];
+state.placed = new Map(); // PR-level thread id -> the file whose margin shows it
+
+/** The block a PR-level comment's quote points at in this file, or null (it then lives under General). */
+function issueBlocks(th, path, leaves) {
+  const q = parseQuote(th.msgs[0].body);
+  if (!q.quote || (q.path && q.path !== path)) return null;
+  const hit = leaves.find((l) => findQuote(l.e.textContent, q.quote));
+  return hit ? [hit.e] : null;
+}
+
+/** PR-level comments nobody can point at: no quote, or the quoted text is not in any file shown. */
+function renderGeneral() {
+  const box = $('#general');
+  if (!box) return;
+  const items = state.prThreads.filter((t) => {
+    if (state.placed.has(t.id)) return false;
+    const q = parseQuote(t.msgs[0].body);
+    const v = q.quote && q.path ? views.get(q.path) : null;
+    return !(v && !v.loaded); // its file has not loaded yet: it may still find its place
+  });
+  box.textContent = '';
+  box.hidden = !items.length;
+  if (!items.length) return;
+  box.append(el('h3', null, `General · ${items.length} comment${items.length > 1 ? 's' : ''} on the pull request`));
+  for (const t of items) box.append(threadCard(t, renderGeneral));
+}
 function renderMargin() {
   if (!cur || !margin) return;
   margin.textContent = '';
@@ -897,12 +1085,19 @@ function renderMargin() {
   const raw = [
     ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'RIGHT' })),
     ...state.leftThreads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'LEFT' })),
-    ...state.comments.filter((c) => c.path === path).map((c) => ({ card: draftCard(c), start: c.start, end: c.end, id: c.id, side: c.side === 'LEFT' ? 'LEFT' : 'RIGHT' })),
   ];
+  for (const [id, p] of state.placed) if (p === path) state.placed.delete(id);
+  for (const t of state.prThreads) { // PR-level comments that quote text from this file sit beside it
+    const blocks = issueBlocks(t, path, newLeaves);
+    if (!blocks) continue;
+    state.placed.set(t.id, path);
+    raw.push({ card: threadCard(t), start: 0, end: 0, id: t.id, side: 'RIGHT', blocks, fixed: true });
+  }
   let unplaced = 0;
   for (const it of raw) {
     let blocks;
-    if (it.side === 'LEFT') {
+    if (it.fixed) blocks = it.blocks;
+    else if (it.side === 'LEFT') {
       blocks = oldLeaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e); // beside the removed block it is about
       if (!blocks.length) { // a comment on an unchanged old line: its new-file counterpart
         const n = oldToNew.get(it.end);
@@ -927,6 +1122,7 @@ function renderMargin() {
     n.dataset.note = '1';
     margin.append(n);
   }
+  renderGeneral();
   layoutMargin();
 }
 
@@ -1110,6 +1306,7 @@ function onDiagramClick(fig, hit, frame) {
   const sel = finishSelection(start, end, [{ kind: 'code', lang: fig.dataset.lang, text: state.lines.slice(cs - 1, ce).join('\n') }], range);
   sel.about = about;
   sel.diagram = true;
+  sel.includeDefault = true; // the raw source is not what the reader sees: say what was meant
   sel.aboutShort = hit ? `${hit.kind} “${hit.label}”` : '';
   sel.rect = rect;
   showComposer(sel);
@@ -1242,18 +1439,17 @@ function describeSelection(range) {
 function rangeText(start, end, anchor, side = 'RIGHT') {
   const noun = side === 'LEFT' ? 'removed line' : 'line';
   const span = (x, y) => (x === y ? `${noun} ${x}` : `${noun}s ${x}–${y}`);
-  if (!anchor) return { text: `${span(start, end)} — outside the diff, so this goes into the review summary (quoted).`, warn: true };
+  if (!anchor) return { text: `${span(start, end)} — outside the diff, so it is posted as a comment on the pull request, with this quote.`, warn: true };
   if (anchor.exact) return { text: `Comments on ${span(anchor.start, anchor.end)}`, warn: false };
   return { text: `You selected ${span(start, end)}; GitHub can anchor ${span(anchor.start, anchor.end)} (one hunk). The full quote is included.`, warn: true };
 }
 
 // ---------- selection icons + composer (both sit in the right margin, like Google Docs) ----------
-// Two custom glyphs: a speech bubble holding a quotation mark, and one holding a pilcrow (the text's lines, no quote).
+// Two icons: Comment (a speech bubble) and Suggest (a +/- change). The quote is added by itself when it helps.
 const BUBBLE = '<path d="M3 2.5h14A1.5 1.5 0 0 1 18.5 4v9a1.5 1.5 0 0 1-1.5 1.5H9.5L5.5 18v-3.5H3A1.5 1.5 0 0 1 1.5 13V4A1.5 1.5 0 0 1 3 2.5Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>';
-const GLYPH_QUOTE = '<path d="M6.4 6.2h2.6v2.7c0 1.4-.7 2.3-1.9 2.6l-.4-.9c.7-.3 1-.7 1-1.3H6.4Zm4.5 0h2.6v2.7c0 1.4-.7 2.3-1.9 2.6l-.4-.9c.7-.3 1-.7 1-1.3h-1.3Z" fill="currentColor"/>';
-const GLYPH_PARA = '<path d="M11.3 5.3H8.6a2 2 0 0 0 0 4h.9v2.9h1.1V6.4h.7v5.8h1.1V6.4h.5V5.3h-1.6Z" fill="currentColor"/>';
-$('#sb-quote').innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${BUBBLE}${GLYPH_QUOTE}</svg>`;
-$('#sb-lines').innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${BUBBLE}${GLYPH_PARA}</svg>`;
+const GLYPH_PLUS = '<path d="M10 5.6v5.6M7.2 8.4h5.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>';
+$('#sb-comment').innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${BUBBLE}${GLYPH_PLUS}</svg>`;
+$('#sb-suggest').innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3.5h9.5a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 15V5A1.5 1.5 0 0 1 3 3.5Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 7.5h5.8M4.6 11.8h5.8M7.5 9.6v4.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M15.5 2.5v5M13 5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 const selbar = $('#selbar');
 
 function marginSlot(range, rect) {
@@ -1283,17 +1479,13 @@ function showSelbar(sel, pt) {
 }
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 
-for (const [id, withQuote] of [['sb-quote', true], ['sb-lines', false]]) {
-  const b = $('#' + id);
-  b.addEventListener('mousedown', (e) => e.preventDefault()); // keep the text selection alive
-  b.addEventListener('click', () => {
-    const sel = state.sel;
-    if (!sel) return;
-    if (withQuote) sel.includeDefault = true; // else keep the default: a quote only when it adds information
-    hideSelbar();
-    showComposer(sel);
-  });
-}
+$('#sb-comment').addEventListener('mousedown', (e) => e.preventDefault()); // keep the text selection alive
+$('#sb-comment').addEventListener('click', () => {
+  const sel = state.sel;
+  if (!sel) return;
+  hideSelbar();
+  showComposer(sel);
+});
 
 // the selection was cleared (click elsewhere, Esc, ...): the icons go away. An open composer manages itself.
 document.addEventListener('selectionchange', () => {
@@ -1304,6 +1496,20 @@ document.addEventListener('selectionchange', () => {
     return;
   }
   if (!selbar.hidden && gone) hideSelbar();
+});
+// Ctrl/Cmd+Alt+M: comment on the current selection (like Google Docs)
+document.addEventListener('keydown', (e) => {
+  if (!(e.code === 'KeyM' && e.altKey && (e.ctrlKey || e.metaKey))) return;
+  e.preventDefault();
+  if (state.pending) return $('#c-body').focus();
+  const s = window.getSelection();
+  if (!s || s.isCollapsed || !s.rangeCount || !state.file) return;
+  const range = s.getRangeAt(0);
+  const v = viewOfNode(range.commonAncestorContainer);
+  if (!v || v.mode !== 'rendered') return;
+  use(v);
+  const sel = describeSelection(range);
+  if (sel) { hideSelbar(); showComposer(sel); }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !selbar.hidden) { hideSelbar(); window.getSelection().removeAllRanges(); } });
 document.addEventListener('mousedown', (e) => { if (!selbar.hidden && !selbar.contains(e.target)) setTimeout(() => { const s = window.getSelection(); if (!s || s.isCollapsed) hideSelbar(); }, 0); });
@@ -1325,6 +1531,12 @@ function showComposer(sel) {
     q.append(pv.tail.join('\n'));
   }
   const rt = rangeText(sel.start, sel.end, sel.anchor, sel.side);
+  $('#c-err').textContent = '';
+  const rv = $('#c-review');
+  const batching = !!state.pendingReview || hasPending();
+  rv.textContent = batching ? 'Add to review' : 'Start a review';
+  rv.disabled = !sel.anchor;
+  rv.title = sel.anchor ? 'Keep this comment pending on GitHub until you finish the review' : 'Text outside the diff can only be posted as a single comment on the pull request';
   const rEl = $('#c-range');
   rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');
   rEl.classList.toggle('warn', rt.warn);
@@ -1332,11 +1544,11 @@ function showComposer(sel) {
   inc.checked = sel.includeDefault;
   inc.disabled = !sel.anchor; // unanchored comments live in the summary, where the quote is the only context
   $('#c-qnote').textContent = sel.anchor ? (sel.includeDefault ? '' : 'GitHub already shows these lines') : 'required: goes in the summary';
-  $('#c-quote').hidden = !inc.checked && !sel.diagram; // a diagram element's source is always shown: you can't see the raw text you are commenting on
+  $('#c-quote').hidden = !inc.checked;
   $('#c-qtext').value = sel.quoteMd;
   $('#c-qtext').hidden = true;
   $('#c-qedit').setAttribute('aria-expanded', 'false');
-  $('#c-body').value = '';
+  $('#c-body').value = sel.body || '';
   composer.hidden = false;
   setSelHighlight(sel.about || sel.rows ? null : sel.range); // an element or a diff line highlights itself, not a text range
   for (const r of sel.rows || []) r.classList.add('d-sel');
@@ -1396,26 +1608,82 @@ function onSelect(pt) {
 $('#cards').addEventListener('mouseup', (e) => { const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
 $('#cards').addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') setTimeout(onSelect, 0); });
 
-function addComment() {
+// Unsent text in the comment box survives a reload (or a sign-in round trip): everything but the live Range is saved.
+function persistComposer() {
+  const p = state.pending;
+  const body = $('#c-body').value;
+  if (!p || !body.trim() || !p.view) return draftSet('composer', null);
+  const { start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram } = p;
+  draftSet('composer', { path: p.view.file.filename, start, end, side, quote, quoteMd, anchor, includeDefault, touchesRemoved, about, aboutShort, diagram, body });
+}
+
+const hasPending = () => [...state.threads, ...state.leftThreads].some((t) => t.msgs.some((m) => m.pending));
+
+async function submitComposer(mode) {
   const p = state.pending;
   const body = $('#c-body').value.trim();
   if (!p || !body) return $('#c-body').focus();
-  use(p.view);
-  state.comments.push({
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    path: state.file.filename,
-    side: p.side || 'RIGHT', // LEFT: a removed line, commented on from the source diff
-    start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
+  const err = $('#c-err');
+  err.textContent = '';
+  if (state.preview) { persistComposer(); return showErr(err, { message: 'Sign in with GitHub to comment.', signin: true }); }
+  const view = p.view;
+  const c = {
+    path: view.file.filename, side: p.side || 'RIGHT', start: p.start, end: p.end, quote: p.quote, anchor: p.anchor, body,
     about: p.aboutShort || '', // diagram element, so the comment says what it is about on GitHub
     includeQuote: p.anchor ? $('#c-qinc').checked : true,
-    quoteMd: $('#c-qtext').value.trim(), // markdown actually posted; the user may have edited it
-  });
-  save();
+    quoteMd: $('#c-qtext').value.trim(), // markdown actually posted
+  };
+  draftSet('composer', null);
   hideComposer();
   window.getSelection().removeAllRanges();
-  refreshAll();
-  renderPanel();
-  renderFiles();
+  postThread(view, c, p.anchor ? mode : 'single'); // text outside the diff can only be a PR comment
+}
+
+/** Show the comment in the margin at once ("posting…"), send it, then swap in GitHub's version (or the reason it failed). */
+function postThread(view, c, mode) {
+  const msg = { id: 'tmp' + Date.now(), user: state.me || 'you', avatar: state.meAvatar || null, body: '', createdAt: new Date().toISOString(), posting: true, reactions: [] };
+  let th;
+  let send;
+  if (c.anchor) {
+    const line = buildLineComment(c);
+    msg.body = line.body;
+    th = { id: msg.id, kind: 'review', path: c.path, start: c.anchor.start, end: c.anchor.end, side: line.side, msgs: [msg], outdated: false, fileLevel: false, info: null, local: true, pending: mode === 'review' };
+    (th.side === 'LEFT' ? state.leftThreads : state.threads).push(th);
+    send = async () => (mode === 'review'
+      ? (await apiPost('/api/pending/add', { ...prRef(), comment: { ...line, commit_id: state.pr.headSha } })).comment
+      : apiPost('/api/comment', { ...prRef(), comment: { ...line, commit_id: state.pr.headSha } }));
+  } else {
+    msg.body = buildPrComment(c);
+    th = { id: 'i' + msg.id, kind: 'issue', msgs: [msg], side: 'RIGHT', local: true };
+    state.prThreads.push(th);
+    send = () => apiPost('/api/pr-comment', { ...prRef(), text: msg.body });
+  }
+  const run = async () => {
+    msg.posting = true; msg.failed = null;
+    state.inflight = (state.inflight || 0) + 1;
+    refreshView(view);
+    let ok = false;
+    try {
+      const res = await send();
+      res.canUpdate = res.canDelete = true;
+      th.msgs[0] = res;
+      th.local = false;
+      th.id = th.kind === 'issue' ? 'i' + res.id : res.id;
+      th.pending = !!res.pending;
+      if (res.pending && !state.pendingReview) state.pendingReview = { id: null };
+      ok = true;
+    } catch (e) {
+      msg.posting = false;
+      msg.failed = /pending review/i.test(e.message) && mode !== 'review' ? `${e.message} (You have a pending review: use “Add to review”, or finish or discard it first.)` : e.message;
+      msg.signin = e.signin;
+    }
+    state.inflight--;
+    refreshView(view);
+    if (ok) refreshComments(true); // learn the thread's id and what you may do with it
+  };
+  th.retry = run;
+  run();
+  return th;
 }
 
 $('#c-qedit').addEventListener('click', () => {
@@ -1425,109 +1693,162 @@ $('#c-qedit').addEventListener('click', () => {
   if (!t.hidden) t.focus(); else $('#c-body').focus();
   if (state.pending) placeComposer(state.pending.range);
 });
-$('#c-add').addEventListener('click', addComment);
-$('#c-cancel').addEventListener('click', () => { hideComposer(); window.getSelection().removeAllRanges(); });
+$('#c-add').addEventListener('click', () => submitComposer('single'));
+$('#c-review').addEventListener('click', () => submitComposer('review'));
+$('#c-body').addEventListener('input', persistComposer);
+$('#c-cancel').addEventListener('click', () => { draftSet('composer', null); hideComposer(); window.getSelection().removeAllRanges(); });
 $('#c-body').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); }
-  if (e.key === 'Escape') { hideComposer(); window.getSelection().removeAllRanges(); }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitComposer(e.shiftKey ? 'review' : 'single'); }
+  if (e.key === 'Escape') { draftSet('composer', null); hideComposer(); window.getSelection().removeAllRanges(); }
 });
 const layoutAll = () => { for (const v of views.values()) if (v.loaded) withView(v, layoutMargin); };
 window.addEventListener('resize', () => { layoutAll(); if (state.pending) placeComposer(state.pending.range, state.pending.rect); });
 document.fonts?.ready.then(layoutAll);
 
-// ---------- review panel ----------
+// ---------- review panel: the viewer's pending GitHub review ----------
+const pendingItems = () => [...state.threads, ...state.leftThreads].flatMap((t) => t.msgs.filter((m) => m.pending && !m.posting).map((m) => ({ t, m })));
 function renderPanel() {
   const list = $('#list');
+  if (!list) return;
   list.textContent = '';
-  $('#count').textContent = state.comments.length ? `(${state.comments.length})` : '';
+  const items = pendingItems();
+  $('#count').textContent = items.length ? `(${items.length})` : '';
   const rc = $('#rc-count');
-  rc.textContent = String(state.comments.length);
-  rc.hidden = !state.comments.length;
-  if (!state.comments.length) list.innerHTML = '<p class="empty">No pending comments. Select text in a file to add one.</p>';
-  for (const c of state.comments) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    const where = document.createElement('div');
-    where.className = 'where';
-    const link = document.createElement('a');
-    link.textContent = `${c.path} · ${c.start === c.end ? 'L' + c.start : `L${c.start}–${c.end}`}${c.side === 'LEFT' ? ' (removed)' : ''}`;
+  rc.textContent = String(items.length);
+  rc.hidden = !items.length;
+  $('#rc-label').textContent = items.length ? 'Finish review' : 'Review changes';
+  $('#review-btn').title = items.length ? `${items.length} pending comment${items.length > 1 ? 's' : ''} on GitHub, waiting for you to finish the review` : 'Leave a verdict, or a summary';
+  $('#discard').hidden = !items.length;
+  // GitHub does not let you approve or request changes on your own pull request
+  const own = !!state.pr && !!state.me && state.pr.author === state.me;
+  for (const v of ['APPROVE', 'REQUEST_CHANGES']) document.querySelector(`input[name="event"][value="${v}"]`).closest('label').hidden = own;
+  if (own) document.querySelector('input[name="event"][value="COMMENT"]').checked = true;
+  if (!items.length) list.innerHTML = '<p class="empty">No pending comments. “Start a review” in a comment box keeps comments here, on GitHub, until you finish.</p>';
+  for (const { t, m } of items) {
+    const card = el('div', 'card');
+    const where = el('div', 'where');
+    const link = el('a', null, `${t.path} · ${t.start === t.end ? 'L' + t.start : `L${t.start}–${t.end}`}${t.side === 'LEFT' ? ' (removed)' : ''}`);
     link.addEventListener('click', async () => {
       $('#review-pop').hidden = true;
-      if (!state.file || state.file.filename !== c.path) await openFile(c.path);
-      const target = [...doc.querySelectorAll('[data-l].has-c')].find((e) => overlaps(blockLines(e), c.start, c.end));
-      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (!state.file || state.file.filename !== t.path) await openFile(t.path);
+      document.querySelector(`.thread[data-id="${t.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
     where.append(link);
-    const q = document.createElement('blockquote');
-    q.textContent = c.quote;
-    const rt = rangeText(c.start, c.end, c.anchor);
-    const note = document.createElement('div');
-    note.className = 'note' + (rt.warn ? ' warn' : '');
-    note.textContent = rt.text;
-    const body = document.createElement('div');
-    body.className = 'body';
-    body.textContent = c.body;
-    const acts = document.createElement('div');
-    acts.className = 'acts';
-    const edit = document.createElement('button');
-    edit.type = 'button'; edit.textContent = 'Edit'; edit.className = 'btn';
-    edit.addEventListener('click', () => {
-      const ta = document.createElement('textarea');
-      ta.value = c.body; ta.rows = 3;
-      const ok = document.createElement('button');
-      ok.type = 'button'; ok.textContent = 'Save'; ok.className = 'btn btn-primary';
-      ok.addEventListener('click', () => { c.body = ta.value.trim() || c.body; save(); renderPanel(); });
-      body.replaceWith(ta);
-      acts.replaceChildren(ok);
-      ta.focus();
-    });
-    const del = document.createElement('button');
-    del.type = 'button'; del.textContent = 'Delete'; del.className = 'btn';
-    del.addEventListener('click', () => deleteComment(c.id));
-    acts.append(edit, del);
-    card.append(where, q, note, body, acts);
+    const body = el('div', 'body', m.body);
+    card.append(where, body);
     list.append(card);
   }
-  $('#submit').disabled = !state.comments.length && !$('#summary').value.trim();
+  renderPanelButton();
 }
+const renderPanelButton = () => {
+  const ev = document.querySelector('input[name="event"]:checked')?.value;
+  $('#submit').disabled = ev === 'COMMENT' && !pendingItems().length && !$('#summary').value.trim();
+};
 $('#summary').addEventListener('input', () => { if (state.pr) save(); renderPanelButton(); });
-const renderPanelButton = () => { $('#submit').disabled = !state.comments.length && !$('#summary').value.trim(); };
+for (const r of document.querySelectorAll('input[name="event"]')) r.addEventListener('change', renderPanelButton);
 
 $('#submit').addEventListener('click', async () => {
-  const btn = $('#submit');
+  const btn1 = $('#submit');
   const out = $('#result');
   out.textContent = '';
-  btn.disabled = true;
-  btn.textContent = 'Submitting…';
+  btn1.disabled = true;
+  btn1.textContent = 'Submitting…';
   try {
-    const review = buildReview({
-      comments: state.comments,
-      summary: $('#summary').value,
-      event: document.querySelector('input[name="event"]:checked').value,
-      commitId: state.pr.headSha,
-    });
-    const res = await api('/api/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Rico': '1' },
-      body: JSON.stringify({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number, review }),
-    }).then(JSON.parse);
-    const a = document.createElement('a');
+    const res = await apiPost('/api/pending/finish', { ...prRef(), event: document.querySelector('input[name="event"]:checked').value, body: $('#summary').value });
+    const a = el('a', null, 'Review posted — open on GitHub');
     a.href = res.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    a.textContent = 'Review posted — open on GitHub';
     out.replaceChildren(a);
-    state.comments = [];
+    for (const { m } of pendingItems()) m.pending = false;
+    for (const t of [...state.threads, ...state.leftThreads]) t.pending = false;
+    state.pendingReview = null;
     $('#summary').value = '';
-    save(); refreshAll(); renderPanel(); renderFiles();
+    save(); refreshAll();
+    refreshComments(true);
   } catch (e) {
-    const d = document.createElement('div');
-    d.className = 'err';
-    d.textContent = e.message + ' — your comments are still queued.';
+    const d = el('div', 'err');
+    showErr(d, e);
     out.replaceChildren(d);
   } finally {
-    btn.textContent = 'Submit review';
+    btn1.textContent = 'Submit review';
     renderPanelButton();
   }
 });
+
+$('#discard').addEventListener('click', async () => {
+  const b = $('#discard');
+  if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Really discard the review?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Discard review'; }, 4000); return; }
+  b.dataset.armed = '';
+  b.textContent = 'Discard review';
+  try {
+    await apiPost('/api/pending/discard', prRef());
+    state.threads = state.threads.filter((t) => !t.pending);
+    state.leftThreads = state.leftThreads.filter((t) => !t.pending);
+    state.pendingReview = null;
+    refreshAll();
+    refreshComments(true);
+  } catch (e) { const d = el('div', 'err'); showErr(d, e); $('#result').replaceChildren(d); }
+});
+
+$('#stale-reload').addEventListener('click', () => { const p = state.pr; location.assign(prPath({ owner: p.owner, repo: p.repo, number: p.number }) + location.search); });
+
+// ---------- unsent comment, after a reload or sign-in ----------
+async function restoreComposer() {
+  const d = draftGet('composer');
+  if (!d || !state.pr || state.pending) return;
+  const v = views.get(d.path);
+  if (!v) return;
+  try {
+    if (!v.loaded) await loadView(v);
+    use(v);
+    if (v.mode !== 'rendered') return;
+    const leaves = leafBlocks(v.doc).filter((e) => isRemoved(e) === (d.side === 'LEFT') && overlaps(blockLines(e), d.start, d.end));
+    if (!leaves.length) return;
+    const range = document.createRange();
+    range.setStartBefore(leaves[0]);
+    range.setEndAfter(leaves[leaves.length - 1]);
+    showComposer({ ...d, range, view: v });
+    leaves[0].scrollIntoView({ block: 'center' });
+  } catch { /* the draft stays saved; nothing else to do */ }
+}
+
+// ---------- keeping the margin current ----------
+let etags = {};
+/**
+ * Re-read the PR's comments (conditional requests: an unchanged PR answers 304 and costs nothing).
+ * `force` ignores the saved ETags, e.g. right after our own write.
+ */
+async function refreshComments(force = false) {
+  if (!state.pr || state.inflight) return;
+  const p = state.pr;
+  let data;
+  try {
+    data = await api('/api/comments?' + new URLSearchParams({ owner: p.owner, repo: p.repo, number: p.number, etags: force ? '{}' : JSON.stringify(etags) })).then(JSON.parse);
+  } catch { return; } // a failed poll is not worth interrupting anyone for
+  if (state.pr !== p) return; // another PR was opened meanwhile
+  etags = data.etags || etags;
+  if (data.headSha && data.headSha !== p.headSha) showStale(data.headSha);
+  if (data.unchanged) return;
+  const sig = JSON.stringify([data.comments, data.prComments, data.pendingReview]);
+  if (sig === state.lastSig) return;
+  state.lastSig = sig;
+  const a = document.activeElement;
+  const keep = a && a.tagName === 'TEXTAREA' && a.closest('.thread') ? { id: a.closest('.thread').dataset.id, from: a.selectionStart, to: a.selectionEnd } : null;
+  const open = new Set([...state.threads, ...state.leftThreads].filter((t) => t.open).map((t) => t.id));
+  applyComments(data);
+  for (const t of [...state.threads, ...state.leftThreads]) if (open.has(t.id)) t.open = true;
+  refreshAll();
+  if (keep) {
+    const ta = document.querySelector(`.thread[data-id="${keep.id}"] .reply textarea`);
+    if (ta) { ta.focus({ preventScroll: true }); ta.setSelectionRange(keep.from, keep.to); }
+  }
+}
+
+function showStale(sha) {
+  const bar = $('#stale');
+  if (!bar) return;
+  bar.hidden = false;
+  bar.querySelector('.msg-text').textContent = `This pull request has new commits (${sha.slice(0, 7)}). Line numbers and comment positions here are from ${state.pr.headSha.slice(0, 7)}.`;
+}
 
 // ---------- review dialog, tree controls ----------
 const pop = $('#review-pop');
@@ -1600,4 +1921,4 @@ renderPanel();
 showWho();
 
 // test hook
-window.__rico = { state, views, use, openFile, describeSelection, groupThreads };
+window.__rico = { state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };

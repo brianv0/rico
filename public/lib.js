@@ -218,31 +218,49 @@ export function coversWholeLines(selectedText, srcLines) {
 const spanOf = (s, e) => (s === e ? `line ${s}` : `lines ${s}–${e}`);
 
 /**
- * Turn queued comments into a GitHub "create review" payload.
- * Each comment may carry {quoteMd, includeQuote}. Comments that cannot be anchored to a diff line
- * go into the review body, always with their quote.
+ * One review comment, formatted for GitHub's line-comment API ({path, line, side, start_line?, start_side?, body}).
+ * The body is: an optional "Re:" note (a diagram element), a note when the range was clamped to the diff, the
+ * quote (only when `includeQuote`, or by default when the anchor is not exact), then the comment itself.
+ * Needs c.anchor; use buildPrComment for text outside the diff.
+ */
+export function buildLineComment(c) {
+  const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
+  const parts = [];
+  if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
+  if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
+  const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
+  if (include && quote) parts.push(quote);
+  parts.push(c.body);
+  const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
+  const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
+  if (c.anchor.start < c.anchor.end) {
+    item.start_line = c.anchor.start;
+    item.start_side = side;
+  }
+  return item;
+}
+
+/**
+ * Text outside the diff cannot be a line comment: it becomes a normal PR comment that says where it is
+ * (file and lines), quotes the text, and carries the comment. parseQuote reads the quote back to place it.
+ */
+export function buildPrComment(c) {
+  const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
+  const where = c.start === c.end ? `L${c.start}` : `L${c.start}–${c.end}`;
+  return [`**\`${c.path}\` ${where}**`, c.about ? `_Re: ${c.about}_` : '', quote, c.body].filter(Boolean).join('\n\n');
+}
+
+/**
+ * Turn queued comments into a GitHub "create review" payload (kept for batch posting through REST).
+ * Comments that cannot be anchored to a diff line go into the review body, always with their quote.
  */
 export function buildReview({ comments, summary, event, commitId }) {
   const inline = [];
   const loose = [];
   for (const c of comments) {
     const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
-    if (c.anchor) {
-      const parts = [];
-      if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
-      if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
-      // comments saved before the quote option existed carry no flag: quote only when not exact
-      const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
-      if (include && quote) parts.push(quote);
-      parts.push(c.body);
-      const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
-      const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
-      if (c.anchor.start < c.anchor.end) {
-        item.start_line = c.anchor.start;
-        item.start_side = side;
-      }
-      inline.push(item);
-    } else {
+    if (c.anchor) inline.push(buildLineComment(c));
+    else {
       const where = c.start === c.end ? `L${c.start}` : `L${c.start}–${c.end}`;
       loose.push(`**\`${c.path}\` ${where}**\n${quote}\n\n${c.body}`);
     }
@@ -251,6 +269,74 @@ export function buildReview({ comments, summary, event, commitId }) {
   const out = { commit_id: commitId, event, comments: inline };
   if (body) out.body = body;
   return out;
+}
+
+/**
+ * Read a comment body written by buildLineComment / buildPrComment back apart:
+ *   {path, lines, about, quote, rest}  quote is the first prose blockquote (plain text, no "> "), null when there is none.
+ * Only the lead-in lines (location header, "Re:" / "Selected" notes) may come before the quote, so a quote the
+ * reviewer typed deeper in their own text is not mistaken for the selection.
+ */
+export function parseQuote(body) {
+  const lines = String(body || '').replace(/\r/g, '').split('\n');
+  let i = 0;
+  let path = null;
+  let about = null;
+  const skipBlank = () => { while (i < lines.length && !lines[i].trim()) i++; };
+  skipBlank();
+  for (let guard = 0; guard < 3 && i < lines.length; guard++) {
+    const l = lines[i].trim();
+    let m;
+    if ((m = /^\*\*`([^`]+)` (L\d+(?:–\d+)?)\*\*$/.exec(l))) path = m[1];
+    else if ((m = /^_Re: (.*)_$/.exec(l))) about = m[1];
+    else if (/^_Selected .*\._$/.test(l)) { /* clamp note */ } else break;
+    i++;
+    skipBlank();
+  }
+  const out = { path, about, quote: null, rest: lines.slice(i).join('\n').trim() };
+  if (i < lines.length && /^>/.test(lines[i])) {
+    const q = [];
+    let j = i;
+    for (; j < lines.length && /^>/.test(lines[j]); j++) q.push(lines[j].replace(/^>\s?/, ''));
+    out.quote = q.join('\n').trim();
+    out.rest = lines.slice(j).join('\n').trim();
+  }
+  return out;
+}
+
+/** Collapse whitespace runs to one space and trim; map[i] = index in the original string of normalized char i. */
+export function normalizeWithMap(str) {
+  const s = String(str);
+  let text = '';
+  const map = [];
+  let space = false;
+  for (let i = 0; i < s.length; i++) {
+    if (/\s/.test(s[i])) { space = text.length > 0; continue; }
+    if (space) { text += ' '; map.push(i); space = false; }
+    text += s[i];
+    map.push(i);
+  }
+  return { text, map };
+}
+
+/**
+ * Where does a quote sit in a block of rendered text? Returns {start, end} offsets into `hay` (end exclusive) or null.
+ * A quote shortened with "…" (head … tail) matches from its head to its tail.
+ */
+export function findQuote(hay, quote) {
+  const h = normalizeWithMap(hay);
+  const parts = normalizeWithMap(String(quote || '').replace(/\n+/g, ' ')).text.split(/\s*…\s*/).filter(Boolean);
+  if (!parts.length) return null;
+  const head = parts[0];
+  const i = h.text.indexOf(head);
+  if (i < 0) return null;
+  let end = i + head.length;
+  if (parts.length > 1) {
+    const tail = parts[parts.length - 1];
+    const j = h.text.indexOf(tail, end);
+    if (j >= 0) end = j + tail.length;
+  }
+  return { start: h.map[i], end: h.map[end - 1] + 1 };
 }
 
 /**

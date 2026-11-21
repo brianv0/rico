@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -385,4 +385,37 @@ test('previewLines keeps short quotes whole and elides the middle of long ones',
   assert.deepEqual(p.head, ['l1', 'l2', 'l3', 'l4', 'l5']);
   assert.deepEqual(p.tail, ['l36', 'l37', 'l38', 'l39', 'l40']);
   assert.equal(p.omitted, 30);
+});
+
+test('buildLineComment: exact anchor is just the comment; clamped or quoted adds the note and quote; ranges carry start_line', () => {
+  const base = { path: 'a.md', start: 3, end: 3, side: 'RIGHT', anchor: { start: 3, end: 3, exact: true }, body: 'Hi', quoteMd: '> words' };
+  assert.deepEqual(buildLineComment(base), { path: 'a.md', line: 3, side: 'RIGHT', body: 'Hi' });
+  assert.equal(buildLineComment({ ...base, includeQuote: true }).body, '> words\n\nHi');
+  const clamped = buildLineComment({ ...base, start: 3, end: 9, anchor: { start: 5, end: 6, exact: false }, about: 'node “A”', side: 'LEFT' });
+  assert.deepEqual(clamped, { path: 'a.md', line: 6, side: 'LEFT', start_line: 5, start_side: 'LEFT', body: '_Re: node “A”_\n\n_Selected lines 3–9; anchored to lines 5–6._\n\n> words\n\nHi' });
+});
+
+test('buildPrComment says where the text is, quotes it, and parseQuote reads it back', () => {
+  const body = buildPrComment({ path: 'docs/a.md', start: 40, end: 42, quoteMd: '> far away words', body: 'Typo here?' });
+  assert.equal(body, '**`docs/a.md` L40–42**\n\n> far away words\n\nTypo here?');
+  assert.deepEqual(parseQuote(body), { path: 'docs/a.md', about: null, quote: 'far away words', rest: 'Typo here?' });
+});
+
+test('parseQuote: lead-in lines only, multi-line quotes, no quote, and a quote deeper in the text is not the selection', () => {
+  assert.deepEqual(parseQuote('_Re: node “A”_\n\n_Selected lines 3–9; anchored to lines 5–6._\n\n> one\n> two\n>\n> three\n\nBody'), { path: null, about: 'node “A”', quote: 'one\ntwo\n\nthree', rest: 'Body' });
+  assert.equal(parseQuote('Just a comment').quote, null);
+  assert.equal(parseQuote('I agree with:\n\n> this').quote, null);
+  assert.equal(parseQuote('').quote, null);
+  assert.equal(parseQuote(undefined).rest, '');
+});
+
+test('findQuote locates words in rendered text, across whitespace, and shortened quotes by head and tail', () => {
+  const hay = 'The quick  brown fox\n jumps over the lazy dog.';
+  assert.deepEqual(findQuote(hay, 'brown fox jumps'), { start: 11, end: 27 });
+  assert.equal(hay.slice(11, 27).replace(/\s+/g, ' '), 'brown fox jumps');
+  const short = findQuote(hay, 'quick … lazy');
+  assert.equal(hay.slice(short.start, short.end).replace(/\s+/g, ' '), 'quick brown fox jumps over the lazy');
+  assert.equal(findQuote(hay, 'purple'), null);
+  assert.equal(findQuote(hay, ''), null);
+  assert.deepEqual(normalizeWithMap('  a  b ').text, 'a b');
 });
