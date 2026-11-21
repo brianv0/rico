@@ -5,7 +5,11 @@ import { newRuler } from '../../public/d2/textmeasure.js';
 export function dimsCheck(c, ruler = newRuler()) {
   const r = compileGraph(c.path, c.text, { utf16: c.utf16 });
   if (r.err) return { err: r.err.message };
-  return { boards: dimsBoards(r.g, ruler) };
+  try {
+    return { boards: dimsBoards(r.g, ruler) };
+  } catch (e) {
+    return { err: e.message }; // the Go mode prints err.Error() of ApplyTheme/SetDimensions
+  }
 }
 
 function dimsBoards(g, ruler) {

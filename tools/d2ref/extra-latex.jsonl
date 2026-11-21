@@ -1,0 +1,34 @@
+{"from":"extra:latex-shape","path":"index.d2","text":"a: |latex\n  x^2 + y^2 = r^2\n|"}
+{"from":"extra:latex-tex-alias","path":"index.d2","text":"a: |tex \\frac{1}{2} |"}
+{"from":"extra:latex-edge-label","path":"index.d2","text":"a -> b: |latex \\sum_{i=0}^n i |\nb -> a: plain"}
+{"from":"extra:latex-edge-label-bidirectional","path":"index.d2","text":"a <-> b: |latex \\alpha \\to \\beta |"}
+{"from":"extra:latex-text-shape","path":"index.d2","text":"a: {\n  shape: text\n  label: |latex e = mc^2 |\n}\nb\na -> b"}
+{"from":"extra:latex-style","path":"index.d2","text":"a: |latex x |\na.style.font-color: red\na.style.fill: lightblue\na.style.stroke: green\na.style.opacity: 0.5\nb: |latex y |\nb.style.font-color: \"#ff00aa\""}
+{"from":"extra:latex-dark-theme","path":"index.d2","text":"a: |latex \\int_0^1 x\\,dx |\nb: |latex \\ce{H2O} |\na -> b\nd2-config: { theme-id: 200; dark-theme-id: 200 }"}
+{"from":"extra:latex-theme-300","path":"index.d2","text":"a: |latex \\frac{a}{b} |\nb\na -> b: |latex \\beta |\nd2-config: { theme-id: 300 }"}
+{"from":"extra:latex-container","path":"index.d2","text":"g: {\n  label: |latex \\Omega |\n  x\n  y: |latex \\Sigma |\n  x -> y\n}"}
+{"from":"extra:latex-label-positions","path":"index.d2","text":"a: |latex x_1 |\na.near: top-center\nb: |latex y | {\n  label.near: outside-bottom-center\n}\nc: |latex z | {\n  label.near: border-top-left\n}\nd: |latex w | {\n  label.near: inside-bottom-right\n}"}
+{"from":"extra:latex-link","path":"index.d2","text":"a: |latex x | {\n  link: https://example.com\n}\na -> b: |latex y | {\n  link: https://example.com/b\n}"}
+{"from":"extra:latex-tooltip-icon","path":"index.d2","text":"a: |latex x | {\n  tooltip: hello\n  icon: https://icons.terrastruct.com/essentials%2F092-graph%20bar.svg\n}"}
+{"from":"extra:latex-shapes","path":"index.d2","text":"a: |latex x | {shape: circle}\nb: |latex y | {shape: hexagon}\nc: |latex z | {shape: diamond}\nd: |latex w | {shape: oval}\ne: |latex v | {shape: cloud}\nf: |latex u | {shape: person}"}
+{"from":"extra:latex-sizes","path":"index.d2","text":"a: |latex \\Huge x | {width: 300; height: 200}\nb: |latex \\tiny y |"}
+{"from":"extra:latex-3d-multiple","path":"index.d2","text":"a: |latex x | {style.3d: true}\nb: |latex y | {style.multiple: true}\nc: |latex z | {style.shadow: true}"}
+{"from":"extra:latex-sequence","path":"index.d2","text":"shape: sequence_diagram\na -> b: |latex \\frac{x}{y} |\nb -> a: ok\na: |latex A |"}
+{"from":"extra:latex-grid","path":"index.d2","text":"grid-rows: 2\na: |latex \\alpha |\nb: |latex \\beta |\nc\nd: |latex \\delta |"}
+{"from":"extra:latex-near","path":"index.d2","text":"a: |latex x |\nn: |latex y | {near: top-right}"}
+{"from":"extra:latex-direction","path":"index.d2","text":"direction: right\na: |latex \\gamma |\nb: |latex \\delta |\nc: |latex \\epsilon |\na -> b -> c"}
+{"from":"extra:latex-layers","path":"index.d2","text":"a: |latex x |\nlayers: {\n  l: {\n    b: |latex y |\n    b -> c: |latex \\to |\n  }\n}\nscenarios: {\n  s: {\n    a: |latex z |\n  }\n}\nsteps: {\n  one: {\n    d: |latex w |\n  }\n}"}
+{"from":"extra:latex-class","path":"index.d2","text":"classes: { m: { label: |latex x^2 | } }\na.class: m\nb.class: m"}
+{"from":"extra:latex-tag-error","path":"index.d2","text":"a: |latex x \\tag{1} |"}
+{"from":"extra:latex-empty","path":"index.d2","text":"a: |latex |"}
+{"from":"extra:latex-whitespace","path":"index.d2","text":"a: |latex\n\n   x   \n\n|"}
+{"from":"extra:latex-multiline","path":"index.d2","text":"a: |latex\n  a + b\n  = c\n|\nb: |latex \\begin{aligned} a &= b \\\\ c &= d \\end{aligned} |"}
+{"from":"extra:latex-unicode","path":"index.d2","text":"a: |latex \\text{café 中文 π} |\nb: |latex α + β |"}
+{"from":"extra:latex-physics","path":"index.d2","text":"a: |latex \\bra{a}\\ket{b} + \\dd{x} |\nb: |latex \\cancel{x} + \\color{red}{y} |"}
+{"from":"extra:latex-text-transform","path":"index.d2","text":"a: |latex x | {style.text-transform: uppercase}\nb: |latex y | {style.font: mono; style.bold: true; style.font-size: 30}"}
+{"from":"extra:latex-markdown-and-latex","path":"index.d2","text":"a: |md # hi |\nb: |latex x |\nc: |python print(1) |\na -> b: |latex y |\nb -> c: |md **bold** |"}
+{"from":"extra:latex-connection-styles","path":"index.d2","text":"a -> b: |latex \\sqrt{x} | {\n  style.stroke: red\n  style.font-color: blue\n  style.opacity: 0.4\n  style.animated: true\n}\na -> b: second"}
+{"from":"extra:latex-arrowhead-label","path":"index.d2","text":"a -> b: {\n  source-arrowhead.label: |latex x |\n  target-arrowhead: {label: |latex y |; shape: diamond}\n}"}
+{"from":"extra:latex-near-edge","path":"index.d2","text":"a -> b: |latex hello |\nb -> c: x {\n  label.near: 0.1\n}"}
+{"from":"extra:latex-import-vars","path":"index.d2","text":"vars: { f: \"x^2\" }\na: |latex ${f} |"}
+{"from":"extra:latex-big-formula","path":"index.d2","text":"a: |latex\n  \\begin{equation} \\label{eq1}\n  \\begin{split}\n  A & = \\frac{\\pi r^2}{2} \\\\\n   & = \\frac{1}{2} \\pi r^2\n  \\end{split}\n  \\end{equation}\n|"}

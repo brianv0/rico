@@ -1,5 +1,6 @@
 // Generates LaTeX formulas for the `latex` stage of diff.mjs (one {"text": ...} per line) from a small grammar:
-//   node latexfuzz.mjs N seed [--invalid P]    (P: fraction of formulas that get a random mutation that makes them (probably) invalid)
+//   node latexfuzz.mjs N seed [--invalid P] [--depth D]    (P: fraction of formulas that get a random mutation that makes them (probably) invalid;
+//                                                            D: maximum nesting, default 4)
 // Valid formulas use the constructs of D2's TeX packages (base, ams, mathtools, amscd, braket, cancel, cases, color, gensymb, mhchem,
 // physics); mutations truncate, drop or duplicate characters and insert undefined macros, stray braces, `#`, `&`, `$`, `%`.
 function rng(seed) {
@@ -8,6 +9,7 @@ function rng(seed) {
 }
 const [n = 200, seed = 1, ...rest] = process.argv.slice(2).map((a) => (/^-?\d+(\.\d+)?$/.test(a) ? Number(a) : a));
 const invalidP = rest.includes('--invalid') ? Number(rest[rest.indexOf('--invalid') + 1]) : 0.15;
+const maxD = rest.includes('--depth') ? Number(rest[rest.indexOf('--depth') + 1]) : 4;
 const r = rng(seed * 2654435761);
 const pick = (a) => a[Math.floor(r() * a.length)];
 const chance = (p) => r() < p;
@@ -50,7 +52,7 @@ function arg(d) {
   return '{' + expr(d + 1) + '}';
 }
 function expr(d) {
-  if (d > 4) return pick(letters);
+  if (d > maxD) return pick(letters);
   const k = 1 + Math.floor(r() * (d > 2 ? 3 : 5));
   const parts = [];
   for (let i = 0; i < k; i++) {
@@ -76,7 +78,7 @@ function table(d, cols, rows, sep = '&') {
 }
 function group(d) {
   const x = r();
-  if (d > 3) return pick(letters);
+  if (d > maxD - 1) return pick(letters);
   if (x < 0.14) return `\\frac{${expr(d + 1)}}{${expr(d + 1)}}`;
   if (x < 0.18) return `${pick(['\\dfrac', '\\tfrac', '\\cfrac', '\\binom', '\\dbinom', '\\genfrac(){0pt}{}'])}{${expr(d + 1)}}{${expr(d + 1)}}`;
   if (x < 0.24) return chance(0.3) ? `\\sqrt[${pick(['3', 'n', '\\alpha'])}]{${expr(d + 1)}}` : `\\sqrt{${expr(d + 1)}}`;

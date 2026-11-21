@@ -44,9 +44,10 @@ What changed upstream after v0.7.2 (v0.8.x, v0.9.0 changelogs):
 | ir | `d2ir` (+ `d2format.Format`/`FormatKeyPath`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | **v0.9.0**: corpus 1077/1077 (UTF-8 and UTF-16); `extra.jsonl` 390/390 (both); mutation fuzz 3 x 3000 (both, 1 case dropped: Go does not finish) and glob/board/class/import grammar fuzz (`globfuzz.mjs`) 3 seeds about 1100-1400 each, all identical. Residue below |
 | graph | `d2compiler`, `d2graph` (not serde.go, not `SetDimensions`), `net/url`, `html.UnescapeString`, `encoding/xml` (the Markdown check), `sort.Slice`, `strconv`, `fmt.Sprintf` | `d2compiler.js`, `d2graph.js`, `url.js`, `gohtml.js` + `htmlentity.js`, `xml.js`, `gosort.js`, `strconv.js`, `gofmt.js` (+ `d2target` `Class`/`SQLTable`, `d2ast` label/near tables) | **v0.9.0**: corpus 1077/1077 (UTF-8 and UTF-16); `extra.jsonl` 390/390 (both); the same fuzz sets as `ir` identical; `graphmd` (Markdown-heavy) 2000/2000. Support stages: `url` 4122 (3 seeds), `htmlunescape` 6017, `xml` 9038, `sortslice` 3000, `strconv` 6093, `sprintf` 6501 (all identical); `graphmethods` 1077 |
 | leaf | `lib/textmeasure` (ruler, legacy Markdown measure), `lib/shape`, `lib/label`, `lib/geo`, `lib/color` (+ csscolorparser, go-colorful parts), `lib/svg` (FormatFloat, path commands), `d2themes` (`ThemableElement`), `d2target`, `d2fonts` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `uniprops.js`, `htmlparse.js`), `shape.js`, `label.js`, `geo.js`, `color.js`, `svg.js`, `themes.js`, `target.js` | **v0.9.0**: `measure` 129354/129354 (+ `extra-measure.jsonl` 113/113; fuzz 3974-3990 of 4000, Markdown HTML residue below), `mdhtml` 118/118 on the corpus's Markdown, `shape` 297/360 exact + 63 within 1e-9 (libm; same on 3 x 3000 fuzz), `label` 381/381 (+ 3 x 3000), `color` 2467/2470 exact + 3 within 1e-9, `element` 1500/1500, `target` 886/886, `targetstatics`, `dims` 1073/1073 (+ 390 extra, 2 x 3000 fuzz) |
-| layout | `lib/textmeasure` (glyph metrics, Markdown validation and legacy box model), `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout` (Go glue; the engine is dagre 3.1.1 from npm with dagro's corrections, `vendor/dagre.js`), `d2exporter`, `d2lib` (Compile, applyConfigs/Defaults, boards), `lib/geo`, `lib/shape`, `lib/label` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js`, `d2graph.js` (`setDimensions`), `d2exporter.js`, `d2layouts.js`, `d2near.js`, `d2grid.js`, `d2sequence.js`, `d2dagrelayout.js`, `vendor/dagre.js` (107 KB, 24 KB gzipped), `d2lib.js` (`compile(text, opts)` -> `{diagram, graph, err}`) | v0.9.0: `layout` corpus 1073/1073 (+4 deferred: latex), UTF-8 and UTF-16; `extra.jsonl` 345/345 (+2 deferred); `extralayout.jsonl` (v0.9.0 cases written for this stage) 50/50, both modes; D2's e2e dagre goldens (`e2e` stage) 312/312 boards (+2 expected errors, 9 latex deferred, 5 without a dagre golden); `dims` 1073/1073; about 27k generated layout cases (`fuzzlayout.mjs` 9 seeds, `fuzzgrid.mjs`, `fuzzseq.mjs`) and 12k mutated corpus cases identical to Go (Go-unstable ones excepted, below). Engine level: `dagrocmp.mjs` 1030/1030 dagre layouts of the corpus and 6500+ generated ones identical to dagro. Support stages: `measure` 129354/129354 (incl. `--big`), `shape` 297/360 exact (rest within 1e-9, libm), `label` 381/381 |
-| render | `d2renderers/d2svg` (d2svg, class, table, markdown, theme, font_corpus), `lib/svg`, `lib/color`, `lib/font` (subsetter, Sfnt2Woff), `compress/flate`+`zlib` (Go 1.27's encoder), `d2renderers/internal/patternassets`, `lib/textmeasure` markdown layout (`markdown.go`, `markdown_svg.go`), `rivo/uniseg` line breaking, `alecthomas/chroma` (lexer engine, 48 lexers, 2 styles) | `d2svg.js` (+ `d2svgcorpus.js`, `d2svgassets.js`, `d2svgfonts.js`, `d2svgpatterns.js`, `fontsubset.js`, `flate.js`, `mdlayout.js`, `linebreak.js`, `highlight.js`, the `xml.js` tokenizer, `fonts/*.ttf`, `patterns/*`, `lexers/*`) | `svg` stage (Go's own diagram JSON in, Go's SVG bytes out): corpus 877/877, e2e boards 902/902 (all of D2's `board.exp.json` incl. elk/tala layouts and multiboard), extra 240/240, about 8700 fuzzed cases with random render options, 3150 Markdown-heavy cases; sketch, LaTeX, non-Latin Markdown and the unported code languages are deferred by rule (see below). Support stages: `flate` 3160/3160 streams identical to Go, `linebreak` 6000/6000, `highlight` 7169/7169 |
-| later | `d2elklayout`, `d2sketch` (+ rough), `d2latex` (+ MathJax), `d2animate` | | the renderer throws `Deferred('sketch')` / `Deferred('latex')` |
+| layout | `lib/textmeasure` (glyph metrics, Markdown validation and legacy box model), `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout` (Go glue; the engine is dagre 3.1.1 from npm with dagro's corrections, `vendor/dagre.js`), `d2exporter`, `d2lib` (Compile, applyConfigs/Defaults, boards), `lib/geo`, `lib/shape`, `lib/label` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js`, `d2graph.js` (`setDimensions`), `d2exporter.js`, `d2layouts.js`, `d2near.js`, `d2grid.js`, `d2sequence.js`, `d2dagrelayout.js`, `vendor/dagre.js` (107 KB, 24 KB gzipped), `d2lib.js` (`compile(text, opts)` -> `{diagram, graph, err}`) | v0.9.0: `layout` corpus 1077/1077 (latex included), UTF-8 and UTF-16; `extra.jsonl` 390/390; `extra-latex.jsonl` (34 hand-written LaTeX programs) 34/34; `extralayout.jsonl` (v0.9.0 cases written for this stage) 50/50, both modes; D2's e2e dagre goldens (`e2e` stage) 321/321 boards (+2 expected errors, 5 without a dagre golden); `dims` 1077/1077; about 27k generated layout cases (`fuzzlayout.mjs` 9 seeds, `fuzzgrid.mjs`, `fuzzseq.mjs`) and 12k mutated corpus cases identical to Go (Go-unstable ones excepted, below). Engine level: `dagrocmp.mjs` 1030/1030 dagre layouts of the corpus and 6500+ generated ones identical to dagro. Support stages: `measure` 129354/129354 (incl. `--big`), `shape` 297/360 exact (rest within 1e-9, libm), `label` 381/381 |
+| render | `d2renderers/d2svg` (d2svg, class, table, markdown, theme, font_corpus), `lib/svg`, `lib/color`, `lib/font` (subsetter, Sfnt2Woff), `compress/flate`+`zlib` (Go 1.27's encoder), `d2renderers/internal/patternassets`, `lib/textmeasure` markdown layout (`markdown.go`, `markdown_svg.go`), `rivo/uniseg` line breaking, `alecthomas/chroma` (lexer engine, 48 lexers, 2 styles) | `d2svg.js` (+ `d2latex.js` and the lazy `vendor/mathjax.js`, `d2svgcorpus.js`, `d2svgassets.js`, `d2svgfonts.js`, `d2svgpatterns.js`, `fontsubset.js`, `flate.js`, `mdlayout.js`, `linebreak.js`, `highlight.js`, the `xml.js` tokenizer, `fonts/*.ttf`, `patterns/*`, `lexers/*`) | `svg` stage (Go's own diagram JSON in, Go's SVG bytes out): corpus 881/881, e2e boards 929/929 (all of D2's `board.exp.json` incl. elk/tala layouts and multiboard), extra 277/277, `extra-latex.jsonl` 29/29, about 8700 fuzzed cases with random render options, 3150 Markdown-heavy cases; sketch, non-Latin Markdown and the unported code languages are deferred by rule (see below). LaTeX labels are rendered by MathJax 3.2.2 instead of mathjax-go (section "LaTeX" below: identical on every formula of D2's tests, not on all input). Support stages: `flate` 3160/3160 streams identical to Go, `linebreak` 6000/6000, `highlight` 7169/7169 |
+| latex | `d2renderers/d2latex` (glue); engine: MathJax 3.2.2 instead of `mathjax-go` | `d2latex.js`, `vendor/mathjax.js` (1.7 MB, 599 KB gzipped, lazy) | `latex` stage 19/19 formulas of D2's tests identical (svg, size, errors); **not** identical on all input, see "LaTeX" |
+| later | `d2elklayout`, `d2sketch` (+ rough), `d2animate` | | the renderer throws `Deferred('sketch')` |
 
 Not needed: `d2oracle`, `d2lsp`, `d2format` (except what `d2ir` calls), `d2plugin`, `d2renderers/d2ascii`, `d2js`.
 
@@ -216,7 +217,7 @@ generated from it; keep the template in sync).
 - **nil vs empty slices** show in the JSON (`"edges": null`): `append([]T(nil), x...)` of an empty x is nil.
 - `Object.Box` is `box` (null until layout), `Attributes` is `attributes`; `GraphObject` is Go's `Object`. `d2ast.LabelPositionsMapping` is lazy (import cycle ast -> label -> geo -> gomath -> ast).
 - markdown-it now keeps numeric references to control characters like goldmark (`&#6;`); the XML check rejects them.
-- Layout stage: `SetDimensions`, `GetLabelSize`, `GetDefaultSize` are ported but untested (`GetLabelSize` throws for latex: `d2latex` is not ported); `ApplyTextTransform` capitalize is an approximation of x/text `cases.Title`; `serde.go` is not ported. `layout.go` (ShiftStart, TraceToShape, ...) is ported and untested because it needs boxes.
+- Layout stage: `SetDimensions`, `GetLabelSize`, `GetDefaultSize` are ported (latex labels go through `d2latex.js`, see "LaTeX"); `ApplyTextTransform` capitalize is an approximation of x/text `cases.Title`; `serde.go` is not ported. `layout.go` (ShiftStart, TraceToShape, ...) is ported and untested because it needs boxes.
 
 ### Graph residue
 
@@ -345,9 +346,7 @@ Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagr
   is a state machine (digits do not start a word: `1st` -> `1St`, `layers.x` stays one word) - ported with Unicode property escapes for
   its tables (`titleCase` in `d2graph.js`; exotic scripts/special casing other than final sigma, digraphs, ligatures are approximated);
   `encoding/json` refuses NaN, so d2ref prints `{"panic": ...}` for such a case (e.g. `style.opacity: nan`) and the harness skips it.
-- **Deferred (not counted as matches)**: exactly the cases where a board has a `latex` label (needs `d2latex`/mathjax-go): the JS port throws
-  `LatexNotPorted` from `setDimensions`, `compile` returns it as `err.name`, and `diff.mjs` counts the case as deferred (4 of the corpus, 2 of `extra.jsonl`, 9 e2e).
-  ELK and TALA are not ported (`layout: 'elk'` -> `ElkNotPorted`, `'tala'` -> `TalaNotPorted`); the Go harness
+- **Not ported**: ELK and TALA are not ported (`layout: 'elk'` -> `ElkNotPorted`, `'tala'` -> `TalaNotPorted`); the Go harness
   and the e2e tests always pass `Layout: dagre`, which overrides `d2-config`'s layout-engine, so no corpus case needs them; `sketch`
   only switches the font family to HandDrawn and is covered. `d2plugin.FeatureSupportCheck` (the "dagre does not support ..." errors
   the e2e tests expect on 5 cases) is not ported and not part of `d2lib.Compile`.
@@ -434,9 +433,9 @@ omitVersion`; `d2lib.compile(text, opts, renderOpts)` fills the ones from `d2-co
   such a class matches and stores it per lexer (`cls`); a pattern the translator does not know (named groups, other `\p{..}`) makes that code label deferred (Haskell, PowerShell, Scala, Kotlin, Terraform hit this).
   **Deferred**: every language without a lexer file (about 230 of chroma's 280), non-ASCII code, and the rules above.
 - **Patterns**: `paper` (435 KB) and `grain` are built-in texture definitions, shipped as `patterns/*.svg.txt` (generated by `genpatterns.mjs` from the Go assets; brotli decoded at build time) and loaded on first use.
-- **Deferred classes** (counted, never as matches): `sketch` (`d2sketch`: rough.js port and the streak patterns), `latex` (`d2latex`/MathJax), `markdown-unicode`, code languages without a lexer / non-ASCII code
-  (`code-language`, `code-non-ascii`), `icon-userinfo`, `compile-error` (Go printed no diagram). Counts at the end of this stage: corpus 200 of 1077 (191 compile errors, 5 markdown-unicode, 4 latex), e2e boards
-  59 of 961 (27 latex, 21 markdown-unicode, 9 sketch, 2 compile errors).
+- **Deferred classes** (counted, never as matches): `sketch` (`d2sketch`: rough.js port and the streak patterns), `markdown-unicode`, code languages without a lexer / non-ASCII code
+  (`code-language`, `code-non-ascii`), `icon-userinfo`, `compile-error` (Go printed no diagram). Counts now: corpus 196 of 1077 (191 compile errors, 5 markdown-unicode), e2e boards
+  32 of 961 (21 markdown-unicode, 9 sketch, 2 compile errors). (`latex` was a class until the LaTeX stage; it had 4 corpus and 27 e2e boards.)
 - **Residue** (differences that are not the renderer's): markdown-it versus goldmark on a few inputs (`~del~~` and `<!br>` render differently: the `mdhtml` residue of the leaf stage; 6 of 3160 Markdown-heavy fuzz cases);
   a Go panic is skipped by the harness.
 - **Sizes** (gzip -9): `d2svg.js` 25.1 KB, `d2svgcorpus.js` 4.5, `d2svgassets.js` 1.4, `xml.js` 7.3 (shared with the graph stage), `mdlayout.js` 20.3 + `linebreak.js` 4.0 (only for Markdown labels), `highlight.js` 5.0 +
@@ -445,3 +444,70 @@ omitVersion`; `d2lib.compile(text, opts, renderOpts)` fills the ones from `d2-co
   1.4 MB raw in total). Typical diagram (shape labels bold, connection labels italic): `external` loads about 38 KB gzipped on top of what compile needs (d2svg + corpus + assets + xml); `embed` adds the
   subsetter (19 KB) and two or three faces (about 200 KB).
 - Nothing in this stage touches Rico's app, the CSP or `package.json`; `public/d2/fonts/*.ttf`, `patterns/*`, `lexers/*` are plain static files next to the modules (check that the build copies them).
+
+
+## LaTeX (d2latex): what was done, and where it does not match Go
+
+Run: `node diff.mjs latex <file.jsonl>` (lines `{"text": <TeX>}`; Go mode `latex` = `d2latex.Render` and `d2latex.Measure`, compared as `{svg, err, width, height, merr}`);
+`node latexformulas.mjs corpus.jsonl extra.jsonl e2e.jsonl e2esvg.jsonl > f.jsonl` lists every LaTeX label of D2's inputs (19 distinct formulas: corpus, extra,
+every e2e script and every e2e diagram); `node latexfuzz.mjs N seed [--invalid P] [--depth D] > f.jsonl` is the grammar fuzzer (fractions, scripts, big operators,
+delimiters, accents, fonts, matrices/cases/aligned/array, CD, spacing, colours, physics/braket/mhchem/cancel/gensymb/mathtools constructs, special characters,
+and mutations that truncate/drop/insert stray characters); `node latexcases.mjs > extra-latex.jsonl` (34 D2 programs: shape and edge labels, `shape: text`, themes,
+positions, links, tooltips/icons, shapes, 3D/multiple, sequence, grid, near, layers/scenarios/steps, classes, invalid TeX, empty, unicode, mhchem, physics, text
+transform, arrowhead labels, vars) and `--gap` (3 programs where the engines differ). `layout`, `dims`, `svg`, `e2e` run with the engine loaded (diff.mjs does
+`await loadLatex()`); the latex deferrals of the layout/svg stages are gone.
+
+Files: `d2latex.js` (ports `latex_common.go`: `render(s) -> [svg, err]`, `measure(s) -> [w, h, err]` with `latex failed to parse: ` as the xdefer prefix and mathjax-go's
+`Measure` rules: the `<svg ... width="Nex" height="Mex">` regexp, `ceil(N * 8)`; a `\tag` makes the width `100%`, so Go fails with
+`latex failed to parse: mathjax-go: SVG dimensions not found`, kept), `vendor/mathjax.js` (the engine), `tools/d2ref/mathjaxbuild/{entry.js,build.sh}` (rebuild:
+`sh tools/d2ref/mathjaxbuild/build.sh`, byte-reproducible), `d2graph.js` (`getLabelSize` and the edge label measure call `d2latex.measure`), `d2svg.js` (`renderLatex`:
+the `<g transform=translate(..)>` + inner SVG, colour = stroke/connection colour, shape labels placed with the *recomputed* label position of `d2svg.go`), `d2lib.js`
+(`compile` loads the engine on `NeedLatex` and compiles again; `compileSync` throws `NeedLatex` until `loadLatex()` resolved), `d2svg.js` `renderAsync` (kind `latex`).
+Loading is a dynamic `import()` of `vendor/mathjax.js`: nothing downloads unless a diagram has a LaTeX label.
+
+### The engine
+
+- **D2 v0.9.0 does not run MathJax; it runs `mathjax-go` v0.1.0**, a 26k-line Go reimplementation (tex input 12.4k lines, svg output 6.3k, mhchem 2.6k, generated font
+  data 3k lines / 1.3 MB) of the MathJax 3.2.2 pipeline that D2 <= v0.7.2 ran as a custom bundle (`mathjax.js`, 1.8 MB: lite DOM adaptor, TeX input with the packages base
+  mathtools ams amscd braket cancel cases color gensymb mhchem physics, SVG output, `fontCache: 'none'`, `em: 16, ex: 8`, serialised with `adaptor.innerHTML`) inside goja.
+  mathjax-go's own tests pin 28 D2 formulas by SHA-256 against that bundle.
+- **npm `mathjax-full@3.2.2` + `mhchemparser@4.1.1`, configured as above (`entry.js`), is the same engine as D2's v0.7.2 bundle**: 654 formulas (the 28 above, MathJax's handler
+  oracle cases, every TeX string in mathjax-go's tests, D2's docs) are byte-identical to the frozen bundle run in a fresh vm context per formula, which is how D2 ran it. One
+  thing matters: D2 starts a new JS engine per `Render` because TeX state would leak between formulas; the bundle's entry creates the TeX jax, the SVG jax and the document
+  per call (handler registration is the only module state; `\def`, `\label`, `\mathtoolsset` do not leak, checked). A shared document leaks (`\mathtoolsset{centercolon}` changed `:\approx`).
+- **No port was written**; the build is `esbuild` over mathjax-full's CommonJS sources with `--bundle --format=esm --minify --target=es2020`, 1.7 MB, **599 KB gzipped
+  (452 KB brotli)** (D2's own bundle: 598 KB gzipped). 611 KB of the raw size is `svg/fonts/tex/normal.js` (glyph paths), the other font variants about 400 KB; all needed (the
+  MathML-to-SVG output asks for any variant), so there is no smaller component set. Plus `d2latex.js` 4 KB (1.8 KB gzipped).
+- **CSP**: no `eval`, no `new Function` (the only `eval` in the bundle is the physics macro named `eval`); verified in Chrome under
+  `default-src 'none'; script-src 'self'; connect-src 'self'` (`eval()` is blocked there and the formulas render): first load 170-200 ms from localhost (599 KB gzipped
+  over the wire), 80 ms for four formulas including mhchem and CD, identical SVG to Node. `import-src`/`script-src` must allow the origin of `vendor/mathjax.js`; no
+  `'unsafe-eval'`, no DOM access (liteAdaptor), so it also runs in a worker. A sandboxed `blob:` iframe needs an absolute URL (`setEngineURL`).
+
+### Where MathJax and mathjax-go differ (the reason latex is not "identical on all input")
+
+Result: **every formula that occurs in D2's corpus, extra cases and e2e tests (19 distinct) is identical in SVG, size and error to Go (`latex` 19/19; all layout/dims/svg/e2e
+latex cases N/N)**, but D2 v0.9.0 is not identical to MathJax 3.2.2 on input outside what mathjax-go's authors tested: of 115 ordinary formulas (physics, calculus, linear
+algebra, chemistry, probability) 85 are byte-identical, of grammar-generated formulas (`latexfuzz.mjs`, 1500 each) 32-41% (the formulas are long, one difference fails one). The
+differences are mathjax-go's, not the JS engine's (the JS engine equals the frozen bundle): it is a reimplementation with its own bugs, and D2's "without changing rendered
+formulas" holds for the tested set only. Causes, with a probe of 2265 control sequence / environment names (5 templates each: `\x`, `\x{a}`, `\x{a}{b}`, `x \x y`, `\begin{x}..`):
+
+1. **Macros Go does not define (135)**, they render as `Undefined control sequence \x` there: `\dots` (!), `\pmatrix`, `\matrix`, `\cases`, `\pmod`'s `\pod`, `\hline` in arrays, `\cr`,
+   `\hfil`, `\hfill`, `\mathstrut`, `\strut`, `\newline`, `\overleftrightarrow`, `\underleftrightarrow`, `\overparen`, `\pmb`, `\mmlToken`, `\TeX`, `\LaTeX`, `\frak`, `\Bbb`, `\buildrel`,
+   `\overwithdelims`, `\skew`, `\xLeftrightharpoons`, `\longrightleftharpoons` (so mhchem `<=>` fails in Go), `\symbf`.., all the physics trig names (`\sine`, `\acosine`..), `\flatfrac`,
+   `\Rule`, `\Space`, `\leftroot`/`\uproot`... Conversely MathJax lacks 8 that Go has (`\boldsymbol`, `\enclose`, `\enskip`, `\noalign`, `\raisebox`, `\relax`, `\textsl`, `\vspace`, `\vcentcolon`).
+2. **Physics overrides are missing in Go**: with the physics package `\div` is divergence (`\nabla\cdot`) and `\Re`/`\Im` are operator names; Go keeps `\div` = division sign and `\Re` = fraktur R.
+3. **Inter-atom spacing**: Go does not treat `\frac` (and some other constructs) as an inner atom, so `\frac{a}{b} + c` has no space before `+` (width 4.932 ex vs 5.938 ex);
+   `\sum..=\frac..`, `\lim ... = 1`, `\bar{x} = ..`, `h(x)=\max(0,x)`, `\{1,2,3\}`, `x_1, \ldots, x_n` all differ in width, so layout boxes differ too.
+4. **Wrapper nodes**: MathJax wraps accents (`\bar`, `\hat`, `\vec`, ..), `\binom`, `$`, `/` and other `Other` characters in `TeXAtom` groups and writes transforms as separate
+   `translate()`s; Go does not (same picture for most, a different SVG always; `\binom{a}{b}` is also displayed in another style, 5.428 ex vs 4.178 ex high); `\overline` uses another glyph (U+2013 stretchy vs U+00AF).
+5. **Parser decisions**: Go reports `Double exponent` / `Double subscripts` for formulas MathJax accepts (`\underbrace{a+b}_{n}` is an error in Go: 4% of realistic formulas), `Missing \end{x}` /
+   `Extra \end{x}` for environments MathJax reads differently, and treats `` ` `` as U+2018 where MathJax uses U+2035.
+6. **Error text** (what an invalid formula shows inside the diagram, and its size): `Missing close brace` vs MathJax's `Extra open brace or missing close brace`, `Misplaced alignment tab character &amp;`
+   vs `Misplaced &`, `You can't use macro parameter character # in math mode` vs the quoted one, `Extra \right` vs `Missing or unrecognized delimiter for \right`, ...
+7. **mhchem**: `\pu{1.2 kg}` and `\ce{..}` with `\mkern`/`\smash` units differ by sub-pixel float rounding (`3054.8` vs `3054.5`) or spacing; `\longrightleftharpoons` and friends are missing.
+
+What it would take to be identical everywhere: a line-for-line port of mathjax-go (`internal/tex` 12.4k lines, `internal/svg` 6.3k, `internal/mhchem` 2.6k, `internal/mml`+`layout`
++`jscompat`+`font` 1.3k, and the generated glyph tables 3k lines / 1.3 MB of data that must be loaded lazily too: about 22k hand-written lines before the tests) with
+the harness already in place (`latex` stage + `latexfuzz.mjs`); the MathJax engine would be dropped. The alternative (decision for the owner): keep MathJax, which is what Rico's current
+WASM D2 (`@terrastruct/d2` 0.1.33, the MathJax bundle in goja) renders, so Rico users see no change, and which is the more correct renderer in every difference above.
+`extra-latex-gap.jsonl` holds three programs that show this on `layout`/`svg` (error text, the backtick, `\pu`).
