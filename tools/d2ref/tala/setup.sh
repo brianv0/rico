@@ -29,5 +29,9 @@ cp "$here/root_xdump.go" "$t/xdump_export.go"
 rm -rf "$t/internal/xdump"
 mkdir -p "$t/internal/xdump"
 cp "$here"/xdump/*.go "$t/internal/xdump/"
+# overlay/<package>/*.go: files added to internal/<package>/ (export shims for the unexported functions that xdump modes call)
+for f in "$here"/overlay/*/*.go; do
+  [ -e "$f" ] && cp "$f" "$t/internal/$(basename "$(dirname "$f")")/"
+done
 (cd "$dest" && go build -o "$dest/xdump.bin" ./d2layouts/d2talalayout/internal/xdump)
 echo "built $dest/xdump.bin"

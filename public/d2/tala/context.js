@@ -24,7 +24,8 @@ export class Context {
   /** ctx.Err() */
   err() {
     for (let c = this; c; c = c.parent) {
-      if (c.cancelErr) return c.cancelErr;
+      const cancelErr = c.cancelErr; // read once (a counting context in the tools/d2ref checks counts the reads)
+      if (cancelErr) return cancelErr;
       if (c.deadline !== null && Date.now() >= c.deadline) return DeadlineExceeded;
     }
     return null;

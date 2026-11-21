@@ -32,6 +32,8 @@ import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
 import * as bigjson from '../../public/d2/tala/bigjson.js';
 import * as talacheck from './talacheck.mjs';
+import * as hierarchycheck from './tala/hierarchycheck.mjs';
+import * as pccheck from './tala/placementcostcheck.mjs';
 import { svgCheck, svgFullCheck, svgPrepare } from './svgcheck.mjs';
 import { latexCheck } from './latexcheck.mjs';
 import { loadLatex } from '../../public/d2/d2latex.js';
@@ -76,6 +78,12 @@ const TALA_MODES = {
   talascores: 'scores',
   talastages: 'stages',
   talafstages: 'fstages',
+  talahierrank: 'hierrank',
+  talahiersimple: 'hiersimple',
+  talahierstage: 'hierstage',
+  talahiercompound: 'hiercompound',
+  talapcscore: 'pcscore',
+  talapcunit: 'pcunit',
 };
 
 const STAGES = {
@@ -87,6 +95,12 @@ const STAGES = {
   talascores: talacheck.scoresStage,
   talastages: talacheck.stagesStage,
   talafstages: talacheck.fstagesStage,
+  talahierrank: hierarchycheck.hierrankStage,
+  talahiersimple: hierarchycheck.hiersimpleStage,
+  talahierstage: hierarchycheck.hierstageStage,
+  talahiercompound: hierarchycheck.hiercompoundStage,
+  talapcscore: pccheck.pcscoreStage,
+  talapcunit: pccheck.pcunitStage,
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
   measure,
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
