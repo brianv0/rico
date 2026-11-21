@@ -197,3 +197,31 @@ test('preview: private or missing repositories are not shown and point to sign-i
   assert.equal(gone.status, 404);
   assert.equal((await gone.json()).signin, true);
 });
+
+const WRITE_ROUTES = ['/api/comment', '/api/pr-comment', '/api/comment/edit', '/api/comment/delete', '/api/thread/resolve', '/api/reaction', '/api/pending/add', '/api/pending/finish', '/api/pending/discard', '/api/reply', '/api/review'];
+
+test('comment routes: signed out is 401 signin:true; every write needs X-Rico and the same Origin, whatever the method', async () => {
+  for (const p of WRITE_ROUTES) {
+    const out = await worker.fetch(req(p, { method: 'POST', headers: { 'X-Rico': '1', 'Content-Type': 'application/json' }, body: '{}' }), env);
+    assert.equal(out.status, 401, p);
+    assert.equal((await out.json()).signin, true, p);
+    assert.equal((await worker.fetch(req(p, { method: 'POST', body: '{}' }), env)).status, 403, p + ' without X-Rico');
+    assert.equal((await worker.fetch(req(p, { method: 'POST', headers: { 'X-Rico': '1', Origin: 'https://evil.example' }, body: '{}' }), env)).status, 403, p + ' cross-origin');
+  }
+  for (const m of ['PATCH', 'DELETE', 'PUT']) assert.equal((await worker.fetch(req('/api/comment', { method: m, body: '{}' }), env)).status, 403, m + ' is not a way around the check');
+});
+
+test('comment routes: signed in, a comment reaches GitHub as the user; /api/comments is readable in preview, without viewer powers', async () => {
+  const { cookie } = await signIn();
+  calls.length = 0;
+  const post = await worker.fetch(req('/api/pr-comment', { method: 'POST', headers: { 'X-Rico': '1', Cookie: cookie, Origin: ORIGIN }, body: JSON.stringify({ owner: 'o', repo: 'r', number: 1, text: 'hi' }) }), env);
+  const c = calls.find((x) => x.url.endsWith('/repos/o/r/issues/1/comments'));
+  assert.equal(c.opts.method, 'POST');
+  assert.equal(c.opts.headers.Authorization, 'Bearer gho_usertoken');
+  assert.ok(post.status >= 200);
+  // preview: the polling endpoint is allowed, and never asks GraphQL (viewer powers would be the preview token's)
+  calls.length = 0;
+  const prev = await worker.fetch(req('/api/comments?owner=o&repo=pub&number=1'), { ...env, PREVIEW_TOKEN: 'pt' });
+  assert.notEqual(prev.status, 401);
+  assert.ok(!calls.some((x) => x.url.includes('/graphql')), 'no GraphQL in preview');
+});

@@ -45,79 +45,253 @@ export const COMMENTS = [
   C({ id: 302, path: 'docs/removed.md', line: 5, original_line: 5, body: 'Should "keep one" be bold?' }),
 ];
 
-/** Start the fake. Returns {port, posted: [], replies: [], close()}; `posted` collects POSTed review bodies. */
+/**
+ * Start the fake. Returns {port, posted, replies, ops, state, close()}.
+ *  posted:  submitted review bodies (REST `POST /reviews`, or GraphQL submit);  replies: replies posted to threads
+ *  ops:     every write as {op, ...}, in order;  hits: "METHOD path -> status" for every request (to check 304s)
+ *  state:   mutable: comments, issueComments, pending (the viewer's pending review), resolved (Set of root ids),
+ *           reactions, headSha, version (bumped on every change: it drives the ETags), plus failure switches
+ *           locked / rateLimited / graphql (false = GraphQL unavailable)
+ */
 export async function startFake() {
   const posted = [];
   const replies = [];
+  const ops = [];
+  const hits = [];
+  let nextId = 1000;
+  const state = {
+    comments: COMMENTS.map((c) => ({ ...c })),
+    issueComments: [
+      { id: 501, node_id: 'IC_501', user: { login: 'dave', avatar_url: AVATAR }, author_association: 'CONTRIBUTOR', created_at: '2026-11-17T08:00:00Z', updated_at: '2026-11-17T08:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#issuecomment-501', body: 'General note: please also update the changelog.' },
+    ],
+    pending: null, // {id, databaseId}
+    resolved: new Set(),
+    reactions: new Map(), // comment id -> [{content, mine}]
+    headSha: SHA,
+    version: 1,
+    locked: false,
+    rateLimited: false,
+    graphql: true,
+  };
+  const bump = () => { state.version++; };
+  const nodeOf = (c) => 'PRRC_' + c.id;
+  const rootOf = (c) => { let r = c; while (r.in_reply_to_id) r = state.comments.find((x) => x.id === r.in_reply_to_id) || { ...r, in_reply_to_id: null }; return r; };
+  const withReactions = (c) => {
+    const rs = state.reactions.get(c.id) || [];
+    const out = { ...c, node_id: nodeOf(c), updated_at: c.updated_at || c.created_at, reactions: { total_count: rs.length } };
+    for (const r of rs) out.reactions[r.content] = (out.reactions[r.content] || 0) + 1;
+    return out;
+  };
+  const etagFor = (key) => `"${key}-v${state.version}-${state.comments.length}-${state.issueComments.length}-${state.headSha.slice(0, 4)}"`;
+
   const server = http.createServer((req, res) => {
-    const json = (o, s = 200) => { res.writeHead(s, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
     const u = new URL(req.url, 'http://x');
-    if (req.headers.authorization !== 'Bearer t') return json({ message: 'Bad credentials' }, 401);
-    if (u.pathname === '/repos/acme/docs/pulls/7') {
-      return json({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 7, additions: 130, deletions: 9, comments: 3, review_comments: 6, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: SHA, ref: 'plan' }, base: { ref: 'main', sha: BASE_SHA } });
+    const send = (o, s = 200, headers = {}) => { hits.push(`${req.method} ${u.pathname} -> ${s}`); res.writeHead(s, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(o)); };
+    const json = send;
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => handle(raw));
+    const text = (s, t = 'text/plain') => { hits.push(`${req.method} ${u.pathname} -> 200`); res.writeHead(200, { 'Content-Type': t }); res.end(s); };
+    const cached = (key, body) => {
+      const tag = etagFor(key);
+      if (req.headers['if-none-match'] === tag) { hits.push(`${req.method} ${u.pathname} -> 304`); res.writeHead(304, { ETag: tag }); return res.end(); }
+      return send(body(), 200, { ETag: tag });
+    };
+    const fail = () => {
+      if (state.rateLimited) { json({ message: 'API rate limit exceeded for user ID 1.' }, 403); return true; }
+      return false;
+    };
+
+    function graphql(q, v) {
+      const data = (d) => json({ data: d });
+      const err = (m) => json({ errors: [{ message: m }], data: null });
+      if (!state.graphql) return json({ message: 'GraphQL is not available' }, 403);
+      const pendingNode = () => (state.pending ? [{ id: state.pending.id, databaseId: state.pending.databaseId, viewerDidAuthor: true }] : []);
+      if (q.includes('reviewThreads')) {
+        const roots = state.comments.filter((c) => !c.in_reply_to_id);
+        const nodes = roots.map((r) => {
+          const msgs = state.comments.filter((c) => rootOf(c).id === r.id);
+          return {
+            id: 'PRRT_' + r.id, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
+            comments: { nodes: msgs.map((c) => ({
+              databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
+              reactionGroups: Object.entries(Object.groupBy(state.reactions.get(c.id) || [], (x) => x.content)).map(([content, list]) => ({ content: Object.entries({ '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' }).find(([k]) => k === content)[1], viewerHasReacted: list.some((x) => x.mine), reactors: { totalCount: list.length } })),
+            })) },
+          };
+        });
+        return data({ viewer: { login: 'me' }, repository: { pullRequest: { id: 'PR_7', reviews: { nodes: pendingNode() }, reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
+      }
+      if (q.includes('pullRequest(number:$number){id reviews')) return data({ repository: { pullRequest: { id: 'PR_7', reviews: { nodes: pendingNode() } } } });
+      if (q.includes('addPullRequestReview(')) {
+        if (state.pending) return err('User can only have one pending review per pull request');
+        state.pending = { id: 'PRR_1', databaseId: 55 };
+        ops.push({ op: 'pending.create', sha: v.sha });
+        bump();
+        return data({ addPullRequestReview: { pullRequestReview: state.pending } });
+      }
+      if (q.includes('addPullRequestReviewThread')) {
+        if (!state.pending || v.r !== state.pending.id) return err('Could not resolve to a node with the global id of ' + v.r);
+        if (v.line > 14) return err('Line must be part of the diff');
+        const c = C({ id: ++nextId, path: v.path, line: v.line, side: v.side, body: v.body, user: { login: 'me', avatar_url: AVATAR }, pending: true, created_at: new Date().toISOString() });
+        if (v.sl != null) { c.start_line = v.sl; c.start_side = v.ss; }
+        state.comments.push(c);
+        ops.push({ op: 'pending.add', id: c.id, path: v.path, line: v.line, side: v.side, start_line: v.sl, body: v.body });
+        bump();
+        return data({ addPullRequestReviewThread: { thread: { id: 'PRRT_' + c.id, comments: { nodes: [{ databaseId: c.id }] } } } });
+      }
+      if (q.includes('submitPullRequestReview')) {
+        if (!state.pending) return err('no pending review');
+        for (const c of state.comments) delete c.pending;
+        state.pending = null;
+        posted.push({ event: v.e, body: v.b, via: 'graphql' });
+        ops.push({ op: 'pending.submit', event: v.e, body: v.b });
+        bump();
+        return data({ submitPullRequestReview: { pullRequestReview: { databaseId: 77, url: 'https://github.com/acme/docs/pull/7#pullrequestreview-77', state: v.e === 'COMMENT' ? 'COMMENTED' : v.e } } });
+      }
+      if (q.includes('deletePullRequestReview')) {
+        state.comments = state.comments.filter((c) => !c.pending);
+        state.pending = null;
+        ops.push({ op: 'pending.discard' });
+        bump();
+        return data({ deletePullRequestReview: { pullRequestReview: { id: v.r } } });
+      }
+      if (q.includes('resolveReviewThread') || q.includes('unresolveReviewThread')) {
+        const rid = Number(String(v.id).replace('PRRT_', ''));
+        if (!state.comments.some((c) => c.id === rid)) return err('Could not resolve to a PullRequestReviewThread');
+        const resolve = !q.includes('unresolveReviewThread');
+        if (resolve) state.resolved.add(rid); else state.resolved.delete(rid);
+        ops.push({ op: resolve ? 'resolve' : 'unresolve', thread: v.id });
+        bump();
+        const t = { id: v.id, isResolved: resolve, viewerCanResolve: true, viewerCanUnresolve: true };
+        return data({ [resolve ? 'resolveReviewThread' : 'unresolveReviewThread']: { thread: t } });
+      }
+      if (q.includes('removeReaction')) {
+        const id = Number(String(v.id).replace('PRRC_', ''));
+        const content = { THUMBS_UP: '+1', THUMBS_DOWN: '-1', LAUGH: 'laugh', HOORAY: 'hooray', CONFUSED: 'confused', HEART: 'heart', ROCKET: 'rocket', EYES: 'eyes' }[v.c];
+        state.reactions.set(id, (state.reactions.get(id) || []).filter((r) => !(r.mine && r.content === content)));
+        ops.push({ op: 'unreact', id, content });
+        bump();
+        return data({ removeReaction: { reaction: { content: v.c } } });
+      }
+      return err('unsupported query in the fake');
     }
-    if (u.pathname === `/repos/acme/docs/compare/${BASE_SHA}...${SHA}`) return json({ merge_base_commit: { sha: MERGE_BASE } });
-    if (u.pathname === '/repos/acme/docs/pulls/7/comments') return json(COMMENTS);
-    const rm = /^\/repos\/acme\/docs\/pulls\/7\/comments\/(\d+)\/replies$/.exec(u.pathname);
-    if (rm && req.method === 'POST') {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        const body = JSON.parse(b);
+
+    function handle(rawBody) {
+      if (req.headers.authorization !== 'Bearer t') return json({ message: 'Bad credentials' }, 401);
+      if (u.pathname === '/user') return json({ login: 'me', avatar_url: AVATAR });
+      if (u.pathname === '/graphql' && req.method === 'POST') { const b = JSON.parse(rawBody); return graphql(b.query, b.variables || {}); }
+      let body = {};
+      try { body = rawBody ? JSON.parse(rawBody) : {}; } catch { /* none */ }
+      const isWrite = req.method !== 'GET';
+      if (isWrite && fail()) return;
+
+      if (u.pathname === '/repos/acme/docs/pulls/7' && req.method === 'GET') {
+        return cached('pull', () => ({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 7, additions: 130, deletions: 9, comments: state.issueComments.length, review_comments: state.comments.length, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: state.headSha, ref: 'plan' }, base: { ref: 'main', sha: BASE_SHA } }));
+      }
+      if (u.pathname === `/repos/acme/docs/compare/${BASE_SHA}...${SHA}`) return json({ merge_base_commit: { sha: MERGE_BASE } });
+      if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'GET') {
+        return cached('rc', () => [...state.comments].filter((c) => !c.pending || true).map(withReactions));
+      }
+      if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'POST') {
+        if (state.locked) return json({ message: 'Unable to create comment because issue is locked.' }, 403);
+        if (state.pending) return json({ message: 'Unprocessable Entity', errors: [{ message: 'user_id can only have one pending review per pull request' }] }, 422);
+        if (!body.commit_id || !body.path || !body.body || !(body.line >= 1)) return json({ message: 'Validation Failed', errors: [{ resource: 'PullRequestReviewComment', code: 'missing_field' }] }, 422);
+        if (body.line > 14 || (body.start_line && body.start_line < 1)) return json({ message: 'Unprocessable Entity', errors: [{ resource: 'PullRequestReviewComment', code: 'invalid', field: 'pull_request_review_thread.line', message: 'pull_request_review_thread.line must be part of the diff' }] }, 422);
+        const c = C({ id: ++nextId, path: body.path, line: body.line, side: body.side || 'RIGHT', body: body.body, user: { login: 'me', avatar_url: AVATAR }, original_line: body.line, created_at: new Date().toISOString() });
+        if (body.start_line) { c.start_line = body.start_line; c.start_side = body.start_side; }
+        state.comments.push(c);
+        ops.push({ op: 'comment', id: c.id, ...body });
+        bump();
+        return json(withReactions(c), 201);
+      }
+      let m = /^\/repos\/acme\/docs\/pulls\/comments\/(\d+)$/.exec(u.pathname);
+      if (m) {
+        const c = state.comments.find((x) => x.id === Number(m[1]));
+        if (!c) return json({ message: 'Not Found' }, 404);
+        if (req.method === 'GET') return json(withReactions(c));
+        if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
+        if (req.method === 'PATCH') {
+          if (!body.body) return json({ message: 'Validation Failed', errors: [{ field: 'body', code: 'missing_field' }] }, 422);
+          c.body = body.body; c.updated_at = new Date().toISOString();
+          ops.push({ op: 'edit', id: c.id, body: body.body }); bump();
+          return json(withReactions(c));
+        }
+        if (req.method === 'DELETE') {
+          state.comments = state.comments.filter((x) => x.id !== c.id);
+          ops.push({ op: 'delete', id: c.id }); bump();
+          hits.push(`DELETE ${u.pathname} -> 204`); res.writeHead(204); return res.end();
+        }
+      }
+      m = /^\/repos\/acme\/docs\/(pulls|issues)\/comments\/(\d+)\/reactions$/.exec(u.pathname);
+      if (m && req.method === 'POST') {
+        const id = Number(m[2]);
+        const list = state.reactions.get(id) || [];
+        if (!['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'].includes(body.content)) return json({ message: 'Validation Failed' }, 422);
+        if (!list.some((r) => r.mine && r.content === body.content)) list.push({ content: body.content, mine: true });
+        state.reactions.set(id, list);
+        ops.push({ op: 'react', kind: m[1], id, content: body.content }); bump();
+        return json({ id: 9000 + list.length, content: body.content }, 201);
+      }
+      if (u.pathname === '/repos/acme/docs/issues/7/comments' && req.method === 'GET') return cached('ic', () => state.issueComments.map((c) => ({ ...c, updated_at: c.updated_at || c.created_at })));
+      if (u.pathname === '/repos/acme/docs/issues/7/comments' && req.method === 'POST') {
+        if (state.locked) return json({ message: 'Unable to create comment because issue is locked.' }, 403);
+        const c = { id: ++nextId, node_id: 'IC_' + nextId, user: { login: 'me', avatar_url: AVATAR }, author_association: 'OWNER', created_at: new Date().toISOString(), html_url: 'https://github.com/acme/docs/pull/7#issuecomment-' + nextId, body: body.body };
+        state.issueComments.push(c);
+        ops.push({ op: 'pr-comment', id: c.id, body: body.body }); bump();
+        return json(c, 201);
+      }
+      m = /^\/repos\/acme\/docs\/issues\/comments\/(\d+)$/.exec(u.pathname);
+      if (m) {
+        const c = state.issueComments.find((x) => x.id === Number(m[1]));
+        if (!c) return json({ message: 'Not Found' }, 404);
+        if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
+        if (req.method === 'PATCH') { c.body = body.body; c.updated_at = new Date().toISOString(); ops.push({ op: 'edit-pr-comment', id: c.id, body: body.body }); bump(); return json(c); }
+        if (req.method === 'DELETE') { state.issueComments = state.issueComments.filter((x) => x.id !== c.id); ops.push({ op: 'delete-pr-comment', id: c.id }); bump(); res.writeHead(204); return res.end(); }
+      }
+      const rm = /^\/repos\/acme\/docs\/pulls\/7\/comments\/(\d+)\/replies$/.exec(u.pathname);
+      if (rm && req.method === 'POST') {
+        if (state.locked) return json({ message: 'Unable to create comment because issue is locked.' }, 403);
         replies.push({ to: Number(rm[1]), ...body });
-        json(C({ id: 900 + replies.length, in_reply_to_id: Number(rm[1]), line: 6, user: { login: 'me' }, created_at: '2026-11-20T12:00:00Z', body: body.body }));
-      });
-      return;
-    }
-    if (u.pathname === '/repos/acme/docs/pulls/7/files') {
-      return json([
-        { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 1, patch: PATCH },
-        { filename: 'docs/complex.md', status: 'added', additions: COMPLEX_LINES.length, deletions: 0, patch: COMPLEX_PATCH },
-        { filename: 'docs/diagrams.md', status: 'added', additions: DIAGRAM_LINES.length, deletions: 0, patch: DIAGRAM_PATCH },
-        { filename: 'docs/github.md', status: 'added', additions: GH_LINES.length, deletions: 0, patch: GH_PATCH },
-        { filename: 'docs/removed.md', status: 'modified', additions: 4, deletions: 6, patch: REMOVED_PATCH },
-        { filename: 'src/x.js', status: 'modified', additions: 1, deletions: 0 },
-        { filename: 'docs/old.md', status: 'removed', additions: 0, deletions: 9 },
-      ]);
-    }
-    if (u.pathname === '/repos/acme/docs/contents/docs/img/x.png' && u.searchParams.get('ref') === SHA) {
-      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-      return res.end(PNG);
-    }
-    if (u.searchParams.get('ref') === MERGE_BASE && u.pathname === '/repos/acme/docs/contents/docs/removed.md') { // slow on purpose: a click can land while the first load is still running
-      return setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(REMOVED_OLD); }, 700);
-    }
-    if (u.searchParams.get('ref') === MERGE_BASE && u.pathname === '/repos/acme/docs/contents/docs/plan.md') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(PLAN_OLD); }
-    if (u.pathname === '/repos/acme/docs/contents/docs/removed.md' && u.searchParams.get('ref') === SHA) { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(REMOVED_NEW); }
-    if (u.pathname === '/repos/acme/docs/contents/docs/github.md' && u.searchParams.get('ref') === SHA) {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end(GITHUBMD);
-    }
-    if (u.pathname === '/repos/acme/docs/contents/docs/diagrams.md' && u.searchParams.get('ref') === SHA) {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end(DIAGRAMS);
-    }
-    if (u.pathname === '/repos/acme/docs/contents/docs/complex.md' && u.searchParams.get('ref') === SHA) {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end(COMPLEX);
-    }
-    if (u.pathname === '/repos/acme/docs/contents/docs/plan.md' && u.searchParams.get('ref') === SHA) {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end(FILE);
-    }
-    if (u.pathname === '/repos/acme/docs/pulls/7/reviews' && req.method === 'POST') {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        const body = JSON.parse(b);
+        const c = C({ id: ++nextId, in_reply_to_id: Number(rm[1]), line: 6, user: { login: 'me', avatar_url: AVATAR }, created_at: '2026-11-20T12:00:00Z', body: body.body });
+        state.comments.push(c); bump();
+        return json(withReactions(c), 201);
+      }
+      if (u.pathname === '/repos/acme/docs/pulls/7/files') {
+        return json([
+          { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 1, patch: PATCH },
+          { filename: 'docs/complex.md', status: 'added', additions: COMPLEX_LINES.length, deletions: 0, patch: COMPLEX_PATCH },
+          { filename: 'docs/diagrams.md', status: 'added', additions: DIAGRAM_LINES.length, deletions: 0, patch: DIAGRAM_PATCH },
+          { filename: 'docs/github.md', status: 'added', additions: GH_LINES.length, deletions: 0, patch: GH_PATCH },
+          { filename: 'docs/removed.md', status: 'modified', additions: 4, deletions: 6, patch: REMOVED_PATCH },
+          { filename: 'src/x.js', status: 'modified', additions: 1, deletions: 0 },
+          { filename: 'docs/old.md', status: 'removed', additions: 0, deletions: 9 },
+        ]);
+      }
+      if (u.pathname === '/repos/acme/docs/contents/docs/img/x.png' && u.searchParams.get('ref') === SHA) {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        return res.end(PNG);
+      }
+      if (u.searchParams.get('ref') === MERGE_BASE && u.pathname === '/repos/acme/docs/contents/docs/removed.md') { // slow on purpose: a click can land while the first load is still running
+        return setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(REMOVED_OLD); }, 700);
+      }
+      if (u.searchParams.get('ref') === MERGE_BASE && u.pathname === '/repos/acme/docs/contents/docs/plan.md') return text(PLAN_OLD);
+      const files = { 'removed.md': REMOVED_NEW, 'github.md': GITHUBMD, 'diagrams.md': DIAGRAMS, 'complex.md': COMPLEX, 'plan.md': FILE };
+      const fm = /^\/repos\/acme\/docs\/contents\/docs\/([\w.]+)$/.exec(u.pathname);
+      if (fm && files[fm[1]] !== undefined && u.searchParams.get('ref') === SHA) return text(files[fm[1]]);
+      if (u.pathname === '/repos/acme/docs/pulls/7/reviews' && req.method === 'POST') {
+        if (state.pending) return json({ message: 'Unprocessable Entity', errors: ['User can only have one pending review per pull request'] }, 422);
         if (body.comments?.some((c) => c.line > 14)) return json({ message: 'Unprocessable Entity', errors: ['line must be part of the diff'] }, 422);
         posted.push(body);
-        json({ id: 1, html_url: 'https://github.com/acme/docs/pull/7#pullrequestreview-1', state: 'COMMENTED' });
-      });
-      return;
+        return json({ id: 1, html_url: 'https://github.com/acme/docs/pull/7#pullrequestreview-1', state: 'COMMENTED' });
+      }
+      json({ message: 'Not Found ' + u.pathname }, 404);
     }
-    json({ message: 'Not Found ' + u.pathname }, 404);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  return { port: server.address().port, posted, replies, close: () => new Promise((r) => server.close(r)) };
+  return {
+    port: server.address().port, posted, replies, ops, hits, state, close: () => new Promise((r) => server.close(r)),
+    /** simulate another person commenting on the PR */
+    addComment: (o) => { state.comments.push(C({ id: ++nextId, created_at: new Date().toISOString(), ...o })); bump(); return nextId; },
+    pushCommit: (sha) => { state.headSha = sha; bump(); },
+  };
 }

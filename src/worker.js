@@ -89,7 +89,7 @@ async function callback(request, env, url) {
 // Preview mode: signed-out visitors can read PUBLIC pull requests (never post). Requests use the optional PREVIEW_TOKEN
 // secret (a token with no private access, only to lift GitHub's anonymous rate limit) or none, and good responses are
 // cached at the edge for a minute so many visitors share one GitHub call.
-const PREVIEW_GET = new Set(['/api/pr', '/api/file', '/api/raw']);
+const PREVIEW_GET = new Set(['/api/pr', '/api/file', '/api/raw', '/api/comments']);
 const PREVIEW_HINT = ' Preview mode only reads public repositories; sign in with GitHub for private ones.';
 
 async function preview(env, request, url) {
@@ -98,7 +98,7 @@ async function preview(env, request, url) {
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   const key = new Request(url.toString(), { method: 'GET' });
   if (cache) { const hit = await cache.match(key); if (hit) return hit; }
-  const github = createGithub({ apiUrl: env.GITHUB_API_URL || 'https://api.github.com', getToken: () => env.PREVIEW_TOKEN || '' });
+  const github = createGithub({ apiUrl: env.GITHUB_API_URL || 'https://api.github.com', getToken: () => env.PREVIEW_TOKEN || '', readOnly: true });
   const res = await github.route('GET', url, async () => ({}));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -122,7 +122,7 @@ async function preview(env, request, url) {
 
 async function api(request, env, url) {
   // cross-site requests and forged POSTs: a custom header forces a CORS preflight, and Origin must match
-  if (request.method === 'POST') {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
     const origin = request.headers.get('Origin');
     if (request.headers.get('X-Rico') !== '1' || (origin && origin !== url.origin)) return json(403, { error: 'forbidden' });
   }

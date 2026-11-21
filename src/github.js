@@ -31,15 +31,52 @@ const compact = (c) => ({
   url: c.html_url,
   avatar: c.user?.avatar_url || null,
   assoc: c.author_association || null,
+  nodeId: c.node_id || null,
+  updatedAt: c.updated_at || c.created_at || null,
+  reactions: restReactions(c.reactions),
 });
 
+// GitHub's reaction names: REST uses '+1', GraphQL uses THUMBS_UP.
+export const REACTIONS = { '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' };
+const REACTION_REST = Object.fromEntries(Object.entries(REACTIONS).map(([k, v]) => [v, k]));
+function restReactions(r) {
+  if (!r) return [];
+  return Object.keys(REACTIONS).filter((k) => r[k] > 0).map((k) => ({ content: k, count: r[k], mine: false }));
+}
+
+const compactIssue = (c) => ({
+  id: c.id,
+  user: c.user?.login || 'ghost',
+  body: c.body || '',
+  createdAt: c.created_at,
+  updatedAt: c.updated_at || c.created_at,
+  url: c.html_url,
+  avatar: c.user?.avatar_url || null,
+  assoc: c.author_association || null,
+  nodeId: c.node_id || null,
+  reactions: restReactions(c.reactions),
+});
+
+const PENDING_Q = `query($owner:String!,$repo:String!,$number:Int!){
+  repository(owner:$owner,name:$repo){pullRequest(number:$number){id reviews(first:5,states:PENDING){nodes{id databaseId viewerDidAuthor}}}}}`;
+
+const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
+  viewer{login}
+  repository(owner:$owner,name:$repo){pullRequest(number:$number){
+    id
+    reviews(first:5,states:PENDING){nodes{id databaseId viewerDidAuthor}}
+    reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
+      nodes{id isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
+        comments(first:100){nodes{databaseId state viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
+  }}}`;
+
 /**
- * @param {{ getToken: () => string, apiUrl?: string }} opts  getToken may throw an HttpError(401) when signed out.
+ * @param {{ getToken: () => string, apiUrl?: string, readOnly?: boolean }} opts  readOnly: preview mode, never use the token's own permissions or pending reviews.  getToken may throw an HttpError(401) when signed out.
  */
-export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
+export function createGithub({ getToken, apiUrl = 'https://api.github.com', readOnly = false }) {
   const API = apiUrl.replace(/\/$/, '');
 
-  async function gh(apiPath, { method = 'GET', body, accept, binary = false } = {}) {
+  async function gh(apiPath, { method = 'GET', body, accept, binary = false, etag, raw = false } = {}) {
     const res = await fetch(API + apiPath, {
       method,
       headers: {
@@ -48,9 +85,11 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
         'X-GitHub-Api-Version': '2022-11-28',
         'User-Agent': 'rico',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(etag ? { 'If-None-Match': etag } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    if (raw && res.status === 304) return { status: 304, etag, text: '' };
     const buf = binary && res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
     const text = binary && res.ok ? '' : await res.text();
     if (!res.ok) {
@@ -65,7 +104,16 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
       const keep = [401, 403, 404, 422].includes(res.status);
       throw new HttpError(keep ? res.status : 502, `GitHub: ${msg}`);
     }
+    if (raw) return { status: res.status, etag: res.headers.get('ETag') || '', text };
     return binary ? buf : text;
+  }
+  async function gql(query, variables) {
+    const out = JSON.parse(await gh('/graphql', { method: 'POST', body: { query, variables } }));
+    if (out.errors?.length) { // GraphQL reports refusals in the body, not the status
+      const msg = out.errors.map((e) => e.message).join('; ');
+      throw new HttpError(/not accessible|forbidden|permission|locked/i.test(msg) ? 403 : 422, 'GitHub: ' + msg);
+    }
+    return out.data;
   }
   const ghJson = async (p, o) => JSON.parse(await gh(p, o));
 
@@ -79,6 +127,70 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
   async function apiMe() {
     const u = await ghJson('/user');
     return { login: u.login, avatar: u.avatar_url || null };
+  }
+
+  async function pages(p) {
+    const all = [];
+    for (let page = 1; page <= 30; page++) {
+      const batch = await ghJson(`${p}${p.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
+      all.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return all;
+  }
+
+  /** Review threads, the viewer's pending review and per-comment permissions, via GraphQL (null when unavailable). */
+  async function graph(owner, repo, number) {
+    if (readOnly || !getToken()) return null;
+    try {
+      const threads = [];
+      let pending = null;
+      let viewer = null;
+      let prId = null;
+      let after = null;
+      for (let i = 0; i < 5; i++) {
+        const d = await gql(THREADS_Q, { owner, repo, number, after });
+        const pr = d.repository.pullRequest;
+        viewer = d.viewer.login;
+        prId = pr.id;
+        pending = pending || pr.reviews.nodes.find((r) => r.viewerDidAuthor) || null;
+        threads.push(...pr.reviewThreads.nodes);
+        if (!pr.reviewThreads.pageInfo.hasNextPage) break;
+        after = pr.reviewThreads.pageInfo.endCursor;
+      }
+      return { viewer, prId, pending, threads };
+    } catch {
+      return null; // GraphQL blocked or unavailable: fall back to what REST can tell us
+    }
+  }
+
+  /** Review comments (markdown files only), PR-level comments, and who may do what with them. */
+  async function loadComments(owner, repo, number) {
+    const base = `/repos/${owner}/${repo}`;
+    const [rc, ic, g] = await Promise.all([pages(`${base}/pulls/${number}/comments`), pages(`${base}/issues/${number}/comments`).catch(() => []), graph(owner, repo, number)]);
+    let viewer = g?.viewer || null;
+    if (!viewer && !readOnly && getToken()) viewer = await apiMe().then((m) => m.login).catch(() => null);
+    const caps = new Map();
+    const threadOf = new Map();
+    for (const t of g?.threads || []) {
+      const first = t.comments.nodes[0]?.databaseId;
+      if (first) threadOf.set(first, { id: t.id, resolved: t.isResolved, canResolve: t.viewerCanResolve, canUnresolve: t.viewerCanUnresolve, canReply: t.viewerCanReply });
+      for (const n of t.comments.nodes) caps.set(n.databaseId, n);
+    }
+    const comments = rc.filter((c) => MD_RE.test(c.path || '')).map((c) => {
+      const out = compact(c);
+      const n = caps.get(c.id);
+      out.canUpdate = n ? n.viewerCanUpdate : !!viewer && out.user === viewer;
+      out.canDelete = n ? n.viewerCanDelete : !!viewer && out.user === viewer;
+      if (n) {
+        out.pending = n.state === 'PENDING';
+        out.reactions = n.reactionGroups.filter((r) => r.reactors.totalCount > 0).map((r) => ({ content: REACTION_REST[r.content], count: r.reactors.totalCount, mine: r.viewerHasReacted }));
+      }
+      if (threadOf.has(c.id)) out.thread = threadOf.get(c.id);
+      return out;
+    });
+    const prComments = ic.map((c) => ({ ...compactIssue(c), canUpdate: !!viewer && (c.user?.login === viewer), canDelete: !!viewer && (c.user?.login === viewer) }));
+    return { comments, prComments, viewer, pendingReview: g?.pending ? { id: g.pending.id, databaseId: g.pending.databaseId } : null, canThread: !!g };
   }
 
   async function apiPr(q) {
@@ -99,17 +211,12 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
       const cmp = await ghJson(`/repos/${owner}/${repo}/compare/${pull.base.sha}...${pull.head.sha}?per_page=1`);
       if (cmp.merge_base_commit?.sha) baseSha = cmp.merge_base_commit.sha;
     } catch { /* fall back to the base sha */ }
-    const comments = [];
-    for (let page = 1; page <= 30; page++) {
-      const batch = await ghJson(`${base}/comments?per_page=100&page=${page}`);
-      comments.push(...batch);
-      if (batch.length < 100) break;
-    }
+    const loaded = await loadComments(owner, repo, number);
     return {
       owner,
       repo,
       number,
-      comments: comments.filter((c) => MD_RE.test(c.path || '')).map(compact),
+      ...loaded,
       isPrivate: !!pull.base?.repo?.private,
       title: pull.title,
       state: pull.state,
@@ -181,6 +288,140 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
     return compact(out);
   }
 
+
+  // ---- writes: every one is a POST from the browser, the token stays here ----
+  const SIDES = ['LEFT', 'RIGHT'];
+  function ref(body) {
+    const { owner, repo, number } = body || {};
+    if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number)) throw new HttpError(400, 'bad request');
+    return { owner, repo, number };
+  }
+  function text(body) {
+    if (typeof body !== 'string' || !body.trim() || body.length > 65536) throw new HttpError(400, 'empty or too long comment');
+    return body;
+  }
+  /** Allow-list a review-comment payload: only what GitHub's API takes for a line comment. */
+  function lineComment(c) {
+    if (!c || typeof c.path !== 'string' || !c.path || c.path.includes('..') || !Number.isInteger(c.line) || c.line < 1 || !/^[0-9a-f]{7,64}$/i.test(c.commit_id || '')) throw new HttpError(400, 'bad comment');
+    const side = SIDES.includes(c.side) ? c.side : 'RIGHT';
+    const out = { commit_id: c.commit_id, path: c.path, line: c.line, side, body: text(c.body) };
+    if (c.start_line != null) {
+      if (!Number.isInteger(c.start_line) || c.start_line < 1 || c.start_line >= c.line) throw new HttpError(400, 'bad range');
+      out.start_line = c.start_line;
+      out.start_side = SIDES.includes(c.start_side) ? c.start_side : side;
+    }
+    return out;
+  }
+  const cid = (b) => { if (!Number.isInteger(b?.commentId)) throw new HttpError(400, 'bad comment id'); return b.commentId; };
+  const kindPath = (b) => (b?.kind === 'issue' ? 'issues' : 'pulls');
+
+  async function apiComment(b) {
+    const { owner, repo, number } = ref(b);
+    return compact(await ghJson(`/repos/${owner}/${repo}/pulls/${number}/comments`, { method: 'POST', body: lineComment(b.comment) }));
+  }
+  async function apiPrComment(b) {
+    const { owner, repo, number } = ref(b);
+    return compactIssue(await ghJson(`/repos/${owner}/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: text(b.text) } }));
+  }
+  async function apiEdit(b) {
+    const { owner, repo } = ref(b);
+    const out = await ghJson(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${cid(b)}`, { method: 'PATCH', body: { body: text(b.text) } });
+    return b.kind === 'issue' ? compactIssue(out) : compact(out);
+  }
+  async function apiDelete(b) {
+    const { owner, repo } = ref(b);
+    await gh(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${cid(b)}`, { method: 'DELETE' });
+    return { ok: true };
+  }
+  async function apiResolve(b) {
+    if (typeof b?.threadId !== 'string' || !/^[\w=-]{4,100}$/.test(b.threadId)) throw new HttpError(400, 'bad thread id');
+    const op = b.resolved ? 'resolveReviewThread' : 'unresolveReviewThread';
+    const d = await gql(`mutation($id:ID!){${op}(input:{threadId:$id}){thread{id isResolved viewerCanResolve viewerCanUnresolve}}}`, { id: b.threadId });
+    const t = d[op].thread;
+    return { id: t.id, resolved: t.isResolved, canResolve: t.viewerCanResolve, canUnresolve: t.viewerCanUnresolve };
+  }
+  async function apiReact(b) {
+    const { owner, repo } = ref(b);
+    if (!Object.hasOwn(REACTIONS, b?.content)) throw new HttpError(400, 'bad reaction');
+    const id = cid(b);
+    if (b.remove) { // un-react by node id (REST would need the reaction's own id)
+      if (typeof b.nodeId !== 'string' || !/^[\w=-]{4,100}$/.test(b.nodeId)) throw new HttpError(400, 'bad node id');
+      await gql('mutation($id:ID!,$c:ReactionContent!){removeReaction(input:{subjectId:$id,content:$c}){reaction{content}}}', { id: b.nodeId, c: REACTIONS[b.content] });
+      return { ok: true };
+    }
+    await gh(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${id}/reactions`, { method: 'POST', body: { content: b.content } });
+    return { ok: true };
+  }
+
+  // ---- a real GitHub pending review (GraphQL): "Start a review" / "Finish review" ----
+  async function pendingState(owner, repo, number) {
+    const g = await gql(PENDING_Q, { owner, repo, number }).catch(() => null);
+    const pr = g?.repository?.pullRequest;
+    if (!pr) throw new HttpError(502, 'GitHub: could not read the pull request (GraphQL)');
+    return { prId: pr.id, review: pr.reviews.nodes.find((r) => r.viewerDidAuthor) || null };
+  }
+  async function apiPendingAdd(b) {
+    const { owner, repo, number } = ref(b);
+    const c = lineComment(b.comment);
+    let { prId, review } = await pendingState(owner, repo, number);
+    if (!review) { // GitHub allows one pending review per user per PR: reuse it when there is one
+      const d = await gql('mutation($pr:ID!,$sha:GitObjectID){addPullRequestReview(input:{pullRequestId:$pr,commitOID:$sha}){pullRequestReview{id databaseId}}}', { pr: prId, sha: c.commit_id });
+      review = d.addPullRequestReview.pullRequestReview;
+    }
+    const d = await gql(
+      `mutation($r:ID!,$path:String!,$line:Int!,$side:DiffSide!,$sl:Int,$ss:DiffSide,$body:String!){
+        addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{id comments(first:1){nodes{databaseId}}}}}`,
+      { r: review.id, path: c.path, line: c.line, side: c.side, sl: c.start_line ?? null, ss: c.start_side ?? null, body: c.body },
+    );
+    const dbid = d.addPullRequestReviewThread.thread.comments.nodes[0].databaseId;
+    const out = compact(await ghJson(`/repos/${owner}/${repo}/pulls/comments/${dbid}`));
+    out.pending = true;
+    out.canUpdate = out.canDelete = true;
+    return { comment: out, review: { id: review.id, databaseId: review.databaseId ?? null } };
+  }
+  async function apiPendingFinish(b) {
+    const { owner, repo, number } = ref(b);
+    const event = b?.event;
+    if (!['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(event)) throw new HttpError(400, 'bad event');
+    const body = typeof b.body === 'string' ? b.body : '';
+    const { review } = await pendingState(owner, repo, number);
+    if (!review) { // nothing pending: a verdict on its own is a plain review
+      const out = await ghJson(`/repos/${owner}/${repo}/pulls/${number}/reviews`, { method: 'POST', body: { event, ...(body.trim() ? { body } : {}) } });
+      return { id: out.id, url: out.html_url, state: out.state };
+    }
+    const d = await gql('mutation($r:ID!,$e:PullRequestReviewEvent!,$b:String){submitPullRequestReview(input:{pullRequestReviewId:$r,event:$e,body:$b}){pullRequestReview{databaseId url state}}}', { r: review.id, e: event, b: body });
+    const r = d.submitPullRequestReview.pullRequestReview;
+    return { id: r.databaseId, url: r.url, state: r.state };
+  }
+  async function apiPendingDiscard(b) {
+    const { owner, repo, number } = ref(b);
+    const { review } = await pendingState(owner, repo, number);
+    if (review) await gql('mutation($r:ID!){deletePullRequestReview(input:{pullRequestReviewId:$r}){pullRequestReview{id}}}', { r: review.id });
+    return { ok: true };
+  }
+
+  // ---- live refresh: conditional requests, so an unchanged PR costs nothing against the rate limit ----
+  async function apiRefresh(q) {
+    const { owner, repo } = repoParams(q);
+    const number = Number(q.get('number'));
+    if (!Number.isInteger(number) || number < 1) throw new HttpError(400, 'bad number');
+    let known = {};
+    try { known = JSON.parse(q.get('etags') || '{}') || {}; } catch { /* first poll */ }
+    const base = `/repos/${owner}/${repo}`;
+    const probes = {
+      pull: `${base}/pulls/${number}`,
+      rc: `${base}/pulls/${number}/comments?per_page=100&sort=updated&direction=desc`,
+      ic: `${base}/issues/${number}/comments?per_page=100`,
+    };
+    const got = {};
+    await Promise.all(Object.entries(probes).map(async ([k, p]) => { got[k] = await gh(p, { raw: true, etag: typeof known[k] === 'string' ? known[k] : undefined }); }));
+    const etags = Object.fromEntries(Object.entries(got).map(([k, r]) => [k, r.etag || '']));
+    if (Object.values(got).every((r) => r.status === 304)) return { unchanged: true, etags };
+    const out = { unchanged: false, etags, ...(await loadComments(owner, repo, number)) };
+    if (got.pull.status !== 304) out.headSha = JSON.parse(got.pull.text).head?.sha || null;
+    return out;
+  }
+
   /**
    * Route one /api request. Returns a Response (so the Node server and the Worker share all of this).
    * `readBody` parses the JSON body of a POST.
@@ -198,6 +439,9 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
       if (method === 'GET' && p === '/api/file') return new Response(await apiFile(url.searchParams), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
       if (method === 'POST' && p === '/api/review') return j(200, await apiReview(await readBody()));
       if (method === 'POST' && p === '/api/reply') return j(200, await apiReply(await readBody()));
+      if (method === 'GET' && p === '/api/comments') return j(200, await apiRefresh(url.searchParams));
+      const posts = { '/api/comment': apiComment, '/api/pr-comment': apiPrComment, '/api/comment/edit': apiEdit, '/api/comment/delete': apiDelete, '/api/thread/resolve': apiResolve, '/api/reaction': apiReact, '/api/pending/add': apiPendingAdd, '/api/pending/finish': apiPendingFinish, '/api/pending/discard': apiPendingDiscard };
+      if (method === 'POST' && Object.hasOwn(posts, p)) return j(200, await posts[p](await readBody()));
       throw new HttpError(404, 'not found');
     } catch (e) {
       return j(e.status || 500, { error: e.message || String(e), ...(e.extra || {}) });
