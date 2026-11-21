@@ -2404,7 +2404,13 @@ function getMarkdownDimensions(mtexts, ruler, t, fontFamily, monoFontFamily) {
   if (dims) return [dims, null];
 
   if (ruler) {
-    const [width, height] = measureMarkdown(t.text, ruler, fontFamily, monoFontFamily, t.fontSize);
+    let width, height;
+    try {
+      [width, height] = measureMarkdown(t.text, ruler, fontFamily, monoFontFamily, t.fontSize);
+    } catch (e) {
+      if (e && e.name === 'MarkdownError') return [null, e.message];
+      throw e;
+    }
     return [new d2target.TextDimensions(width, height), null];
   }
 

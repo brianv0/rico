@@ -64,82 +64,44 @@ class TTFont {
   }
 }
 
-// GlyphBuf.Load with font.HintingNone. State: bbox of points, phantom point X values, pp1x, metricsSet.
+// font.Face.GlyphBounds of D2 v0.9.0's metricPreservingFace (lib/textmeasure/fontface.go), which calls
+// golang.org/x/image/font/sfnt Font.GlyphBounds: the bounds are those of the glyph's outline points (compound glyphs: each
+// component's points transformed (2.14 fixed point) and translated by the component offset, all in font units), scaled once at
+// the end; the advance is the hmtx advance scaled; USE_MY_METRICS and ROUND_XY_TO_GRID are ignored.
 function loadGlyph(f, scale, idx) {
-  const g = { pts: null, phantom: [0, 0], pp1x: 0, metricsSet: false };
+  // sfnt.scale: x divided by unitsPerEm, rounded to the nearest integer (half away from zero)
+  const sc = (x) => f.scale(x);
 
-  const addPts = (b) => {
-    if (!b) return;
-    if (!g.pts) g.pts = b.slice();
-    else {
-      g.pts[0] = Math.min(g.pts[0], b[0]); g.pts[1] = Math.max(g.pts[1], b[1]);
-      g.pts[2] = Math.min(g.pts[2], b[2]); g.pts[3] = Math.max(g.pts[3], b[3]);
-    }
-  };
-
-  const load = (recursion, i, useMyMetrics) => {
-    if (recursion >= 32) throw new Error('freetype: unsupported TrueType feature: excessive compound glyph recursion');
+  // Segments' bounds in font units: [minX, maxX, minY, maxY] or null (no points)
+  const units = (i, recursion) => {
+    if (recursion >= 32) throw new Error('sfnt: unsupported compound glyph');
     const rec = f.glyphs[i];
-    const empty = !!rec.e;
-    const boundsXMin = empty ? 0 : rec.x;
-    g.phantom = [boundsXMin - rec.l, boundsXMin - rec.l + rec.a];
-    if (empty) {
-      g.phantom = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-      return;
-    }
-    let pp1x = 0;
-    if (rec.c) {
-      pp1x = f.scale(scale * (boundsXMin - rec.l));
-      loadCompound(recursion, rec, useMyMetrics);
-    } else {
-      if (rec.b) addPts([f.scale(scale * rec.b[0]), f.scale(scale * rec.b[1]), f.scale(scale * rec.b[2]), f.scale(scale * rec.b[3])]);
-      const pp = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-      pp1x = pp[0];
-      if (useMyMetrics) g.phantom = pp;
-    }
-    if (useMyMetrics && !g.metricsSet) {
-      g.metricsSet = true;
-      g.pp1x = pp1x;
-    }
-  };
-
-  const loadCompound = (recursion, rec, useMyMetrics) => {
+    if (rec.e) return null;
+    if (!rec.c) return rec.b ? rec.b.slice() : null;
+    let out = null;
     for (const c of rec.c) {
-      const savedPP = g.phantom;
-      const saved = g.pts;
-      g.pts = null;
-      const componentUMM = useMyMetrics && !!c.u;
-      load(recursion + 1, c.g, componentUMM);
-      if (!c.u) g.phantom = savedPP;
-      let comp = g.pts;
-      if (c.t && comp) {
+      let b = units(c.g, recursion + 1);
+      if (b === null) continue;
+      if (c.t) {
         if (c.t[1] !== 0 || c.t[2] !== 0) throw new Error('textmeasure: non-diagonal component transform is not supported');
-        const tx = (x) => Math.floor((x * c.t[0] + (1 << 13)) / 16384);
-        const ty = (y) => Math.floor((y * c.t[3] + (1 << 13)) / 16384);
-        const xs = [tx(comp[0]), tx(comp[1])];
-        const ys = [ty(comp[2]), ty(comp[3])];
-        comp = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+        const tx = (x) => c.dx + Math.floor((x * c.t[0] + (1 << 13)) / 16384);
+        const ty = (y) => c.dy + Math.floor((y * c.t[3] + (1 << 13)) / 16384);
+        const xs = [tx(b[0]), tx(b[1])];
+        const ys = [ty(b[2]), ty(b[3])];
+        b = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      } else {
+        b = [b[0] + c.dx, b[1] + c.dx, b[2] + c.dy, b[3] + c.dy];
       }
-      let dx = f.scale(scale * c.dx);
-      let dy = f.scale(scale * c.dy);
-      if (c.r) {
-        dx = (dx + 32) & ~63;
-        dy = (dy + 32) & ~63;
-      }
-      g.pts = saved;
-      if (comp) addPts([comp[0] + dx, comp[1] + dx, comp[2] + dy, comp[3] + dy]);
+      if (out === null) out = b;
+      else out = [Math.min(out[0], b[0]), Math.max(out[1], b[1]), Math.min(out[2], b[2]), Math.max(out[3], b[3])];
     }
-    // addPhantomsAndScale(np0, len(Points), false, ...): scales the phantom points (again, if a component set them)
-    const sp = [f.scale(scale * g.phantom[0]), f.scale(scale * g.phantom[1])];
-    if (!g.metricsSet) g.phantom = sp;
+    return out;
   };
 
-  load(0, idx, true);
-  const pp1x = g.pp1x;
-  const advanceWidth = g.phantom[1] - g.phantom[0];
-  let bounds; // [minX, minY, maxX, maxY]
-  if (!g.pts) bounds = [0, 0, 0, 0];
-  else bounds = [g.pts[0] - pp1x, g.pts[2], g.pts[1] - pp1x, g.pts[3]];
+  const advanceWidth = sc(f.glyphs[idx].a * scale);
+  const u = units(idx, 0);
+  // Segments.Bounds is the zero rectangle for no segments; the scaled Y axis is flipped
+  const bounds = u === null ? [0, 0, 0, 0] : [sc(u[0] * scale), -sc(u[3] * scale), sc(u[1] * scale), -sc(u[2] * scale)];
   return { advanceWidth, bounds };
 }
 
@@ -185,8 +147,7 @@ function fUnion(r, s) {
 class Face {
   constructor(ttf, size) {
     this.f = ttf;
-    const sz = size > 0 ? size : 12;
-    this.scale = Math.trunc(0.5 + (sz * 72 * 64 / 72));
+    this.scale = Math.trunc(0.5 + size * 64);
     this.cache = new Map();
   }
   metrics() {
@@ -462,6 +423,49 @@ export class Ruler {
     return w;
   }
 
+  /**
+   * scaleUnicodeLegacy preserves the approximation historically used by D2's Markdown box measurement while filtering
+   * controls that browsers do not advance. (Native painting uses scaleUnicodeCSS, which belongs to the SVG renderer.)
+   */
+  scaleUnicodeLegacy(w, fontSpec, s) {
+    const t = this;
+    if (graphemeClusterCount(s) === utf8Len(s)) return w;
+    // Preserve the old fallback algorithm (including its original ink width)
+    // after removing controls that Blink gives no advance. Uniseg can attach
+    // such a control to a visible narrow base (for example x + ZWJ), so filtering
+    // only wholly invisible clusters still leaves an atlas replacement glyph.
+    // Keep wide emoji/CJK clusters intact: their variation selectors, tags, and
+    // joiners can determine the browser's glyph and terminal-cell width.
+    const [measurementText, filteredIgnorables] = legacyMeasurementText(s);
+    if (filteredIgnorables) w = 0;
+    for (const line of measurementText.split('\n')) {
+      let [lineW] = t.measurePrecise(fontSpec, line);
+      const lineFloor = lineW;
+      const graphemes = new Graphemes(line);
+      const mono = d2fonts.font(d2fonts.SourceCodePro, fontSpec.Size, fontSpec.Style);
+      while (graphemes.next()) {
+        if (graphemes.width() === 1) continue;
+        let previous = 0;
+        let dot = t.Orig.copy();
+        let bounds = newRect();
+        for (const r of graphemes.runes()) {
+          let control;
+          [dot, control] = t.controlRune(r, dot, fontSpec);
+          if (control) continue;
+          let glyphBounds;
+          [, , glyphBounds, dot] = t.atlases.get(d2fonts.fontKey(fontSpec)).drawRune(previous, r, dot);
+          bounds = bounds.union(glyphBounds);
+          previous = r;
+        }
+        lineW -= bounds.w();
+        lineW += t.spaceWidth(mono) * graphemes.width();
+      }
+      if (filteredIgnorables) lineW = Math.max(lineW, lineFloor);
+      w = Math.max(w, lineW);
+    }
+    return w;
+  }
+
   measureMono(font, s) {
     const originalBoundsWithDot = this.boundsWithDot;
     this.boundsWithDot = true;
@@ -662,6 +666,69 @@ export function setMarkdownIt(markdownit) {
   markdownRenderer = md;
 }
 
+// ---- Unicode helpers of scaleUnicodeLegacy (textmeasure.go) ----
+
+// Go's unicode tables (Unicode 17.0.0) that JS regular expressions do not offer
+const otherDefaultIgnorable = [[0x034f, 0x034f], [0x115f, 0x1160], [0x17b4, 0x17b5], [0x2065, 0x2065], [0x3164, 0x3164], [0xffa0, 0xffa0],
+  [0xfff0, 0xfff8], [0xe0000, 0xe0000], [0xe0002, 0xe001f], [0xe0080, 0xe00ff], [0xe01f0, 0xe0fff]];
+const prependedConcatenationMark = [[0x0600, 0x0605], [0x06dd, 0x06dd], [0x070f, 0x070f], [0x0890, 0x0891], [0x08e2, 0x08e2],
+  [0x110bd, 0x110bd], [0x110cd, 0x110cd]];
+const inRanges = (r, ranges) => ranges.some(([lo, hi]) => lo <= r && r <= hi);
+const reCf = /^\p{Cf}$/u;
+const reVariationSelector = /^\p{Variation_Selector}$/u;
+
+function isDefaultIgnorableRune(r) {
+  // Blink gives most format controls and variation selectors no advance, but
+  // renders several controls and Unicode "default ignorables" through fallback
+  // fonts. Follow that observed behavior instead of erasing the whole derived
+  // Unicode property.
+  if (r === 0x00ad || // conditional; handled by line wrapping
+    r === 0x180f || // Mongolian free variation selector four has fallback ink in Blink
+    r === 0x3164 || r === 0xffa0 || // visibly advancing Hangul fillers
+    (r >= 0xfff9 && r <= 0xfffb) || // interlinear annotations
+    (r >= 0x13430 && r <= 0x1343f) || // Egyptian hieroglyph format controls
+    (r >= 0x1bca0 && r <= 0x1bca3) || // visibly advancing shorthand controls
+    inRanges(r, prependedConcatenationMark) ||
+    isSpace(r)) {
+    return false;
+  }
+  const ch = String.fromCodePoint(r);
+  return reCf.test(ch) || inRanges(r, otherDefaultIgnorable) || reVariationSelector.test(ch);
+}
+
+function isDefaultIgnorableGrapheme(s) {
+  for (const ch of s) {
+    if (!isDefaultIgnorableRune(ch.codePointAt(0))) return false;
+  }
+  return s !== '';
+}
+
+function legacyMeasurementText(s) {
+  let out = '';
+  let filtered = false;
+  const graphemes = new Graphemes(s);
+  while (graphemes.next()) {
+    const cluster = String.fromCodePoint(...graphemes.runes());
+    if (isDefaultIgnorableGrapheme(cluster)) {
+      filtered = true;
+      continue;
+    }
+    if (graphemes.width() !== 1) {
+      out += cluster;
+      continue;
+    }
+    for (const ch of cluster) {
+      if (isDefaultIgnorableRune(ch.codePointAt(0))) {
+        filtered = true;
+        continue;
+      }
+      out += ch;
+    }
+  }
+  if (!filtered) return [s, false];
+  return [out, true];
+}
+
 export function sanitizeLinks(input) {
   const re = /href="([^"]*)"/g;
   return input.replace(re, (href, value) => {
@@ -731,10 +798,33 @@ export function headerToFontSize(baseFontSize, header) {
   return 0;
 }
 
-/** MeasureMarkdown: [width, height] ints */
+/** The error of validateMarkdownSVGNodes: D2 v0.9.0 paints Markdown as native SVG, which supports a subset of HTML. */
+export class MarkdownError extends Error {
+  constructor(message) { super(message); this.name = 'MarkdownError'; }
+}
+
+const markdownSVGElements = new Set(['html', 'head', 'body',
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'blockquote', 'ul', 'ol', 'li', 'pre', 'code',
+  'em', 'b', 'strong', 'del', 's', 'strike', 'a', 'br', 'hr', 'img',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th']);
+
+function validateMarkdownSVGNodes(n) {
+  if (n.type === 'element') {
+    if (!markdownSVGElements.has(n.data)) throw new MarkdownError(`native Markdown SVG does not support HTML element <${n.data}>`);
+  }
+  for (let child = n.firstChild; child != null; child = child.nextSibling) validateMarkdownSVGNodes(child);
+}
+
+/**
+ * MeasureMarkdown: [width, height] ints. D2 v0.9.0 calls LayoutMarkdown (lib/textmeasure/markdown_svg.go), whose dimensions are
+ * the legacy box model below (the native SVG painting that shares that code belongs to the renderer). Throws MarkdownError when
+ * the HTML has an element native SVG does not support.
+ */
 export function measureMarkdown(mdText, ruler, fontFamily, monoFontFamily, fontSize) {
   const render = renderMarkdown(mdText);
   const bodyNode = parseBody(render);
+  validateMarkdownSVGNodes(bodyNode);
 
   const originalLineHeight = ruler.LineHeightFactor;
   ruler.boundsWithDot = true;
@@ -846,7 +936,8 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
           w *= FontSize_pre_code_em;
           h *= FontSize_pre_code_em;
         } else {
-          w = ruler.scaleUnicode(w, font, str);
+          // The browser-era Markdown measurer applied its Unicode fallback correction only to proportional text.
+          w = ruler.scaleUnicodeLegacy(w, font, str);
         }
         return { width: w + spaceWidths, height: h, marginTop: 0, marginBottom: 0, extraData: null };
       } finally {
@@ -952,7 +1043,7 @@ Ruler.prototype.measureNode = function measureNode(depth, n, fontFamily, monoFon
 
         switch (n.data) {
           case 'blockquote':
-            block.width += (2 * PaddingLR_blockquote_em + BorderLeft_blockquote_em) * fontSize;
+            block.width += 2 * PaddingLR_blockquote_em * fontSize + BorderLeft_blockquote_em * fontSize;
             block.marginBottom = Math.max(block.marginBottom, MarginBottom_blockquote);
             break;
           case 'p':
