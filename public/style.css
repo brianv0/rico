@@ -358,3 +358,9 @@ textarea { resize: vertical; padding: 8px 12px; }
 .sugg { margin: 6px 12px; } .thread .sugg code { padding: 0; background: none; font: inherit; }
 .sugg-head { padding: 4px 8px; font: 600 12px var(--font); color: var(--fg-muted); background: var(--bg-inset); border-bottom: 1px solid var(--border); }
 #selbar button:disabled { opacity: .35; cursor: not-allowed; } #selbar button:disabled:hover { background: none; color: var(--fg); }
+
+.thread .msg { position: relative; }
+.thread .err:empty { display: none; }
+.picker { top: 30px; right: 8px; left: auto; bottom: auto; }
+.reacts { padding-top: 0; }
+.thread .who .macts .react.add { opacity: 1; padding: 0 6px; }

@@ -850,7 +850,7 @@ function showErr(node, e) {
   }
 }
 
-function reactionsRow(c, th, rerender) {
+function reactionsRow(c, th, rerender, host) {
   const row = el('div', 'reacts');
   const err = el('div', 'err');
   const toggle = async (content) => {
@@ -864,7 +864,7 @@ function reactionsRow(c, th, rerender) {
     rerender();
     try {
       await apiPost('/api/reaction', { ...prRef(), kind: th.kind, commentId: c.id, content, ...(mine ? { remove: true, nodeId: c.nodeId } : {}) });
-    } catch (e) { c.reactions = JSON.parse(before); rerender(); showErr(err, e); row.append(err); }
+    } catch (e) { c.reactions = JSON.parse(before); rerender(); showErr(err, e); host.append(err); }
   };
   for (const r of c.reactions || []) {
     const b = btn(`${EMOJI[r.content] || r.content} ${r.count}`, 'react' + (r.mine ? ' mine' : ''), `${r.content}${r.mine ? ' (you)' : ''}`);
@@ -872,19 +872,19 @@ function reactionsRow(c, th, rerender) {
     b.addEventListener('click', () => toggle(r.content));
     row.append(b);
   }
-  if (!state.preview) {
-    const add = btn('☺', 'react add', 'Add a reaction');
+  let add = null;
+  if (!state.preview) { // the ☺ lives in the comment's header, so a comment without reactions costs no extra row
+    add = btn('☺', 'react add', 'Add a reaction');
     add.setAttribute('aria-label', 'Add a reaction');
     add.addEventListener('click', () => {
-      const old = row.querySelector('.picker');
+      const old = host.querySelector('.picker');
       if (old) return old.remove();
       const pick = el('span', 'picker');
       for (const [k, e] of Object.entries(EMOJI)) { const b = btn(e, 'react', k); b.addEventListener('click', () => toggle(k)); pick.append(b); }
-      row.append(pick);
+      host.append(pick);
     });
-    row.append(add);
   }
-  return row;
+  return { row: row.childNodes.length ? row : null, add };
 }
 
 /** A ```suggestion block reads as a diff against the lines it replaces, like on GitHub. */
@@ -917,8 +917,10 @@ function msgEl(c, th, rerender) {
   text.innerHTML = safeHtml(mdc.render(c.body));
   showSuggestions(text, th);
   const err = el('div', 'err');
-  if (!c.posting && !c.failed && !state.preview && (c.canUpdate || c.canDelete)) {
+  const rx = !c.posting && !c.failed ? reactionsRow(c, th, rerender, d) : { row: null, add: null };
+  if (!c.posting && !c.failed && !state.preview && (c.canUpdate || c.canDelete || rx.add)) {
     const acts = el('span', 'macts');
+    if (rx.add) acts.append(rx.add);
     if (c.canUpdate) {
       const edit = btn('Edit', 'linkish');
       edit.addEventListener('click', () => {
@@ -980,8 +982,7 @@ function msgEl(c, th, rerender) {
     drop.addEventListener('click', () => { removeThread(th); rerender(); });
     row.append(retry, drop);
     d.append(err, row);
-  } else if (!c.posting && (c.reactions?.length || !state.preview)) d.append(reactionsRow(c, th, rerender), err);
-  else d.append(err);
+  } else { if (rx.row) d.append(rx.row); d.append(err); }
   return d;
 }
 

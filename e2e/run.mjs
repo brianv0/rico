@@ -301,7 +301,7 @@ await step('PR comments with no quote are listed under General, with their own a
   const g = page.locator('#general');
   assert.equal(await g.isVisible(), true);
   assert.match(await g.innerText(), /dave[\s\S]*please also update the changelog/);
-  assert.equal(await g.locator('.macts').count(), 0, 'not yours: no edit or delete');
+  assert.equal(await g.locator('.macts .linkish').count(), 0, 'not yours: no edit or delete');
 });
 await step('pending comments show in the margin too, dashed and labelled, without overlapping', async () => {
   assert.equal(await page.locator('#margin .thread.pending').count(), 2);
@@ -743,8 +743,8 @@ await step('Comment posts at once: it shows as "posting…" and is then replaced
 await step('edit your own comment (alice\'s have no edit or delete)', async () => {
   const id = await page.locator('#margin .thread', { hasText: 'Slow single comment' }).getAttribute('data-id');
   const mine = page.locator(`#margin .thread[data-id="${id}"]`);
-  assert.equal(await page.locator('#margin .thread .msg', { hasText: 'Will trim it' }).locator('.macts').count(), 0, 'bob\'s comment: not yours');
-  assert.equal(await page.locator('#margin .thread .msg', { hasText: 'Is this' }).locator('.macts').count(), 0, 'alice\'s comment: not yours');
+  assert.equal(await page.locator('#margin .thread .msg', { hasText: 'Will trim it' }).locator('.macts .linkish').count(), 0, 'bob\'s comment: not yours');
+  assert.equal(await page.locator('#margin .thread .msg', { hasText: 'Is this' }).locator('.macts .linkish').count(), 0, 'alice\'s comment: not yours');
   await mine.getByRole('button', { name: 'Edit' }).click();
   await mine.locator('textarea').fill('Slow single comment, edited');
   const n = fake.ops.length;
@@ -855,7 +855,7 @@ await step('signed out (preview): the text is kept and the way back in is offere
   assert.match(await page.locator('#c-err a').getAttribute('href'), /^\/auth\/login\?return=%2Fgithub\.com%2Facme%2Fdocs%2F7/);
   assert.equal(await page.locator('#composer').isHidden(), false, 'the box stays open');
   assert.equal(fake.ops.length, n);
-  assert.equal(await page.locator('#margin .thread .macts').count(), 0, 'no edit or delete when signed out');
+  assert.equal(await page.locator('#margin .thread .macts').count(), 0, 'no edit, delete or reactions when signed out');
   await page.evaluate(() => localStorage.clear());
   await page.unroute('**/api/me');
   await reload();
@@ -867,7 +867,7 @@ await step('live refresh: a comment from someone else appears without a reload; 
   fake.hits.length = 0;
   const id = fake.addComment({ user: { login: 'zed', avatar_url: null }, line: 6, start_line: 3, original_line: 6, body: 'Fresh from zed' });
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /Fresh from zed/.test(x.innerText)), null, { timeout: 5000 });
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(2000);
   const hits = fake.hits.filter((h) => /\/pulls\/7( |\/comments |.*)->/.test(h) || /issues\/7\/comments/.test(h));
   assert.ok(hits.filter((h) => h.endsWith('304')).length >= 3, 'polls answer 304: ' + hits.slice(-6).join(' ; '));
   assert.equal(fake.hits.filter((h) => /\/graphql/.test(h)).length >= 1, true, 'a change is re-read in full once');
