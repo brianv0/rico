@@ -7,6 +7,8 @@
 // with one non-null member (`{ map_key: Key }`, `{ unquoted_string: UnquotedString }`, ...). So
 // JSON.stringify(ast) matches what the Go/WASM build returns, and Go code ports line for line.
 
+import * as label from './label.js';
+
 /** Position: zero-based line and column, plus a byte offset (UTF-8 bytes, or UTF-16 units in utf16 mode). */
 export const pos = (line = 0, column = 0, byte = 0) => ({ line, column, byte });
 
@@ -127,6 +129,71 @@ export const BoardKeywords = set('layers', 'scenarios', 'steps');
 export const CompositeReservedKeywords = set('source-arrowhead', 'target-arrowhead', 'classes', 'constraint', 'label', 'icon', 'tooltip', 'style', 'layers', 'scenarios', 'steps');
 export const StyleKeywords = set('opacity', 'stroke', 'fill', 'fill-pattern', 'stroke-width', 'stroke-dash', 'border-radius', 'font', 'font-size', 'font-color', 'bold', 'italic', 'underline', 'text-transform', 'shadow', 'multiple', 'double-border', '3d', 'animated', 'filled');
 export const ReservedKeywords = new Set([...SimpleReservedKeywords, ...StyleKeywords, ...ReservedKeywordHolders, ...CompositeReservedKeywords]);
+
+export const FillPatterns = ['none', 'dots', 'lines', 'grain', 'paper'];
+export const TextTransforms = ['none', 'uppercase', 'lowercase', 'capitalize'];
+
+/** NearConstantsArray are the values that `near` can be set to besides an absolute path. */
+export const NearConstantsArray = ['top-left', 'top-center', 'top-right', 'center-left', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+export const NearConstants = new Set(NearConstantsArray);
+
+/** LabelPositionsArray are the values that labels and icons can set `near` to. */
+export const LabelPositionsArray = [
+  'top-left', 'top-center', 'top-right',
+  'center-left', 'center-center', 'center-right',
+  'bottom-left', 'bottom-center', 'bottom-right',
+  'outside-top-left', 'outside-top-center', 'outside-top-right',
+  'outside-left-top', 'outside-left-center', 'outside-left-bottom',
+  'outside-right-top', 'outside-right-center', 'outside-right-bottom',
+  'outside-bottom-left', 'outside-bottom-center', 'outside-bottom-right',
+  'border-top-left', 'border-top-center', 'border-top-right',
+  'border-left-top', 'border-left-center', 'border-left-bottom',
+  'border-right-top', 'border-right-center', 'border-right-bottom',
+  'border-bottom-left', 'border-bottom-center', 'border-bottom-right',
+];
+export const LabelPositions = new Set(LabelPositionsArray);
+
+export const TooltipPositionsArray = ['top-left', 'top-center', 'top-right', 'center-left', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+export const TooltipPositions = new Set(TooltipPositionsArray);
+
+// label.js (through geo.js and gomath.js) imports this file, so the label.Position values are read lazily.
+const LABEL_POSITION_NAMES = {
+  'top-left': 'InsideTopLeft',
+  'top-center': 'InsideTopCenter',
+  'top-right': 'InsideTopRight',
+  'center-left': 'InsideMiddleLeft',
+  'center-center': 'InsideMiddleCenter',
+  'center-right': 'InsideMiddleRight',
+  'bottom-left': 'InsideBottomLeft',
+  'bottom-center': 'InsideBottomCenter',
+  'bottom-right': 'InsideBottomRight',
+  'outside-top-left': 'OutsideTopLeft',
+  'outside-top-center': 'OutsideTopCenter',
+  'outside-top-right': 'OutsideTopRight',
+  'outside-left-top': 'OutsideLeftTop',
+  'outside-left-center': 'OutsideLeftMiddle',
+  'outside-left-bottom': 'OutsideLeftBottom',
+  'outside-right-top': 'OutsideRightTop',
+  'outside-right-center': 'OutsideRightMiddle',
+  'outside-right-bottom': 'OutsideRightBottom',
+  'outside-bottom-left': 'OutsideBottomLeft',
+  'outside-bottom-center': 'OutsideBottomCenter',
+  'outside-bottom-right': 'OutsideBottomRight',
+  'border-top-left': 'BorderTopLeft',
+  'border-top-center': 'BorderTopCenter',
+  'border-top-right': 'BorderTopRight',
+  'border-left-top': 'BorderLeftTop',
+  'border-left-center': 'BorderLeftMiddle',
+  'border-left-bottom': 'BorderLeftBottom',
+  'border-right-top': 'BorderRightTop',
+  'border-right-center': 'BorderRightMiddle',
+  'border-right-bottom': 'BorderRightBottom',
+  'border-bottom-left': 'BorderBottomLeft',
+  'border-bottom-center': 'BorderBottomCenter',
+  'border-bottom-right': 'BorderBottomRight',
+};
+export const LabelPositionsMapping = {};
+for (const [k, v] of Object.entries(LABEL_POSITION_NAMES)) Object.defineProperty(LabelPositionsMapping, k, { get: () => label[v], enumerable: true });
 
 // Go's strings.ToLower maps per code point (U+0130 lowers to plain "i"); JS's toLowerCase uses full mappings and context.
 export const goLower = (s) => { let o = ''; for (const c of s) { const l = c.toLowerCase(); o += c === '\u0130' ? 'i' : Array.from(l).length === 1 ? l : c; } return o; };

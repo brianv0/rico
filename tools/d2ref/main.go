@@ -135,6 +135,20 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return mdtree(in)
 	case "element":
 		return elementCheck(in)
+	case "url":
+		return urlCheck(in)
+	case "htmlunescape":
+		return htmlUnescapeCheck(in)
+	case "xml":
+		return xmlCheck(in)
+	case "graphmethods":
+		return graphMethods(in)
+	case "sprintf":
+		return sprintfCheck(in)
+	case "strconv":
+		return strconvCheck(in)
+	case "sortslice":
+		return sortCheck(in)
 	case "target":
 		return targetCheck(in)
 	case "targetstatics":

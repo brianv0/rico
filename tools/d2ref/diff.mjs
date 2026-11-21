@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../../public/d2/parser.js';
 import { compile } from '../../public/d2/d2ir.js';
+import { compile as compileGraph } from '../../public/d2/d2compiler.js';
 
 import markdownit from 'markdown-it';
 import { setMarkdownIt, loadMetrics, newRuler, getTextDimensionsWithMono, measureMarkdown, renderMarkdown } from '../../public/d2/textmeasure.js';
@@ -20,6 +21,13 @@ import { labelCheck } from './labelcheck.mjs';
 import { colorCheck } from './colorcheck.mjs';
 import { elementCheck } from './elementcheck.mjs';
 import { targetCheck, targetStatics } from './targetcheck.mjs';
+import { urlCheck } from './urlcheck.mjs';
+import { htmlUnescapeCheck } from './htmlcheck.mjs';
+import { xmlCheck } from './xmlcheck.mjs';
+import { sortCheck } from './sortcheck.mjs';
+import { strconvCheck } from './strconvcheck.mjs';
+import { sprintfCheck } from './sprintfcheck.mjs';
+import { graphMethods } from './graphcheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -53,6 +61,18 @@ const STAGES = {
   element: elementCheck,
   target: targetCheck,
   targetstatics: targetStatics,
+  url: urlCheck,
+  htmlunescape: htmlUnescapeCheck,
+  xml: xmlCheck,
+  sortslice: sortCheck,
+  strconv: strconvCheck,
+  sprintf: sprintfCheck,
+  graphmethods: graphMethods,
+  // d2ref's `graph` mode: {graph, config, err} from d2compiler.Compile, err as its text.
+  graph: (c) => {
+    const r = compileGraph(c.path, c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs } });
+    return { graph: r.g, config: r.config, err: r.err ? r.err.message : null };
+  },
   // d2ref's `ir` mode: a parse error is {err} alone; otherwise {ir, err} from d2ir.Compile.
   ir: (c) => {
     const { ast, err } = parse(c.path, c.text, { utf16: c.utf16 });
@@ -88,8 +108,8 @@ function runRef(batch) {
 const ref = runRef(cases);
 
 // Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
-// *string addresses); those differ on every run, so addresses are blanked in error messages and nowhere else.
-const canon = (v, k) => (Array.isArray(v) ? v.map((x) => canon(x)) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2], k2)])) : k === 'errmsg' && typeof v === 'string' ? v.replace(/0xc[0-9a-f]{9}/g, '0xc000000000') : v);
+// *string addresses); those differ on every run, so addresses are blanked in error messages (`errmsg` of an AST error, `err` of the graph stage) and nowhere else.
+const canon = (v, k) => (Array.isArray(v) ? v.map((x) => canon(x)) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2], k2)])) : (k === 'errmsg' || k === 'err') && typeof v === 'string' ? v.replace(/0xc[0-9a-f]{9}/g, '0xc000000000') : v);
 const tol = Number(flag('--tol', 0)); // --tol 1e-9: numbers within a relative tolerance count as equal-within-tolerance
 function firstDiff(a, b, p = '$', t = 0) {
   if (JSON.stringify(a) === JSON.stringify(b)) return null;

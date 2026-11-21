@@ -188,3 +188,160 @@
 {"from": "extra:array-comment", "path": "index.d2", "text": "x: [\n  \"\"\" block \"\"\"\n  a\n  # c\n  [1;2]\n  {k: v}\n]"}
 {"from": "extra:edge-in-map", "path": "index.d2", "text": "a: {\n  b\n  c\n}\n(a.b -> a.c)[*]: x\na.(b -> c)[0]: y\na.(b -> c): z"}
 {"from": "extra:chain", "path": "index.d2", "text": "(a -> b -> c)[*].style.stroke: red\na.b.(x -> y)\n(a.b -> a.c)"}
+{"from":"extra:g-legend","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a: Thing { style.fill: red }\n    b: Other\n    a -> b: link\n    c: hidden { style.opacity: 0 }\n  }\n}\nx -> y"}
+{"from":"extra:g-legend-label","path":"x.d2","text":"vars: {\n  d2-legend: Key {\n    a\n  }\n}\nx"}
+{"from":"extra:g-legend-empty","path":"x.d2","text":"vars: {\n  d2-legend: {\n  }\n}\nx"}
+{"from":"extra:g-legend-edges-only","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a -> b\n  }\n}\nx"}
+{"from":"extra:g-legend-opacity-bad","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a: { style.opacity: 0.0 }\n    b: { style.opacity: 0.5 }\n  }\n}"}
+{"from":"extra:g-config-all","path":"x.d2","text":"vars: {\n  d2-config: {\n    sketch: true\n    theme-id: 4\n    dark-theme-id: 200\n    pad: 10\n    layout-engine: elk\n    center: true\n    theme-overrides: { N1: \"#fff\"; B1: red }\n    dark-theme-overrides: { n2: blue }\n    data: { a: b; c: [1; 2; x]; d: [] }\n  }\n}\nx"}
+{"from":"extra:g-config-bad-theme-code","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: { Z9: red; N1: notacolor; %d: red }\n  }\n}\nx"}
+{"from":"extra:g-config-bad-bool","path":"x.d2","text":"vars: {\n  d2-config: {\n    sketch: maybe\n    theme-id: abc\n    pad: 99999999999999999999\n    center: 1\n  }\n}\nx"}
+{"from":"extra:g-config-data-null","path":"x.d2","text":"vars: {\n  d2-config: {\n    data: { a: null; b: [null; 1] }\n  }\n}\nx"}
+{"from":"extra:g-config-empty-overrides","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: {}\n  }\n}\nx"}
+{"from":"extra:g-config-aa-ab","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: { aa2: red; AA4: \"#123\"; Aa5: blue; ab4: green; AB5: pink; b6: black; N7: white }\n  }\n}"}
+{"from":"extra:g-link-board","path":"x.d2","text":"x: { link: layers.l1 }\nlayers: { l1: { y } }"}
+{"from":"extra:g-link-board-root","path":"x.d2","text":"x: { link: root.layers.l1 }\nlayers: { l1: { y: { link: root } } }"}
+{"from":"extra:g-link-self","path":"x.d2","text":"layers: { l1: { y: { link: root.layers.l1 } } }"}
+{"from":"extra:g-link-missing","path":"x.d2","text":"x: { link: root.layers.nope }"}
+{"from":"extra:g-link-remote","path":"x.d2","text":"x: { link: https://example.com }\ny: { link: /abs/path }\nz: { link: mailto:a@b.c }\nw: { link: \"http&colon;//x.com\" }\nv: { link: \"&#104;ttp://x.com\" }"}
+{"from":"extra:g-link-label-url","path":"x.d2","text":"x: https://example.com { link: https://example.org }"}
+{"from":"extra:g-link-tooltip-url","path":"x.d2","text":"x: { link: https://example.org; tooltip: https://example.com }"}
+{"from":"extra:g-link-label-url-relative","path":"x.d2","text":"x: /a/b { link: foo }"}
+{"from":"extra:g-link-bad-key","path":"x.d2","text":"x: { link: \"a b: c\" }"}
+{"from":"extra:g-icon-ok","path":"x.d2","text":"x: { icon: https://icons.terrastruct.com/a%2Fb.svg }\ny: { icon: ./local.png; icon.near: outside-top-left }\nz: { icon: \"https://u:p@h/é?q#f g\" }"}
+{"from":"extra:g-icon-bad","path":"x.d2","text":"x: { icon: \"::????:::%%orange\" }\ny: { icon: \"http://[::1\" }\nz: { icon: \"a b:c\" }\nw: { icon: \"%zz\" }"}
+{"from":"extra:g-icon-style","path":"x.d2","text":"x: { icon: a.png; icon.style.opacity: 0.5; icon.style.bogus: 1 }"}
+{"from":"extra:g-icon-style-empty","path":"x.d2","text":"x: { icon: a.png; icon: { style: {} } }"}
+{"from":"extra:g-image-shape","path":"x.d2","text":"x: { shape: image; icon: a.png }\ny: { shape: image }\nz: { shape: image; icon: b.png; q }"}
+{"from":"extra:g-near-const","path":"x.d2","text":"a: { near: top-left }\nb: { near: bottom-center }\nc: { near: center-center }"}
+{"from":"extra:g-near-obj","path":"x.d2","text":"a: { near: b }\nb\nc: { near: c }\nd: { near: d.e; e }\nf: { near: f.g }\nf.g"}
+{"from":"extra:g-near-nested-const","path":"x.d2","text":"a: { b: { near: top-left } }"}
+{"from":"extra:g-near-chain","path":"x.d2","text":"a: { near: b }\nb: { near: top-left }"}
+{"from":"extra:g-near-bad","path":"x.d2","text":"a: { near: \"x y:\" }\nb: { near: nowhere }"}
+{"from":"extra:g-near-edge-enter","path":"x.d2","text":"a: { near: top-left; b }\na -> a.b\nc: { near: top-right; d }\nc.d -> c"}
+{"from":"extra:g-near-seq","path":"x.d2","text":"sq: { shape: sequence_diagram; a; b }\nx: { near: sq.a }"}
+{"from":"extra:g-near-grid","path":"x.d2","text":"g: { grid-rows: 2; a; b }\nx: { near: g.a }"}
+{"from":"extra:g-label-near","path":"x.d2","text":"a: hi { label.near: outside-top-center }\nb: { label: hi; label.near: border-left-top }\nc: { label.near: nope }\nd: { label.near: null }\ne: { label: { near: top-left } }\nf: { label: { foo: bar } }"}
+{"from":"extra:g-label-near-edges","path":"x.d2","text":"a -> b: x { label.near: top-left }"}
+{"from":"extra:g-tooltip-near","path":"x.d2","text":"a: { tooltip: hi; tooltip.near: top-left }\nb: { tooltip: hi; tooltip.near: center-center }\nc: { tooltip: hi; tooltip.near: null }"}
+{"from":"extra:g-icon-near","path":"x.d2","text":"a: { icon: x.png; icon.near: outside-left-top }\nb: { icon: x.png; icon.near: bad }"}
+{"from":"extra:g-tooltip-md","path":"x.d2","text":"a: { tooltip: \"# hi <b>x</b>\" }\nb: { tooltip: \"<br>\" }\nc: { tooltip: \"<p>unclosed\" }"}
+{"from":"extra:g-md-ok","path":"x.d2","text":"a: |md\n  # Title\n  - one\n  - two\n  **bold** `code`\n|"}
+{"from":"extra:g-md-html","path":"x.d2","text":"a: |md\n  <div>x</div>\n  <b>x</i>\n|"}
+{"from":"extra:g-md-html2","path":"x.d2","text":"a: |md\n  <br>\n|\nb: |md\n  <img src=\"x\">\n|\nc: |md\n  &nbsp;\n|\nd: |md\n  <p>unclosed\n|\ne: |md\n  </div>\n  <p>\n|"}
+{"from":"extra:g-md-empty","path":"x.d2","text":"a: |md\n  \n|"}
+{"from":"extra:g-md-edge","path":"x.d2","text":"a -> b: |md\n  # hi\n|"}
+{"from":"extra:g-md-entities","path":"x.d2","text":"a: |md\n  &copy; &foo; &#0; &#x110000; &\n|"}
+{"from":"extra:g-md-table","path":"x.d2","text":"a: |md\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n|"}
+{"from":"extra:g-md-code-fence","path":"x.d2","text":"a: |md\n  ```go\n  x := 1 < 2\n  ```\n|"}
+{"from":"extra:g-md-alias","path":"x.d2","text":"a: |markdown\n  hi\n|\nb: |tex\n  x^2\n|\nc: |js\n  var x\n|\nd: |go\n  x := 1\n|"}
+{"from":"extra:g-code-shapes","path":"x.d2","text":"a: |python\n  print(1)\n|\nb: |ts\n  let x\n|\nc: |rb\n  puts 1\n|\nd: |latex\n  x\n|\ne: |\n  plain\n|"}
+{"from":"extra:g-text-shape","path":"x.d2","text":"a: { shape: text; label: }\nb: { shape: text }\nc: { shape: text; label: hi }\nd: |md\n  x\n|"}
+{"from":"extra:g-class-basic","path":"x.d2","text":"c: {\n  shape: class\n  +name: string\n  -age: int\n  #id\n  run(): void\n  -stop(a; b): bool\n  +go()\n  field: \"\" {style.underline: true}\n  f(): \"\" {style.underline: true}\n}"}
+{"from":"extra:g-class-children","path":"x.d2","text":"c: {\n  shape: class\n  a.b: x\n}"}
+{"from":"extra:g-class-edge","path":"x.d2","text":"c: {shape: class; a; b}\nd\nc.a -> d\nd -> c.b\nc -> d"}
+{"from":"extra:g-class-label","path":"x.d2","text":"c: Title {\n  shape: class\n  a: int\n}"}
+{"from":"extra:g-class-style","path":"x.d2","text":"c: {\n  shape: class\n  a\n  style.font-size: 12\n}"}
+{"from":"extra:g-sql-basic","path":"x.d2","text":"t: {\n  shape: sql_table\n  id: int {constraint: primary_key}\n  name: varchar(20) {constraint: [unique; not_null]}\n  other: int {constraint: foreign_key}\n  x: {constraint: null}\n}"}
+{"from":"extra:g-sql-edges","path":"x.d2","text":"a: {shape: sql_table; id: int; b_id: int}\nb: {shape: sql_table; id: int}\na.b_id -> b.id\nb.id -> a.id\na.b_id -> a.id\na -> b\nb.id -> c"}
+{"from":"extra:g-sql-children","path":"x.d2","text":"t: {\n  shape: sql_table\n  a.b: int\n}"}
+{"from":"extra:g-sql-label-newline","path":"x.d2","text":"t: \"a\\nb\" {\n  shape: sql_table\n  a: int\n}"}
+{"from":"extra:g-sql-constraint-nonsql","path":"x.d2","text":"a: { constraint: primary_key }\nb: { shape: sql_table; c: int { constraint: [x; y] } }"}
+{"from":"extra:g-sql-constraint-composite","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: { x: y } } }"}
+{"from":"extra:g-sql-constraint-nonstring","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: 5 } }"}
+{"from":"extra:g-seq-basic","path":"x.d2","text":"sq: {\n  shape: sequence_diagram\n  a -> b: hi\n  b -> a: yo\n  a.t1 -> b.t2\n  grp: { a -> b }\n  note: hello\n}"}
+{"from":"extra:g-seq-span","path":"x.d2","text":"sq: {\n  shape: sequence_diagram\n  a: { x: { y } }\n  a.x -> b\n}"}
+{"from":"extra:g-seq-near","path":"x.d2","text":"sq: {shape: sequence_diagram; a; b}\nsq -> sq.a\nsq.a -> sq"}
+{"from":"extra:g-seq-pos","path":"x.d2","text":"sq: {shape: sequence_diagram; a: {top: 1}; b}"}
+{"from":"extra:g-seq-image","path":"x.d2","text":"sq: {shape: sequence_diagram; a: {shape: image; icon: x.png; b}}"}
+{"from":"extra:g-grid","path":"x.d2","text":"g: { grid-rows: 2; grid-columns: 3; grid-gap: 4; vertical-gap: 5; horizontal-gap: 6; a; b; c }"}
+{"from":"extra:g-grid-bad","path":"x.d2","text":"g: { grid-rows: -1; grid-columns: x; grid-gap: -2; vertical-gap: 1.5; horizontal-gap: \"\" }"}
+{"from":"extra:g-grid-edges","path":"x.d2","text":"g: { grid-rows: 1; a; b }\ng -> g.a\ng.a -> g\ng.a -> g.a.x\nx -> g.a"}
+{"from":"extra:g-grid-pos","path":"x.d2","text":"g: { grid-rows: 1; a: {top: 1; left: 2} }\nh: { shape: hierarchy; b: {left: 1} }"}
+{"from":"extra:g-pos-bad","path":"x.d2","text":"a: { top: -1; left: x }\nb: { top: 5; left: 6 }"}
+{"from":"extra:g-width-height","path":"x.d2","text":"a: { width: 10; height: 20 }\nb: { width: x }\nc: { shape: circle; width: 10; height: 20 }\nd: { shape: square; height: 5; width: 6 }\ne: { shape: circle; height: 5; width: 5 }"}
+{"from":"extra:g-width-int-overflow","path":"x.d2","text":"a: { width: 99999999999999999999 }\nb: { width: -5 }\nc: { width: +5 }\nd: { width: 1_000 }"}
+{"from":"extra:g-direction","path":"x.d2","text":"direction: right\na: { direction: UP }\nb: { direction: diagonal }\nc: { direction: left }"}
+{"from":"extra:g-shapes","path":"x.d2","text":"a: { shape: circle }\nb: { shape: Oval }\nc: { shape: nonsense }\nd: { shape: triangle }\ne: { shape: CODE }\nf: { shape: c4-person }\ng: { shape: stored_data }\nh: { shape: hierarchy }\ni: { shape: \"\" }"}
+{"from":"extra:g-shape-arrowhead","path":"x.d2","text":"a: { shape: diamond }\na -> b: { target-arrowhead: { shape: triangle } }\nc: { shape: triangle }"}
+{"from":"extra:g-shape-composite","path":"x.d2","text":"a: { shape: { x: y } }"}
+{"from":"extra:g-shape-case","path":"x.d2","text":"a: { Shape: circle }\nb: { SHAPE: oval }"}
+{"from":"extra:g-style-all","path":"x.d2","text":"a: { style: { opacity: 0.5; stroke: red; fill: \"#fff\"; fill-pattern: dots; stroke-width: 3; stroke-dash: 2; border-radius: 5; shadow: true; 3d: true; multiple: true; font: mono; font-size: 20; font-color: blue; animated: true; bold: true; italic: true; underline: true; filled: true; double-border: true; text-transform: uppercase } }"}
+{"from":"extra:g-style-bad","path":"x.d2","text":"a: { style: { opacity: 2; stroke: nocolor; fill: nope; fill-pattern: xx; stroke-width: 20; stroke-dash: 11; border-radius: -1; shadow: x; 3d: y; multiple: z; font: Comic; font-size: 7; font-color: bad; animated: q; bold: q; italic: q; underline: q; filled: q; double-border: q; text-transform: weird } }"}
+{"from":"extra:g-style-font-percent","path":"x.d2","text":"a: { style.font: \"%d\" }\nb: { style.font: \"100%\" }\nc: { style.font: \"50% off\" }\nd: { style.font: \"%[1]d %v %!\" }"}
+{"from":"extra:g-style-opacity-forms","path":"x.d2","text":"a: { style.opacity: nan }\nb: { style.opacity: inf }\nc: { style.opacity: 0x1p-1 }\nd: { style.opacity: 1e-1 }\ne: { style.opacity: 1_0 }\nf: { style.opacity: .5 }\ng: { style.opacity: -0 }"}
+{"from":"extra:g-style-3d","path":"x.d2","text":"a: { shape: circle; style.3d: true }\nb: { shape: hexagon; style.3d: true }\nc: { style.3d: true }\nd: { shape: oval; style.double-border: true }\ne: { shape: cloud; style.double-border: true }"}
+{"from":"extra:g-style-keyword-top","path":"x.d2","text":"a: { opacity: 0.5 }\nb: { fill: red }\nc: { Stroke: red }"}
+{"from":"extra:g-style-empty","path":"x.d2","text":"a: { style: {} }\nb: { style }\nc: { style: 5 }"}
+{"from":"extra:g-style-nonprimary","path":"x.d2","text":"a: { style: { fill; stroke: { x: y } } }"}
+{"from":"extra:g-style-unknown","path":"x.d2","text":"a: { style: { foo: bar; Fill: red } }"}
+{"from":"extra:g-style-case","path":"x.d2","text":"a: { style.Fill: red; style.FONT: Mono; style.fill-PATTERN: DOTS; style.text-transform: UPPERCASE }"}
+{"from":"extra:g-style-null","path":"x.d2","text":"a: { style.fill: red }\na: { style.fill: null }"}
+{"from":"extra:g-edge-styles","path":"x.d2","text":"a -> b: x { style: { stroke: red; animated: true; font: mono; bold: true } }\nc -> d { style.stroke-dash: 3 }"}
+{"from":"extra:g-edge-bad-keys","path":"x.d2","text":"a -> b: { foo: bar }\nc -> d: { x.y: z }"}
+{"from":"extra:g-edge-reserved-top","path":"x.d2","text":"a -> b: { label: hi; link: x; tooltip: t; icon: i.png; near: top-left; width: 5 }"}
+{"from":"extra:g-edge-arrowheads","path":"x.d2","text":"a -> b: { source-arrowhead: { shape: diamond; label: s; style.filled: true }; target-arrowhead: { shape: cf-many; label: t } }\nc -> d: { target-arrowhead.shape: arrow }\ne -> f: { source-arrowhead: L }\ng -> h: { target-arrowhead: { foo: bar; style: { fill: red } } }"}
+{"from":"extra:g-arrowhead-on-shape","path":"x.d2","text":"a: { source-arrowhead: { shape: diamond } }\nb: { target-arrowhead: x }"}
+{"from":"extra:g-arrowhead-style-nomap","path":"x.d2","text":"a -> b: { target-arrowhead: { style } }"}
+{"from":"extra:g-edge-index","path":"x.d2","text":"a -> b\na -> b\na -> b: x\n(a -> b)[1]: y\n(a -> b)[2].style.stroke: red\n(a <- b)[0]\na <-> b"}
+{"from":"extra:g-edge-multi","path":"x.d2","text":"a -> b -> c -> a\nx: { y -> z }\nx.y -> x.z\n_.a -> x.y"}
+{"from":"extra:g-edge-underscore","path":"x.d2","text":"a: { b: { _.c -> _._.d; _.e } }\nf: { _.g }"}
+{"from":"extra:g-edge-reserved-endpoint","path":"x.d2","text":"a -> style\nb -> label.x\nc.shape -> d"}
+{"from":"extra:g-edge-constant-near","path":"x.d2","text":"a: { near: top-left; b }\na -> a.b"}
+{"from":"extra:g-edge-self","path":"x.d2","text":"a -> a\na.b -> a\na -> a.b"}
+{"from":"extra:g-edge-label-block","path":"x.d2","text":"a -> b: |md\n  # x\n|\nc -> d: |py\n  x\n|"}
+{"from":"extra:g-edge-glob","path":"x.d2","text":"(* -> *)[*].style.stroke: red\na -> b\nc -> d"}
+{"from":"extra:g-class-ref","path":"x.d2","text":"classes: { c1: { style.fill: red }; c2: { style.stroke: blue; label: hi } }\na: { class: c1 }\nb: { class: [c1; c2] }\nc: { class: \"c1, c2\" }\nd: { class: \"c1, nope\" }\ne: { class: nope }\nf -> g: { class: c1 }\nh: { class: [c1; { x: y }] }"}
+{"from":"extra:g-class-ref-edge-array","path":"x.d2","text":"classes: { c1: { style.stroke: red } }\na -> b: { class: [c1; { x: y }] }\nc -> d: { class: c1 }"}
+{"from":"extra:g-classes-bad","path":"x.d2","text":"classes: { c1: { foo: bar; class: c2; style.fill: red; shape: circle } }\nclasses.c3 -> x"}
+{"from":"extra:g-class-field-attr","path":"x.d2","text":"a: { class: x }\nb: { class: [x; y] }"}
+{"from":"extra:g-vars-sub","path":"x.d2","text":"vars: { v: hello; w: { a: b } }\nx: ${v}\ny: { ...${w} }\nz -> ${v}"}
+{"from":"extra:g-vars-order","path":"x.d2","text":"vars: { v: world }\nb: ${v}\na\nc: ${v}\nd"}
+{"from":"extra:g-boards-layers","path":"x.d2","text":"x\nlayers: { l1: { a -> b }; l2: { c; layers: { inner: { d } } } }"}
+{"from":"extra:g-boards-scenarios","path":"x.d2","text":"x -> y\nscenarios: { s1: { x.style.fill: red }; s2: { z } }"}
+{"from":"extra:g-boards-steps","path":"x.d2","text":"x\nsteps: { 1: { a }; 2: { b } }"}
+{"from":"extra:g-boards-folder","path":"x.d2","text":"layers: { l1: { a } }"}
+{"from":"extra:g-boards-empty-board","path":"x.d2","text":"x\nlayers: { l1: {} }"}
+{"from":"extra:g-boards-label","path":"x.d2","text":"layers: { l1: Label { a }; l2: |md\n  # hi\n| }"}
+{"from":"extra:g-boards-dup","path":"x.d2","text":"layers: { a: { x } }\nscenarios: { a: { y } }"}
+{"from":"extra:g-boards-link","path":"x.d2","text":"layers: { l1: { x: { link: root } }; l2: { y: { link: root.layers.l1 } } }\nz: { link: layers.l2 }"}
+{"from":"extra:g-boards-link-scenario","path":"x.d2","text":"a\nscenarios: { s1: { x: { link: root.scenarios.s1 } } }\nsteps: { st: { y: { link: root.scenarios.s1 } } }"}
+{"from":"extra:g-boards-nested-link","path":"x.d2","text":"layers: { l1: { layers: { l2: { x: { link: root.layers.l1.layers.l2 }; y: { link: _.l1 } } } } }"}
+{"from":"extra:g-boards-scenario-inherit","path":"x.d2","text":"a -> b\nscenarios: { s: { a.style.fill: red; c -> a } }\nsteps: { s1: { x }; s2: { y } }"}
+{"from":"extra:g-boards-import","path":"index.d2","text":"layers: { l1: @sub }","fs":{"sub.d2":"a -> b\nx: { link: layers.q }"}}
+{"from":"extra:g-boards-ast","path":"index.d2","text":"a\nlayers: { l1: { b }; l2: @sub; l3: { ...@sub } }\nscenarios: { s: { c } }","fs":{"sub.d2":"z"}}
+{"from":"extra:g-boards-ast2","path":"index.d2","text":"layers: { l1: @sub }\nlayers: { l2: { x } }","fs":{"sub.d2":"q: {r}"}}
+{"from":"extra:g-keys-unicode","path":"x.d2","text":"é: 😀\n\"a b\": c\n\"a.b\": d\n'x\"y': e\n\"\": f"}
+{"from":"extra:g-keys-quoted-special","path":"x.d2","text":"\"a:b\" -> \"c;d\"\n\"x\\ny\"\n\"-\": a\n\"->\": b\n\"*\": c"}
+{"from":"extra:g-keys-case","path":"x.d2","text":"A\na\nA.b\na.B\nA -> a"}
+{"from":"extra:g-keys-dots","path":"x.d2","text":"a.b.c.d -> e.f.g\na.b: x\n\"a.b\": y"}
+{"from":"extra:g-keys-reserved-children","path":"x.d2","text":"a: { style: { fill: red } }\nb: { label: { x } }"}
+{"from":"extra:g-keys-image-children","path":"x.d2","text":"a: { shape: image; icon: x.png; b }"}
+{"from":"extra:g-keys-image-seq","path":"x.d2","text":"sq: { shape: sequence_diagram; a: { shape: image; icon: x.png } }"}
+{"from":"extra:g-refs-multi","path":"x.d2","text":"a.b: 1\na.c: 2\na: 3\nb.a -> a.b\nb: { a }"}
+{"from":"extra:g-refs-underscore","path":"x.d2","text":"a: { b: { _.x: 1 } }\ny: { _.z }"}
+{"from":"extra:g-refs-scope-obj","path":"x.d2","text":"a: { b -> c }\na: { d }\nlayers: { l: { a: { e } } }"}
+{"from":"extra:g-refs-edge-in-class","path":"x.d2","text":"classes: { c: { a -> b } }"}
+{"from":"extra:g-refs-vars-inside","path":"x.d2","text":"vars: { v: { x -> y } }\nz: { ...${v} }"}
+{"from":"extra:g-text-transform","path":"x.d2","text":"a: hello world { style.text-transform: capitalize }\nb: x { style.text-transform: none }"}
+{"from":"extra:g-label-forms","path":"x.d2","text":"a: 1\nb: true\nc: null\nd: [1;2]\ne: \"multi\\nline\"\nf: \"\"\ng: -5\nh: 1.50"}
+{"from":"extra:g-label-null","path":"x.d2","text":"a: x\na: null\nb: { label: null }\nc -> d: null"}
+{"from":"extra:g-label-substitution","path":"x.d2","text":"a: ${x}"}
+{"from":"extra:g-label-block-empty","path":"x.d2","text":"a: |\n  \n|\nb: |md\n  \n|\nc: |py\n  \n|"}
+{"from":"extra:g-labels-text-empty","path":"x.d2","text":"a: { shape: text }\nb: { shape: text; label: \"\" }\nc: { shape: text; label: \" \" }"}
+{"from":"extra:g-pre-link-label","path":"x.d2","text":"a: { link: https://x.com }\nb: https://y.com"}
+{"from":"extra:g-classes-array-null","path":"x.d2","text":"a: { class: [null; 1; x] }\nclasses: { x: { style.fill: red } }"}
+{"from":"extra:g-constraint-array","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: [null; unique; primary_key] } }"}
+{"from":"extra:g-constraint-single","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: unique } }"}
+{"from":"extra:g-opacity-legend","path":"x.d2","text":"vars: { d2-legend: { a: { style.opacity: nan }; b: { style.opacity: 0 }; c: { style.opacity: 0e0 } } }"}
+{"from":"extra:g-mega","path":"x.d2","text":"direction: down\nvars: { d2-config: { pad: 5 } }\nx: { shape: sql_table; a: int }\ny: { shape: class; f(): int }\nz: |md\n  # t\n|\nx.a -> y\nlayers: { l: { w -> v } }"}
+{"from":"extra:g-imports-link","path":"index.d2","text":"x: @sub","fs":{"sub.d2":"a: { link: layers.l }\nb: { icon: pic.png }\nc: { icon: https://x.com/y.png }"}}
+{"from":"extra:g-imports-icon-ent","path":"index.d2","text":"x: @sub","fs":{"sub.d2":"a: { icon: \"http&colon;//x.com/y.png\" }\nb: { icon: \"&#47;abs.png\" }"}}
+{"from":"extra:g-error-dedupe","path":"x.d2","text":"a: { style.fill: nope; style.fill: nope }\n**.style.fill: nope\nb\nc"}
+{"from":"extra:g-error-glob-dupe","path":"x.d2","text":"*.style.opacity: 5\na\nb\nc"}
+{"from":"extra:g-error-many","path":"x.d2","text":"a: { shape: bogus; width: x; height: y; top: -1; left: -1; direction: z; style.opacity: 5 }"}
+{"from":"extra:g-hierarchy","path":"x.d2","text":"h: { shape: hierarchy; a; b }"}
+{"from":"extra:g-unicode-style","path":"x.d2","text":"a: { style.font: \"İ\" }\nb: { style.fill: \"İ\" }"}
+{"from":"extra:g-unicode-lower","path":"x.d2","text":"İ: x\nı: y\nK: z\nk: w\nſ: v\ns: u"}
+{"from":"extra:g-unicode-ida","path":"x.d2","text":"\"é́\": 1\n\"日本\": 2\n\"🙂\": 3\n\"\\u0000\": 4"}
+{"from":"extra:g-spaces-keys","path":"x.d2","text":"\" a\": 1\n\"a \": 2\n\"  \": 3"}

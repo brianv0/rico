@@ -30,6 +30,8 @@ import { format } from './format.js';
 import { ShapeClass, ShapeSQLTable } from './target.js';
 import { themeExists } from './themes.js';
 import { replaceSubstitutionsMarkdown } from './textmeasure.js';
+import { parse as urlParse } from './url.js';
+import { unescapeString as htmlUnescape } from './gohtml.js';
 
 // ---- small Go-isms ----
 
@@ -100,54 +102,6 @@ function atoi(s) {
   return Number(n);
 }
 const parseBool = (s) => (['1', 't', 'T', 'TRUE', 'true', 'True'].includes(s) ? true : ['0', 'f', 'F', 'FALSE', 'false', 'False'].includes(s) ? false : null);
-
-// Go's html.UnescapeString, for the entities that plausibly occur in a link or icon.
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', copy: '\u00a9', reg: '\u00ae' };
-function htmlUnescape(s) {
-  return s.replace(/&(?:#[xX]([0-9a-fA-F]+)|#([0-9]+)|([A-Za-z][A-Za-z0-9]*));?/g, (m, hex, dec, name) => {
-    if (name !== undefined) return m.endsWith(';') && ENTITIES[name] !== undefined ? ENTITIES[name] : m;
-    const n = hex !== undefined ? parseInt(hex, 16) : parseInt(dec, 10);
-    return n > 0 && n <= 0x10FFFF && !(n >= 0xD800 && n < 0xE000) ? String.fromCodePoint(n) : '�';
-  });
-}
-
-// Go's url.Parse, reduced to what d2ir looks at: an error or not, the scheme and the path.
-function urlParse(raw) {
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f]/.test(raw)) return null;
-  const hash = raw.indexOf('#');
-  const frag = hash < 0 ? '' : raw.slice(hash + 1);
-  let rest = hash < 0 ? raw : raw.slice(0, hash);
-  const validEscapes = (s) => { for (let i = 0; i < s.length; i++) if (s[i] === '%' && !(i + 2 < s.length && /^[0-9a-fA-F]{2}$/.test(s.slice(i + 1, i + 3)))) return false; return true; };
-  if (rest === '*') return validEscapes(frag) ? { scheme: '', path: '*' } : null;
-  let scheme = '';
-  for (let i = 0; i < rest.length; i++) {
-    const c = rest[i];
-    if (/[A-Za-z]/.test(c)) continue;
-    if (/[0-9+\-.]/.test(c)) { if (i === 0) break; continue; }
-    if (c === ':') { if (i === 0) return null; scheme = rest.slice(0, i).toLowerCase(); rest = rest.slice(i + 1); }
-    break;
-  }
-  if (rest.endsWith('?') && rest.split('?').length === 2) rest = rest.slice(0, -1);
-  else { const q = rest.indexOf('?'); if (q >= 0) rest = rest.slice(0, q); }
-  if (!rest.startsWith('/')) {
-    if (scheme !== '') return validEscapes(frag) ? { scheme, path: '' } : null;
-    if (rest.split('/')[0].includes(':')) return null;
-  }
-  if ((scheme !== '' || !rest.startsWith('///')) && rest.startsWith('//')) {
-    const r = rest.slice(2), i = r.indexOf('/');
-    const authority = i < 0 ? r : r.slice(0, i);
-    rest = i < 0 ? '' : r.slice(i);
-    const at = authority.lastIndexOf('@');
-    const host = at < 0 ? authority : authority.slice(at + 1);
-    if (at >= 0 && !/^[A-Za-z0-9\-._~!$&'()*+,;=:%]*$/.test(authority.slice(0, at))) return null;
-    const colon = host.lastIndexOf(':');
-    if (!host.startsWith('[') && colon >= 0 && !/^:[0-9]*$/.test(host.slice(colon))) return null;
-    if (!validEscapes(host) || /[^A-Za-z0-9\-._~!$&'()*+,;=:[\]<>"%]/.test(host)) return null;
-  }
-  if (!validEscapes(rest) || !validEscapes(frag)) return null;
-  return { scheme, path: rest };
-}
 
 // ---- Node types ----
 
@@ -2493,8 +2447,8 @@ class Compiler {
         }
         const val = ss(f.primary().value);
 
-        const u = urlParse(htmlUnescape(val));
-        const isRemote = u !== null && (u.scheme !== '' || u.path.startsWith('/'));
+        const { url: u } = urlParse(htmlUnescape(val));
+        const isRemote = u !== null && (u.Scheme !== '' || u.Path.startsWith('/'));
         if (isRemote) continue;
 
         let link;
@@ -2519,8 +2473,8 @@ class Compiler {
         let val = ss(f.primary().value);
         // It's likely a substitution
         if (val === '') continue;
-        const u = urlParse(htmlUnescape(val));
-        const isRemoteImg = u !== null && (u.scheme !== '' || u.path.startsWith('/'));
+        const { url: u } = urlParse(htmlUnescape(val));
+        const isRemoteImg = u !== null && (u.Scheme !== '' || u.Path.startsWith('/'));
         if (isRemoteImg) continue;
         val = pathJoin(importDirectory, val);
         f.primary_.value = flat(val);

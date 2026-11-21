@@ -1280,6 +1280,15 @@ export const CenterPadding = 50;
 /** 10px of padding top and bottom so text doesn't look squished */
 export const VerticalPadding = 20;
 
+/** Go's d2target.Class: the fields and methods of a `shape: class`. */
+export class Class {
+  constructor(init = {}) {
+    this.fields = null;
+    this.methods = null;
+    Object.assign(this, init);
+  }
+}
+
 export class ClassField {
   constructor(init = {}) {
     this.name = '';
@@ -1345,6 +1354,14 @@ export const HeaderPadding = 10;
 
 /** Setting table font size sets it for columns. The header needs to be a little larger for visual hierarchy */
 export const HeaderFontAdd = 4;
+
+/** Go's d2target.SQLTable: the columns of a `shape: sql_table`. */
+export class SQLTable {
+  constructor(init = {}) {
+    this.columns = null;
+    Object.assign(this, init);
+  }
+}
 
 export class SQLColumn {
   constructor(init = {}) {

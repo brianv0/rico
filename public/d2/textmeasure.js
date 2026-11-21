@@ -639,6 +639,23 @@ let markdownRenderer = null;
 export function setMarkdownIt(markdownit) {
   const md = markdownit({ html: true, xhtmlOut: true, linkify: false, typographer: false, breaks: false });
   md.validateLink = () => true;
+  // goldmark keeps every numeric character reference that names a Unicode scalar value (control characters included, so
+  // `&#6;` renders a raw U+0006, which d2compiler's XML check then rejects); markdown-it replaces the control ones with U+FFFD.
+  md.inline.ruler.before('entity', 'numeric_entity', (state, silent) => {
+    const pos = state.pos;
+    if (state.src.charCodeAt(pos) !== 0x26 || pos + 1 >= state.posMax || state.src.charCodeAt(pos + 1) !== 0x23) return false;
+    const match = state.src.slice(pos).match(/^&#((?:x[a-f0-9]{1,6}|[0-9]{1,7}));/i);
+    if (!match) return false;
+    if (!silent) {
+      const code = match[1][0].toLowerCase() === 'x' ? parseInt(match[1].slice(1), 16) : parseInt(match[1], 10);
+      const token = state.push('text_special', '', 0);
+      token.content = code > 0 && code <= 0x10FFFF && !(code >= 0xD800 && code <= 0xDFFF) ? String.fromCodePoint(code) : '\uFFFD';
+      token.markup = match[0];
+      token.info = 'entity';
+    }
+    state.pos += match[0].length;
+    return true;
+  });
   // goldmark's strikethrough extension renders <del>
   md.renderer.rules.s_open = () => '<del>';
   md.renderer.rules.s_close = () => '</del>';

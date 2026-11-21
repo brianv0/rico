@@ -9,6 +9,7 @@ import {
   Range, AstError, pos, advance, subtract, advanceString, subtractString, posEq,
   boxKind, unbox, boxType, scalarBox, scalarString, isSpace, trimRightSpace, utf8Len,
 } from './ast.js';
+import { quote } from './url.js';
 
 const isDigit = (ch) => /^\p{Nd}$/u.test(ch);
 const isLetter = (ch) => /^\p{L}$/u.test(ch);
@@ -40,8 +41,8 @@ export function parse(path, text, { utf16 = false, parseError = null } = {}) {
 function only(fn, what, text) {
   const p = new Parser('', text, false);
   const v = fn(p);
-  if (!p.err.empty()) throw new Error(`failed to parse ${what} ${JSON.stringify(text)}: ${p.err.message}`);
-  if (!v) throw new Error(`empty ${what}: ${JSON.stringify(text)}`);
+  if (!p.err.empty()) throw new Error(`failed to parse ${what} ${quote(text)}: ${p.err.message}`);
+  if (!v) throw new Error(`empty ${what}: ${quote(text)}`);
   return v;
 }
 export const parseKey = (key) => only((p) => p.parseKey(), 'key', key);
