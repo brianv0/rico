@@ -11,8 +11,38 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../../public/d2/parser.js';
 
+import markdownit from 'markdown-it';
+import { setMarkdownIt, loadMetrics, newRuler, getTextDimensionsWithMono, measureMarkdown, renderMarkdown } from '../../public/d2/textmeasure.js';
+import * as d2fonts from '../../public/d2/fonts.js';
+import { shapeCheck } from './shapecheck.mjs';
+
+setMarkdownIt(markdownit);
+await loadMetrics();
+const ruler = newRuler();
+
+// measure: input lines {text, fontFamily?, monoFamily?, fontSize, bold?, italic?, language?, markdown?} (see measurecorpus.mjs)
+function measure(c) {
+  const family = c.fontFamily || null, mono = c.monoFamily || null;
+  if (c.markdown) {
+    const [width, height] = measureMarkdown(c.text, ruler, family, mono, c.fontSize);
+    return { width, height, err: null };
+  }
+  const t = { text: c.text, fontSize: c.fontSize, isBold: !!c.bold, isItalic: !!c.italic, language: c.language || '' };
+  const dims = getTextDimensionsWithMono(null, ruler, t, family, mono);
+  const out = { width: dims.width, height: dims.height };
+  if (!c.language) {
+    const style = c.bold ? 'bold' : c.italic ? 'italic' : 'regular';
+    const [pw, ph] = ruler.measurePrecise(d2fonts.font(family || 'SourceSansPro', c.fontSize, style), c.text);
+    out.precise = [pw, ph];
+  }
+  return out;
+}
+
 const STAGES = {
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
+  measure,
+  mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
+  shape: shapeCheck,
 };
 
 const [mode, file, ...flags] = process.argv.slice(2);
@@ -47,7 +77,7 @@ cases.forEach((c, i) => {
   let got;
   try { got = canon(JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   const d = firstDiff(got, canon(want));
-  if (d) bad.push({ i, from: c.from, ...d }); else same++;
+  if (d) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...d }); else same++;
 });
 console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics} identical to Go` + (panics ? `, ${panics} skipped (Go panicked)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);

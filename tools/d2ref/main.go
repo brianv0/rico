@@ -47,6 +47,20 @@ type input struct {
 	UTF16Pos bool              `json:"utf16"`
 	Layout   string            `json:"layout"` // dagre (default) or elk
 	FS       map[string]string `json:"fs"`     // extra files for imports
+
+	// measure mode
+	FontFamily string `json:"fontFamily"`
+	MonoFamily string `json:"monoFamily"`
+	FontSize   int    `json:"fontSize"`
+	Bold       bool   `json:"bold"`
+	Italic     bool   `json:"italic"`
+	Language   string `json:"language"`
+	Markdown   bool   `json:"markdown"`
+
+	// shape mode
+	Shape  string  `json:"shape"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
 func main() {
@@ -56,6 +70,10 @@ func main() {
 	}
 	if os.Args[1] == "corpus" {
 		corpus(os.Args[2])
+		return
+	}
+	if os.Args[1] == "fontmetrics" {
+		fontmetrics()
 		return
 	}
 	ruler, err := textmeasure.NewRuler()
@@ -90,6 +108,13 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		fsys, _ = memfs.New(files)
 	}
 	switch mode {
+	case "measure":
+		return measure(in, ruler)
+	case "mdhtml":
+		html, err := textmeasure.RenderMarkdown(in.Text)
+		return map[string]interface{}{"html": html, "err": errString(err)}
+	case "shape":
+		return shapeCheck(in)
 	case "parse":
 		ast, err := d2parser.Parse(in.Path, strings.NewReader(in.Text), &d2parser.ParseOptions{UTF16Pos: in.UTF16Pos})
 		return struct {
