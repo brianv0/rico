@@ -277,3 +277,5 @@ function computeEdgeOffset(edge) {
   }
   return [verticalOffset, horizontalOffset];
 }
+
+export { edgesInOrder as _edgesInOrder }; // for the unit tests (the Go tests call the unexported function)

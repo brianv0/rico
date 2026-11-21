@@ -1804,3 +1804,5 @@ function setOrientation(t, o, guard) {
   }
 }
 
+export { extractTrees as _extractTrees, buildPlacementTrees as _buildPlacementTrees, treeSize as _treeSize }; // for the unit tests
+

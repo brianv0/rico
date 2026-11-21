@@ -48,9 +48,10 @@ function shapeAttrs(sameShape) {
 }
 
 function block(b, prefix) {
-  const t = int(10);
+  const t = int(12);
   const p = (name) => (prefix ? `${prefix}.${name}` : name);
-  const mk = (id, attrs = []) => { const path = p(id); b.emitNode(path, attrs); return path; };
+  // some nodes have a locked position (top and left together)
+  const mk = (id, attrs = []) => { const path = p(id); b.emitNode(path, chance(0.06) && !attrs.some((a) => a.startsWith('shape: sql')) ? [...attrs, `top: ${int(400)}`, `left: ${int(400)}`] : attrs); return path; };
   if (t <= 2) {
     // fan of leaves (cluster candidates), out / in / both
     const hub = mk(b.fresh('h'));
@@ -73,6 +74,15 @@ function block(b, prefix) {
     for (let i = 0; i < k; i++) ids.push(mk(b.fresh('s'), ['shape: step', ...(chance(0.2) ? [`width: ${20 + int(120)}`] : [])]));
     for (let i = 1; i < k; i++) b.edge(ids[i - 1], ids[i], { arrow: '->', label: chance(0.1) ? 'go' : '' });
     if (chance(0.5)) b.edge(pick(b.nodes), pick(ids), {});
+    if (chance(0.5)) {
+      // a branching tree hanging off a step (a sequence vessel as the sentinel of trees)
+      const stepNode = pick(ids);
+      for (let i = 0, m = 2 + int(2); i < m; i++) {
+        const kid = mk(b.fresh('t'));
+        b.edge(stepNode, kid, { arrow: '->', label: '' });
+        if (chance(0.5)) b.edge(kid, mk(b.fresh('t')), { arrow: '->', label: '' });
+      }
+    }
     if (chance(0.3)) b.edge(pick(ids), pick(b.nodes), {});
   } else if (t === 4 || t === 5) {
     // cycle core with trees
@@ -124,6 +134,17 @@ function block(b, prefix) {
     const k = 1 + int(4);
     for (let i = 0; i < k; i++) b.edge(hub, mk(b.fresh('v'), shapeAttrs()[0]), {});
     if (chance(0.5)) b.edge(other, mk(b.fresh('v')), {});
+  } else if (t >= 10) {
+    // a table with edges to its columns
+    const tb = mk(b.fresh('T'), ['shape: sql_table']);
+    const cols = 2 + int(3);
+    const colNames = [];
+    for (let i = 0; i < cols; i++) { const cn = `c${i}`; b.lines.push(`${tb}.${cn}: int`); colNames.push(`${tb}.${cn}`); }
+    for (let i = 0, m = 1 + int(3); i < m; i++) {
+      const other = mk(b.fresh('o'));
+      if (chance(0.5)) b.edge(other, pick(colNames), {}); else b.edge(pick(colNames), other, {});
+    }
+    if (chance(0.5)) b.edge(pick(colNames), pick(colNames), {});
   } else {
     // a few free nodes with random edges
     const k = 2 + int(4);
@@ -150,6 +171,26 @@ function program() {
     // edges crossing the border
     const crossings = int(4);
     for (let j = 0; j < crossings; j++) b.edge(pick(b.nodes), pick(b.nodes), {});
+  }
+  // herds: containers whose children connect to the same outside nodes (the uncles) or to children of the other containers
+  if (chance(0.5)) {
+    const uncles = [b.fresh('U'), b.fresh('U'), b.fresh('U')].slice(0, 1 + int(3));
+    for (const u of uncles) b.emitNode(u, chance(0.3) ? [`shape: ${pick(shapes)}`] : []);
+    const boxes = [];
+    for (let i = 0, k = 1 + int(3); i < k; i++) {
+      const c = b.fresh('H');
+      const kids = [];
+      for (let j = 0, m = 2 + int(3); j < m; j++) {
+        const kid = `${c}.${b.fresh('q')}`;
+        b.emitNode(kid, chance(0.2) ? [`width: ${30 + int(120)}`, `height: ${20 + int(80)}`] : []);
+        kids.push(kid);
+      }
+      boxes.push(kids);
+      for (const kid of kids) if (chance(0.8)) b.edge(kid, pick(uncles), { arrow: pick(['->', '->', '--']), label: '' });
+      if (chance(0.3)) b.edge(kids[0], kids[1], {});
+    }
+    for (let i = 1; i < boxes.length; i++) if (chance(0.6)) b.edge(pick(boxes[i - 1]), pick(boxes[i]), {});
+    if (uncles.length > 1 && chance(0.5)) b.edge(uncles[0], uncles[1], {});
   }
   if (chance(0.3)) b.lines.push(`direction: ${pick(['up', 'down', 'left', 'right'])}`);
   // a few random extra edges

@@ -32,6 +32,7 @@ import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
 import * as bigjson from '../../public/d2/tala/bigjson.js';
 import * as talacheck from './talacheck.mjs';
+import * as t1check from './tala/t1check.mjs';
 import { svgCheck, svgFullCheck, svgPrepare } from './svgcheck.mjs';
 import { latexCheck } from './latexcheck.mjs';
 import { loadLatex } from '../../public/d2/d2latex.js';
@@ -76,6 +77,7 @@ const TALA_MODES = {
   talascores: 'scores',
   talastages: 'stages',
   talafstages: 'fstages',
+  ...t1check.MODES, // T1 packages (loops, grouping, proximity, trees): tala/t1check.mjs
 };
 
 const STAGES = {
@@ -87,6 +89,7 @@ const STAGES = {
   talascores: talacheck.scoresStage,
   talastages: talacheck.stagesStage,
   talafstages: talacheck.fstagesStage,
+  ...t1check.STAGES,
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
   measure,
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
@@ -196,10 +199,10 @@ for (const [i, c] of cases.entries()) {
   try { got = canon(isTala ? bigjson.plain(await STAGES[mode](c, want, flags)) : JSON.parse(JSON.stringify(await STAGES[mode](c, want, flags)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; continue; }
   let d = firstDiff(got, canon(want));
-  if (d && (mode === 'layout' || mode === 'svgfull')) {
+  if (d && (mode === 'layout' || mode === 'svgfull' || mode === 'talat1ops')) {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
     // between runs. If Go gives the JS answer in some of 100 more runs, the case is Go-unstable, not a mismatch.
-    const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));
+    const again = runRef(Array(100).fill(c)).map((l) => canon(isTala ? bigjson.plain(bigjson.parse(l)) : JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
   if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.name ?? c.from ?? (isTala ? bigjson.stringify(c) : JSON.stringify(c)).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;

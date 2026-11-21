@@ -15,6 +15,7 @@ import * as geo from '../../../public/d2/geo.js';
 import * as loops from '../../../public/d2/tala/loops.js';
 import * as grouping from '../../../public/d2/tala/grouping.js';
 import { newRand } from '../../../public/d2/gorand.js';
+import * as goslices from '../../../public/d2/tala/goslices.js';
 
 const ctx = () => context.background();
 const O = geo.Orientation;
@@ -228,6 +229,7 @@ const goErr = (e) => (e && e.name === 'GoError' ? e.message : null);
  * stages and Go's, so the caller compares them; `reconstruct` lists the runs whose input state could not be rebuilt faithfully.
  */
 export function stagesCheck(want, targets) {
+  let chained = 0;
   const got = [];
   const exp = [];
   const bad = [];
@@ -248,8 +250,14 @@ export function stagesCheck(want, targets) {
         if (d) bad.push({ tag, ...d });
       } catch (e) {
         if (!goErr(e)) throw e;
-        bad.push({ tag, path: 'reconstruct', got: e.message, want: '' });
-        continue;
+        // graphjson cannot rebuild every state (a tree hanging off a sequence leaves an abduction of a detached edge in the graph): for
+        // stages 5 and 6 run the JS stages 3 (and 5) from the stage 2 graph instead, valid when Go's stage 4 left the state as it was
+        g = k === 5 || k === 6 ? chainFrom2(run, byIndex, k) : null;
+        if (g === null) {
+          bad.push({ tag, path: 'reconstruct', got: e.message, want: '' });
+          continue;
+        }
+        chained++;
       }
       let jsErr = null;
       try {
@@ -268,7 +276,32 @@ export function stagesCheck(want, targets) {
       }
     }
   }
-  return { got: bigjson.plain(got), exp: bigjson.plain(exp), bad };
+  return { got: bigjson.plain(got), exp: bigjson.plain(exp), bad, chained };
+}
+
+const stateKey = (r, sortEdges) => JSON.stringify(canon(bigjson.plain({
+  graph: r.graph,
+  deep: sortEdges ? { ...r.deep, nodes: r.deep.nodes.map((n) => ({ ...n, edges: [...n.edges].sort((x, y) => x - y) })) } : r.deep,
+})));
+
+/** the JS graph after stage 3 (k = 5) or stage 5 (k = 6), run from Go's stage 2 graph; null if that is not possible or not valid */
+function chainFrom2(run, byIndex, k) {
+  const s2 = byIndex.get(2), s3 = byIndex.get(3), s4 = byIndex.get(4);
+  // stage 4 (hierarchies) is not ported: its result must equal the stage 3 state, except that it may reorder the incident edges of
+  // nodes (then Go's order is put onto the JS graph)
+  if (!s2 || !s3 || !s4 || stateKey(s3, true) !== stateKey(s4, true)) return null;
+  let g;
+  try {
+    g = reconstruct(s2);
+    STAGE_FN[3](g, run);
+    const byId = new Map(t1Nodes(g).map((n) => [n.id, n]));
+    for (const rec of s4.deep.nodes) byId.get(BigInt(rec.id)).edges = rec.edges.map((i) => g.edges[i]);
+    if (k === 6) STAGE_FN[5](g, run, s4);
+  } catch (e) {
+    if (!goErr(e)) throw e;
+    return null;
+  }
+  return g;
 }
 
 const stripName = (r) => ({ index: r.index, graph: r.graph, deep: r.deep });
@@ -308,6 +341,35 @@ function opLoops(c, g) {
   return out;
 }
 
+/** JoinDistancedClusters the way placement calls it: on the children graph of every container (innermost first, the root level last) */
+function opJoin(g) {
+  const steps = [];
+  const roots = [...g.containerRDFSOrderUnbounded(null), null];
+  for (const root of roots) {
+    const children = (g.containers.get(root) ?? []).slice();
+    if (children.length === 0) continue;
+    if (children.some((c) => c.topLeft === null)) continue;
+    const sub = lg.newGraph();
+    sub.copyEntitiesFrom(g);
+    for (const c of children) sub.addNodeUnchecked(c);
+    const abds = g.abductEdges(root, sub);
+    sub.computeCellSize();
+    let panicked = '';
+    const err = tryErr(() => {
+      try {
+        grouping.joinDistancedClusters(ctx(), sub);
+      } catch (e) {
+        panicked = panicText(e);
+      }
+    });
+    steps.push({ root: idOrNull(root), err, panic: panicked });
+    g.restoreEdgeAbductions(abds);
+    lg.Nodes.setGraphReference(g.nodes, g);
+  }
+  lg.Nodes.setGraphReference(g.nodes, g);
+  return { steps, deep: deepState(g) };
+}
+
 function opCluster(g) {
   const out = [];
   const allPositioned = (cl) => cl.nodes.every((n) => n.topLeft !== null);
@@ -330,7 +392,33 @@ function opCluster(g) {
   return out;
 }
 
+/** goslices.js against slices.SortFunc / SortStableFunc (see t1Slices in xdump/t1_slices.go) */
+function opSlices(c) {
+  const { kind, cmp: which, items } = c.args;
+  const idx = items.map((_, i) => i);
+  const score = (cl) => (cl >= 3 ? 0 : cl);
+  const cmps = {
+    loops: (x, y) => {
+      const a = items[x], b = items[y];
+      if (a[0] !== b[0]) {
+        const xs = score(a[0]), ys = score(b[0]);
+        return xs < ys ? -1 : ys < xs ? 1 : 0;
+      }
+      return a[1] < b[1] ? -1 : b[1] < a[1] ? 1 : 0;
+    },
+    num: (x, y) => goslices.compare(items[x][1], items[y][1]),
+    cyc: (x, y) => {
+      const m = (x - y + 3 * items.length) % 3;
+      return m === 0 ? 0 : m === 1 ? -1 : 1;
+    },
+  };
+  if (kind === 'stable') goslices.sortStableFunc(idx, cmps[which]);
+  else goslices.sortFunc(idx, cmps[which]);
+  return { order: idx };
+}
+
 export function opsT1Stage(c) {
+  if (c.args.op === 'slices') return opSlices(c);
   let g;
   try {
     g = new lg.Graph();
@@ -358,17 +446,7 @@ export function opsT1Stage(c) {
         return { ids, err };
       }
       case 'cluster': return opCluster(g);
-      case 'join': {
-        if (!positioned(g)) return { skipped: true };
-        let err = null;
-        try {
-          grouping.joinDistancedClusters(ctx(), g);
-        } catch (e) {
-          err = goErr(e);
-          if (err === null) throw e;
-        }
-        return { graph: ser(g), deep: deepState(g), err };
-      }
+      case 'join': return opJoin(g);
       default: {
         const more = opsMore(op, c, g);
         if (more !== undefined) return more;
@@ -399,6 +477,8 @@ function opsMore(op, c, g) {
       return { graph: ser(g), deep: deepState(g), err };
     }
     case 'nearsHerds': return nearsHerds(g);
+    case 'trees': return opTrees(g);
+    case 'rebuild': return opRebuild(g);
   }
   return undefined;
 }
@@ -413,6 +493,94 @@ const tryErr = (fn) => {
     return m;
   }
 };
+
+/** a recovered Go panic as text: a GoPanic carries Go's message, a JS TypeError stands for the nil dereference of Go */
+const panicText = (e) => {
+  if (e.name === 'GoPanic') return e.message;
+  if (e instanceof TypeError) return 'runtime error: invalid memory address or nil pointer dereference';
+  throw e;
+};
+/** see t1Rebuild in xdump/t1_more.go */
+function opRebuild(g) {
+  const out = [];
+  const step = (name, fn) => {
+    const [err, panic] = guarded(fn);
+    out.push({ step: name, err, panic, deep: deepState(g) });
+  };
+  step('cleanup', () => grouping.cleanup(g));
+  step('sequences', () => grouping.addSequences(ctx(), g, newRand(1n)));
+  step('clusters', () => grouping.addClusters(ctx(), g, 1n, newRand(2n)));
+  step('cleanup2', () => grouping.cleanup(g));
+  step('reset', () => grouping.resetClusters(g));
+  step('sequences2', () => grouping.addSequences(ctx(), g, newRand(3n)));
+  step('clusters2', () => grouping.addClusters(ctx(), g, 4n, newRand(5n)));
+  return out;
+}
+
+const guarded = (fn) => {
+  try {
+    fn();
+    return [null, ''];
+  } catch (e) {
+    if (e.name === 'GoError') return [e.message, ''];
+    return [null, panicText(e)];
+  }
+};
+
+/** trees.preprocess, then trees.place the way placement calls it (see t1Trees in xdump/t1_more.go) */
+function opTrees(g) {
+  const out = {};
+  const [e, p] = guarded(() => trees.preprocess(ctx(), g));
+  out.preprocess = { err: e, panic: p, deep: deepState(g) };
+  if (e !== null || p !== '') return out;
+  const steps = [];
+  const roots = [...g.containerRDFSOrderUnbounded(null), null];
+  for (const root of roots) {
+    const children = (g.containers.get(root) ?? []).slice();
+    if (children.length === 0) continue;
+    if (children.some((c) => c.topLeft === null)) continue;
+    const childrenGraph = lg.newGraph();
+    childrenGraph.copyEntitiesFrom(g);
+    for (const c of children) childrenGraph.addNodeUnchecked(c);
+    const abds = g.abductEdges(root, childrenGraph);
+    let split = null;
+    let subgraphs = [];
+    let journal = null;
+    try {
+      [subgraphs, journal] = childrenGraph.splitSubgraphsTracked(ctx(), { includeNears: true, traverseTrees: true }, null);
+    } catch (x) {
+      split = goErr(x);
+      if (split === null) throw x;
+    }
+    const step = { root: idOrNull(root), split, places: [] };
+    if (split === null) {
+      for (const sub of subgraphs) {
+        sub.computeCellSize();
+        lg.Nodes.setGraphReference(sub.nodes, sub);
+        const [pe, pp] = guarded(() => trees.place(ctx(), sub, root));
+        step.places.push({ err: pe, panic: pp, nodes: sub.nodes.length });
+        if (pe !== null || pp !== '') break;
+        for (const n of sub.nodes) {
+          for (const treeRoot of g.trees.get(n) ?? []) {
+            for (const tree of [...trees.descendants(treeRoot), treeRoot]) {
+              g.addNodeUnchecked(tree.node);
+              g.addEdge(tree.sentinelEdge);
+            }
+          }
+        }
+        g.containers.set(root, sub.containers.get(root));
+        for (const other of subgraphs) other.containers.set(root, sub.containers.get(root));
+      }
+      journal.restore();
+    }
+    g.restoreEdgeAbductions(abds);
+    lg.Nodes.setGraphReference(g.nodes, g);
+    steps.push(step);
+  }
+  out.steps = steps;
+  out.final = { graph: ser(g), deep: deepState(g) };
+  return out;
+}
 
 function nearsHerds(g) {
   const steps = [];

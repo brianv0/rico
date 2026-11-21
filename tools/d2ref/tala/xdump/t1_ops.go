@@ -17,6 +17,9 @@ import (
 )
 
 func runT1Ops(in input, args t1Args) (res interface{}) {
+	if args.Op == "slices" {
+		return t1Slices(in)
+	}
 	ctx := context.Background()
 	g := layoutgraph.NewGraph()
 	if err := graphjson.Unmarshal(ctx, in.Graph, g); err != nil {
@@ -44,13 +47,7 @@ func runT1Ops(in input, args t1Args) (res interface{}) {
 	case "cluster":
 		return t1Cluster(g)
 	case "join":
-		if !positioned(g) {
-			return map[string]interface{}{"skipped": true}
-		}
-		err := grouping.JoinDistancedClusters(ctx, g)
-		rec := t1Record(g)
-		rec["err"] = errString(err)
-		return rec
+		return t1Join(ctx, g)
 	}
 	if r, ok := t1OpsMore(ctx, g, args); ok {
 		return r
@@ -118,4 +115,47 @@ func t1Cluster(g *layoutgraph.Graph) interface{} {
 		out = append(out, rec)
 	}
 	return out
+}
+
+// t1Join calls JoinDistancedClusters the way placement does: on the children graph of every container (innermost first, the root level last).
+func t1Join(ctx context.Context, g *layoutgraph.Graph) interface{} {
+	steps := []interface{}{}
+	roots := append(g.ContainerRDFSOrderUnbounded(nil), nil)
+	for _, root := range roots {
+		children := append([]*layoutgraph.Node(nil), g.Containers[root]...)
+		if len(children) == 0 {
+			continue
+		}
+		ok := true
+		for _, c := range children {
+			if c.TopLeft == nil {
+				ok = false
+			}
+		}
+		if !ok {
+			continue
+		}
+		sub := layoutgraph.NewGraph()
+		sub.CopyEntitiesFrom(g)
+		for _, c := range children {
+			sub.AddNodeUnchecked(c)
+		}
+		abductions := g.AbductEdges(root, sub)
+		sub.ComputeCellSize()
+		var err error
+		panicked := ""
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicked = fmt.Sprint(r)
+				}
+			}()
+			err = grouping.JoinDistancedClusters(ctx, sub)
+		}()
+		steps = append(steps, map[string]interface{}{"root": idOrNil(root), "err": errString(err), "panic": panicked})
+		g.RestoreEdgeAbductions(abductions)
+		layoutgraph.Nodes(g.Nodes).SetGraphReference(g)
+	}
+	layoutgraph.Nodes(g.Nodes).SetGraphReference(g)
+	return map[string]interface{}{"steps": steps, "deep": t1Deep(g)}
 }

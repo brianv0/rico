@@ -1307,3 +1307,5 @@ export function cleanup(graph) {
     node.herdAssignment = null;
   }
 }
+
+export { identifySequences as _identifySequences }; // for the unit tests

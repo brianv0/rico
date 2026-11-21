@@ -6,8 +6,8 @@ package; later agents rely on it, so keep it accurate. The general port rules (l
 diff harness) are in [d2-port.md](d2-port.md) and apply here too.
 
 **Status (T0, the foundation): done.** Ported and verified against Go: `gorand` (Go's `math/rand`), `layoutgraph` (with `nodeshape`, which it
-needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelgeom`, and the D2 -> TALA adapter graph (`translateGraph`). Not
-started: everything from `loops` up (plan below).
+needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelgeom`, and the D2 -> TALA adapter graph (`translateGraph`).
+**T1 (`loops`, `grouping`, `proximity`, `trees`): done** (section "T1" at the end). Not started: everything from `hierarchy` up (plan below).
 
 | Go package | JS | Lines of Go (tests) | Verified by (cases identical to Go) |
 |---|---|---|---|
@@ -20,6 +20,11 @@ started: everything from `loops` up (plan below).
 | `internal/graphbounds` | `tala/graphbounds.js` | 231 (260) | `talaops` op `graphbounds` (bounds, fixed bounds, per node with and without siblings, empty set, guard use) |
 | `internal/labelgeom` | `tala/labelgeom.js` | 35 (110) | through `Edge.boundingBoxValues` in `talaops` (arrowhead labels) |
 | adapter (`adapter.go`, `adapter_validate.go`, `seedgraph.go`, `limits.go`, seed plan of `layout.go`) | `tala/d2talalayout.js` | about 1100 | `talaadapter`: corpus 1073/1073 (UTF-8 and UTF-16; with the 4 LaTeX cases 1077/1077 after merging the LaTeX port), e2e inputs 300/300, `extra.jsonl` 400/400, `extralayout` 50/50, `fuzzlayout` 2500/2500, `fuzzgrid` 600/600, `fuzzseq` 600/600 |
+| `internal/loops` | `tala/loops.js` | 329 (61) | `talat1ops` op `loops` (routes, label positions and `LoopOffsets` of every node, with and without positions): see T1 |
+| `internal/grouping` | `tala/grouping.js` | 1985 (about 2570) | `t1diff stages` 1 (`PreprocessSequences`), 5 (`PreprocessClusters`), 19 (`CleanupStuff`); `talat1ops` ops `resetClusters`, `seqEdges`, `cluster`, `join`, `rebuild`: see T1 |
+| `internal/proximity` | `tala/proximity.js` | 668 (1270) | `t1diff stages` 6 (`PreprocessHubs`); `talat1ops` ops `hubs`, `commonUncle`, `nearsHerds` (nears, herds): see T1 |
+| `internal/trees` | `tala/trees.js` | 2707 (2340) | `t1diff stages` 3 (`PreprocessTrees`); `talat1ops` op `trees` (Preprocess + Place as placement calls them): see T1 |
+| `slices.SortFunc`, `SortStableFunc`, `cmp.Compare` | `tala/goslices.js` | n/a | `talat1ops` op `slices`: TBDSLICES arrays |
 
 ## Running it
 

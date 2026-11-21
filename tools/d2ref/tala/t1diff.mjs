@@ -19,10 +19,10 @@ const targets = String(flag('--stages', '1,3,5,6,19')).split(',').map(Number);
 const batchSize = Number(flag('--batch', 20));
 let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => bigjson.parse(l));
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
-const allStages = [...new Set([-1, ...targets, ...targets.map((k) => t1.STAGE_PRED[k])])];
+const allStages = [...new Set([-1, ...targets, ...targets.map((k) => t1.STAGE_PRED[k]), ...(targets.some((k) => k === 5 || k === 6) ? [2, 3, 4] : [])])];
 
 const nontrivial = {};
-let same = 0, differ = 0, recon = 0, goPanics = 0, noRuns = 0, stageCount = 0;
+let chained = 0, same = 0, differ = 0, recon = 0, goPanics = 0, noRuns = 0, stageCount = 0;
 const bad = [];
 const t0 = performance.now();
 for (let b = 0; b < cases.length; b += batchSize) {
@@ -51,6 +51,7 @@ for (let b = 0; b < cases.length; b += batchSize) {
     }
     for (const r of res.bad) { recon++; bad.push({ name, ...r }); }
     stageCount += res.exp.length;
+    chained += res.chained;
     for (const x of res.exp) {
       if (!x.deep) continue;
       const k = Number(/stage(\d+)$/.exec(x.tag)[1]);
@@ -63,6 +64,7 @@ for (let b = 0; b < cases.length; b += batchSize) {
 }
 console.log(`t1 stages ${file}: ${same}/${same + differ} cases identical to Go (${stageCount} stage comparisons; targets ${targets.join(',')})` +
   (Object.keys(nontrivial).length ? ` [with groups: ${Object.entries(nontrivial).map(([k, v]) => `stage ${k}: ${v}`).join(', ')}]` : '') +
+  (chained ? ` (${chained} of them rebuilt by running the JS stages 3 and 5 from the stage 2 graph)` : '') +
   (recon ? `, ${recon} reconstruction mismatches` : '') + (goPanics ? `, ${goPanics} skipped (Go panicked)` : '') + (noRuns ? `, ${noRuns} without runs` : '') + `, ${((performance.now() - t0) / 1000) | 0}s`);
 for (const x of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n${x.name}${x.tag ? " " + x.tag : ""}\n  at ${x.path}\n  got  ${x.got}\n  want ${x.want}`);
 process.exitCode = differ || recon ? 1 : 0;
