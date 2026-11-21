@@ -68,7 +68,7 @@ export function layout(g, opts) {
   try {
     layout_(g, opts);
   } catch (e) {
-    if (e && e.name === 'LatexNotPorted') throw e;
+    if (e && e.name === 'NeedLatex') throw e;
     const err = new Error(`failed to dagre layout: ${e && e.message !== undefined ? e.message : e}`);
     err.cause = e;
     throw err;

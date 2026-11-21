@@ -1,6 +1,6 @@
 // node svgfuzz.mjs <corpus.jsonl|e2esvg.jsonl> N seed > svgfuzz.jsonl: N cases from the input with random render options (ropts) of
 // d2svg.RenderOpts: pad (also invalid ones), scale, center, theme and dark theme ids, salt, noXMLTag, omitVersion, masterID (collapsed
-// multiboard rendering), theme overrides. Use with `node diff.mjs svg svgfuzz.jsonl`.
+// multiboard rendering), theme overrides, sketch mode (30%; `diff.mjs svg ... --sketch` forces it). Use with `node diff.mjs svg svgfuzz.jsonl`.
 import fs from 'node:fs';
 
 const [file, n, seed0] = process.argv.slice(2);
@@ -25,6 +25,7 @@ for (let i = 0; i < Number(n); i++) {
   if (rnd() < 0.15) r.masterID = pick(['d2-master', 'x']);
   if (rnd() < 0.2) r.themeOverrides = Object.fromEntries(['n1', 'b2', 'b5', 'aa2', 'n7'].filter(() => rnd() < 0.5).map((k) => [k, pick(colors)]));
   if (rnd() < 0.1) r.darkThemeOverrides = { n1: pick(colors) };
+  if (rnd() < 0.3) r.sketch = true; // appended last so that the other choices of a seed stay as they were
   if (c.ropts) Object.assign(r, c.ropts);
   c.ropts = r;
   c.from = `${c.from || c.path || ''} ${JSON.stringify(r)}`;

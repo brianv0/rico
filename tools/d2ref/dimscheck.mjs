@@ -8,8 +8,7 @@ export function dimsCheck(c, ruler = newRuler()) {
   try {
     return { boards: dimsBoards(r.g, ruler) };
   } catch (e) {
-    if (e.name === 'LatexNotPorted') return { deferred: 'latex' };
-    throw e;
+    return { err: e.message }; // the Go mode prints err.Error() of ApplyTheme/SetDimensions
   }
 }
 

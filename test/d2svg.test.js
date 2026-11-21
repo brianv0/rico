@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import markdownit from 'markdown-it';
 import { init, compile } from '../public/d2/d2lib.js';
-import { renderAsync, renderMultiboardAsync, Deferred } from '../public/d2/d2svg.js';
+import { renderAsync, renderMultiboardAsync } from '../public/d2/d2svg.js';
 import { zlibCompress } from '../public/d2/flate.js';
 import { getEncodedSubset } from '../public/d2/fontsubset.js';
 import { firstLineSegmentInString } from '../public/d2/linebreak.js';
@@ -65,12 +65,30 @@ test('d2svg renders a compiled diagram: fonts embedded (default) or referenced (
   assert.equal(external.match(/class="(d2-\d+) d2-svg"/)[1], embedded.match(/class="(d2-\d+) d2-svg"/)[1]);
 });
 
-test('d2svg: Markdown labels are native SVG text, boards render separately, sketch is deferred', async () => {
+test('d2svg: Markdown labels are native SVG text, boards render separately', async () => {
   const ro = {};
   const { diagram } = await compile('m: |md\n  # Title\n\n  - **bold** item\n|\nlayers: { l: { x } }', {}, ro);
   const svg = await renderAsync(diagram, { ...ro, fonts: 'external' });
   assert.match(svg, /<g class="md md-native">/);
   assert.ok(!svg.includes('foreignObject'));
   assert.equal((await renderMultiboardAsync(diagram, { ...ro, fonts: 'external' })).length, 2);
-  await assert.rejects(renderAsync(diagram, { ...ro, sketch: true, fonts: 'external' }), (e) => e instanceof Deferred && e.reason === 'sketch');
+});
+
+test('d2svg: sketch mode draws hand-drawn paths with roughjs, loaded on demand, and uses the handwriting face', async () => {
+  const ro = { sketch: true };
+  const { diagram, err } = await compile('a: Hi { shape: circle }\nb -> a: x { target-arrowhead.shape: diamond }\nt: { shape: sql_table; id: int }', {}, ro);
+  assert.equal(err, null);
+  assert.equal(diagram.fontFamily, 'HandDrawn');
+  const svg = await renderAsync(diagram, { ...ro, fonts: 'external', fontBaseURL: '/d2/fonts/' });
+  assert.match(svg, /<defs><pattern id="streaks-/);
+  assert.match(svg, /class="[^"]*sketch-overlay-/);
+  assert.match(svg, /src: url\("\/d2\/fonts\/FuzzyBubbles-Regular\.ttf"\)/);
+  assert.match(svg, /<path d="M[-\d.]+ [-\d.]+ C/);
+  const shapePaths = [...svg.matchAll(/<path d="([^"]*)"[^>]*class="(?:shape|connection)/g)].map((m) => m[1]);
+  assert.ok(shapePaths.length > 5 && shapePaths.every((d) => !/\d\.\d{7}/.test(d)), 'path numbers are cut to six decimals');
+  // the same input renders the same bytes again (rough seeds are fixed) and differs from the plain rendering
+  assert.equal(await renderAsync(diagram, { ...ro, fonts: 'external', fontBaseURL: '/d2/fonts/' }), svg);
+  const plain = {};
+  const { diagram: d2 } = await compile('a: Hi { shape: circle }', {}, plain);
+  assert.ok(!(await renderAsync(d2, { ...plain, fonts: 'external' })).includes('streaks-'));
 });
