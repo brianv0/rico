@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2graph package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.): the graph that
+// JavaScript port of D2's d2graph package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.): the graph that
 // d2compiler builds from the IR. d2graph.go, layout.go, seqdiagram.go and grid_diagram.go; not serde.go (the exec plugin's
 // wire format) and not Graph.SetDimensions (the layout stage), though the functions it is made of are here.
 //
@@ -557,7 +557,7 @@ export class Style {
       case 'opacity': {
         if (s.opacity === null) break;
         const [f, err] = parseFloat64(value);
-        if (err !== null || (f < 0 || f > 1)) return 'expected "opacity" to be a number between 0.0 and 1.0';
+        if (err !== null || Number.isNaN(f) || f === Infinity || f === -Infinity || f < 0 || f > 1) return 'expected "opacity" to be a number between 0.0 and 1.0';
         s.opacity.value = value;
         break;
       }
@@ -1135,13 +1135,18 @@ export class GraphObject {
     if (dstObj.parent !== null) dst = dstObj.absID() + '.' + dst;
 
     let ea = null;
+    const srcArrow = ae.src_arrow === '<';
+    const dstArrow = ae.dst_arrow === '>';
     for (const e of obj.graph.edges || []) {
-      if (equalFold(src, e.src.absID()) &&
-        ((ae.src_arrow === '<' && e.srcArrow) || (ae.src_arrow === '' && !e.srcArrow)) &&
+      const direct = equalFold(src, e.src.absID()) &&
+        srcArrow === e.srcArrow &&
         equalFold(dst, e.dst.absID()) &&
-        ((ae.dst_arrow === '>' && e.dstArrow) || (ae.dst_arrow === '' && !e.dstArrow))) {
-        ea = append(ea, e);
-      }
+        dstArrow === e.dstArrow;
+      const flipped = equalFold(src, e.dst.absID()) &&
+        srcArrow === e.dstArrow &&
+        equalFold(dst, e.src.absID()) &&
+        dstArrow === e.srcArrow;
+      if (direct || flipped) ea = append(ea, e);
     }
     return [ea, true];
   }
@@ -1985,20 +1990,28 @@ export class Edge {
     return `${commonKey}(${srcIDA.join('.')} ${e.arrowString()} ${dstIDA.join('.')})[${e.index}]`;
   }
 
-  /**
-   * TODO: Treat undirectional/bidirectional edge here and in HasEdge flipped. Same with
-   * SrcArrow.
-   */
   initIndex() {
     const e = this;
     for (const e2 of e.src.graph.edges || []) {
-      if (e.src === e2.src &&
-        e.srcArrow === e2.srcArrow &&
-        e.dst === e2.dst &&
-        e.dstArrow === e2.dstArrow) {
-        e.index++;
-      }
+      if (e2.isEquivalent(e.src, e.srcArrow, e.dst, e.dstArrow)) e.index++;
     }
+  }
+
+  /**
+   * IsEquivalent reports whether the given endpoints describe the same edge. Arrowheads are attached to endpoints, so
+   * reversing the endpoint order also reverses the arrow fields.
+   */
+  isEquivalent(src, srcArrow, dst, dstArrow) {
+    const e = this;
+    const direct = e.src === src &&
+      e.srcArrow === srcArrow &&
+      e.dst === dst &&
+      e.dstArrow === dstArrow;
+    if (direct) return true;
+    return e.src === dst &&
+      e.srcArrow === dstArrow &&
+      e.dst === src &&
+      e.dstArrow === srcArrow;
   }
 
   // ---- seqdiagram.go ----
