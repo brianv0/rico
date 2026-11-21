@@ -61,6 +61,14 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
     (preview), *Comment* keeps the box open with a sign-in link that returns to the same page.
   - **Ctrl/Cmd+Alt+M** comments on the current selection. The pill has one *Comment* icon; the quote is added by itself when the
     selection is part of a line, a diagram, or outside the diff.
+- **Live refresh.** While the tab is visible Rico re-reads the PR's comments every ~25 s with conditional requests
+  (`If-None-Match` on the PR, its review comments and its PR comments), so an unchanged PR answers `304` and costs nothing against the
+  rate limit; others' comments and replies appear without a reload, and an open reply box keeps its text and focus. A hidden tab
+  polls nothing; signed-out preview polls every 2 minutes. If the PR's head commit changes, a banner says so (*Reload*), and the
+  comment box warns that lines may have moved.
+- **Exact words.** GitHub keeps whole lines; Rico's selections are word-precise. A partial-line comment carries a short blockquote of
+  the selected words, and when comments load Rico finds that quote in its line and highlights exactly those words (CSS Custom Highlight
+  API; a comment without a findable quote highlights the block). Nothing is hidden in comment bodies. Outdated comments render faded, their quote struck through.
 - Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
   markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 

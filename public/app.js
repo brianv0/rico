@@ -1,5 +1,5 @@
 import {
-  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote,
+  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -290,6 +290,8 @@ async function loadPr(ref, wantFile, wantSha = '') {
     }
     applyComments(pr);
     state.placed = new Map();
+    state.stale = null;
+    $('#stale').hidden = true;
     state.lastSig = JSON.stringify([pr.comments, pr.prComments, pr.pendingReview]);
     etags = {};
     restore();
@@ -312,6 +314,7 @@ async function loadPr(ref, wantFile, wantSha = '') {
     if (wantFile && cur === views.get(first.filename)) scrollToCard(first.filename);
     renderFiles();
     restoreComposer();
+    schedulePoll();
   } catch (e) {
     status(e.message, true);
     return;
@@ -988,6 +991,7 @@ function threadCard(th, rerender) {
   });
   if (th.local) return card;
   const acts = el('div', 'tacts');
+  let restoreReply = null;
   if (th.kind === 'review' && th.info?.canReply !== false) {
     const replyBtn = btn('Reply');
     const openReply = (text = '', focus = true) => {
@@ -1025,7 +1029,7 @@ function threadCard(th, rerender) {
     replyBtn.addEventListener('click', () => openReply());
     acts.append(replyBtn);
     const saved = draftGet('reply:' + th.id);
-    if (saved) queueMicrotask(() => { if (card.isConnected !== false && !card.querySelector('.reply')) openReply(saved, false); });
+    if (saved) restoreReply = () => openReply(saved, false);
   }
   if (th.kind === 'review' && !state.preview && th.info) {
     const flip = async (resolve) => {
@@ -1042,11 +1046,54 @@ function threadCard(th, rerender) {
     else if (th.info.canResolve) { const b = btn('Resolve', 'btn rbtn'); b.addEventListener('click', () => flip(true)); acts.append(b); }
   }
   if (acts.childNodes.length) card.append(acts);
+  if (restoreReply) restoreReply(); // unsent reply text comes back with the card
   return card;
 }
 
 let marginItems = [];
 state.placed = new Map(); // PR-level thread id -> the file whose margin shows it
+
+// GitHub stores whole lines; the words a comment is about are found again from the quote it carries (no hidden metadata).
+/** DOM Range over characters [start, end) of an element's text. */
+function domRange(root, start, end) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const r = document.createRange();
+  let pos = 0;
+  let a = false;
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    const len = n.data.length;
+    if (!a && start < pos + len) { r.setStart(n, Math.max(0, start - pos)); a = true; }
+    if (a && end <= pos + len) { r.setEnd(n, Math.max(0, end - pos)); return r; }
+    pos += len;
+  }
+  return null;
+}
+/** Ranges for the exact words of a quote, looked for (paragraph by paragraph, in order) in the given blocks. */
+function quoteRanges(blocks, quote) {
+  const out = [];
+  let from = 0;
+  for (const part of quoteParts(quote)) {
+    for (let i = from; i < blocks.length; i++) {
+      const hit = findQuote(blocks[i].textContent, part);
+      const r = hit && domRange(blocks[i], hit.start, hit.end);
+      if (r) { out.push(r); from = i; break; }
+    }
+  }
+  return out;
+}
+/** Everything the margin marks as a comment's own words (all files), plus the hovered thread's. */
+function paintQuoteHighlights() {
+  if (!('highlights' in CSS)) return;
+  const all = [];
+  for (const v of views.values()) for (const it of v.marginItems || []) if (it.ranges?.length) all.push(...it.ranges);
+  CSS.highlights.delete('rico-thread');
+  if (all.length) CSS.highlights.set('rico-thread', new Highlight(...all));
+}
+function hoverRanges(ranges) {
+  if (!('highlights' in CSS)) return;
+  CSS.highlights.delete('rico-hl');
+  if (ranges?.length) CSS.highlights.set('rico-hl', new Highlight(...ranges));
+}
 
 /** The block a PR-level comment's quote points at in this file, or null (it then lives under General). */
 function issueBlocks(th, path, leaves) {
@@ -1083,15 +1130,15 @@ function renderMargin() {
   const oldLeaves = all.filter((l) => l.rm);
   const oldToNew = oldToNewMap(cur.rows);
   const raw = [
-    ...state.threads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'RIGHT' })),
-    ...state.leftThreads.filter((t) => t.path === path).map((t) => ({ card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'LEFT' })),
+    ...state.threads.filter((t) => t.path === path).map((t) => ({ th: t, card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'RIGHT' })),
+    ...state.leftThreads.filter((t) => t.path === path).map((t) => ({ th: t, card: threadCard(t), start: t.start, end: t.end, id: t.id, side: 'LEFT' })),
   ];
   for (const [id, p] of state.placed) if (p === path) state.placed.delete(id);
   for (const t of state.prThreads) { // PR-level comments that quote text from this file sit beside it
     const blocks = issueBlocks(t, path, newLeaves);
     if (!blocks) continue;
     state.placed.set(t.id, path);
-    raw.push({ card: threadCard(t), start: 0, end: 0, id: t.id, side: 'RIGHT', blocks, fixed: true });
+    raw.push({ th: t, card: threadCard(t), start: 0, end: 0, id: t.id, side: 'RIGHT', blocks, fixed: true });
   }
   let unplaced = 0;
   for (const it of raw) {
@@ -1107,13 +1154,16 @@ function renderMargin() {
     } else {
       blocks = newLeaves.filter((l) => overlaps(l.b, it.start, it.end)).map((l) => l.e);
       if (!blocks.length && newLeaves.length) { // outdated lines that no longer exist: nearest block
+        it.exact = false;
         const dist = (l) => (l.b.e < it.start ? it.start - l.b.e : l.b.s - it.end);
         blocks = [newLeaves.reduce((a, b) => (dist(b) < dist(a) ? b : a)).e];
       }
     }
     it.blocks = blocks;
-    it.card.addEventListener('mouseenter', () => it.blocks.forEach((b) => b.classList.add('hl')));
-    it.card.addEventListener('mouseleave', () => it.blocks.forEach((b) => b.classList.remove('hl')));
+    const q = parseQuote(it.th.msgs[0].body).quote; // outdated lines found no block of their own, so there is nothing exact to show
+    it.ranges = q && it.exact !== false ? quoteRanges(blocks, q) : [];
+    it.card.addEventListener('mouseenter', () => { if (it.ranges.length) hoverRanges(it.ranges); else it.blocks.forEach((b) => b.classList.add('hl')); });
+    it.card.addEventListener('mouseleave', () => { hoverRanges(null); it.blocks.forEach((b) => b.classList.remove('hl')); });
     margin.append(it.card);
     marginItems.push(it);
   }
@@ -1123,6 +1173,7 @@ function renderMargin() {
     margin.append(n);
   }
   renderGeneral();
+  paintQuoteHighlights();
   layoutMargin();
 }
 
@@ -1538,7 +1589,7 @@ function showComposer(sel) {
   rv.disabled = !sel.anchor;
   rv.title = sel.anchor ? 'Keep this comment pending on GitHub until you finish the review' : 'Text outside the diff can only be posted as a single comment on the pull request';
   const rEl = $('#c-range');
-  rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '');
+  rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '') + (state.stale ? ' — this PR has new commits since you loaded it; line numbers may have moved.' : '');
   rEl.classList.toggle('warn', rt.warn);
   const inc = $('#c-qinc');
   inc.checked = sel.includeDefault;
@@ -1843,9 +1894,24 @@ async function refreshComments(force = false) {
   }
 }
 
+// Poll while the tab is visible. Conditional requests make an unchanged PR free; the shared preview server is asked rarely.
+let pollTimer = 0;
+let pollMs = 0; // test hook: window.__rico.setPollMs
+const pollDelay = () => pollMs || (document.hidden ? 120000 : state.preview ? 120000 : 25000);
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  if (!state.pr) return;
+  pollTimer = setTimeout(async () => {
+    if (!document.hidden) await refreshComments();
+    schedulePoll();
+  }, pollDelay());
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && state.pr) { refreshComments(); schedulePoll(); } });
+
 function showStale(sha) {
   const bar = $('#stale');
   if (!bar) return;
+  state.stale = sha;
   bar.hidden = false;
   bar.querySelector('.msg-text').textContent = `This pull request has new commits (${sha.slice(0, 7)}). Line numbers and comment positions here are from ${state.pr.headSha.slice(0, 7)}.`;
 }
@@ -1921,4 +1987,4 @@ renderPanel();
 showWho();
 
 // test hook
-window.__rico = { state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
+window.__rico = { setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };

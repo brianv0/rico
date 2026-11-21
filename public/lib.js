@@ -304,6 +304,11 @@ export function parseQuote(body) {
   return out;
 }
 
+/** A quote's paragraphs (a selection across blocks is quoted block by block), each to be found on its own. */
+export function quoteParts(quote) {
+  return String(quote || '').split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+}
+
 /** Collapse whitespace runs to one space and trim; map[i] = index in the original string of normalized char i. */
 export function normalizeWithMap(str) {
   const s = String(str);

@@ -419,3 +419,9 @@ test('findQuote locates words in rendered text, across whitespace, and shortened
   assert.equal(findQuote(hay, ''), null);
   assert.deepEqual(normalizeWithMap('  a  b ').text, 'a b');
 });
+
+test('quoteParts splits a multi-block quote into the paragraphs to look for', async () => {
+  const { quoteParts } = await import('../public/lib.js');
+  assert.deepEqual(quoteParts('First here.\n\nSecond one\nwrapped'), ['First here.', 'Second one\nwrapped']);
+  assert.deepEqual(quoteParts(''), []);
+});

@@ -182,6 +182,8 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body [data-l].has-t { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 2px; }
 .markdown-body [data-l].hl { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 ::highlight(rico-sel) { background-color: var(--sel); }
+::highlight(rico-thread) { background-color: color-mix(in srgb, var(--attention) 22%, transparent); }
+::highlight(rico-hl) { background-color: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* removed blocks, drawn from the old version like GitHub's rich diff */
 .markdown-body .rm { margin: 8px 0; padding: 4px 12px; background: var(--diff-del-bg); border-left: 3px solid var(--danger); border-radius: 6px; }

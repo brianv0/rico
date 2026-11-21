@@ -293,7 +293,7 @@ await step('selection outside the diff is posted as a PR comment with a quote, a
   const geo = await page.evaluate(() => { const t = [...document.querySelectorAll('#margin .thread.pr-level')].find((x) => /Unanchored/.test(x.innerText)); const p = [...document.querySelectorAll('#doc p')].find((x) => /Far away/.test(x.textContent)); return { card: t.getBoundingClientRect().top, p: p.getBoundingClientRect().top }; });
   assert.ok(geo.card >= geo.p - 3, `never above the paragraph it quotes (${geo.card} vs ${geo.p}); a crowded margin pushes it down`);
   await page.locator('#margin .thread.pr-level', { hasText: 'Unanchored' }).hover();
-  assert.equal(await page.locator('#doc p.hl', { hasText: 'Far away' }).count(), 1, 'hovering it highlights the paragraph it quotes');
+  assert.deepEqual(await page.evaluate(() => [...CSS.highlights.get('rico-hl') || []].map((r) => r.toString())), ['Far away paragraph outside the diff'], 'hovering it highlights the exact words it quotes');
   await page.mouse.move(5, 5);
   assert.equal(await page.locator('#general .thread', { hasText: 'Unanchored' }).count(), 0);
 });
@@ -859,6 +859,88 @@ await step('signed out (preview): the text is kept and the way back in is offere
   await page.evaluate(() => localStorage.clear());
   await page.unroute('**/api/me');
   await reload();
+});
+
+await step('live refresh: a comment from someone else appears without a reload; unchanged polls are free (304)', async () => {
+  await gotoPlan();
+  await page.evaluate(() => window.__rico.setPollMs(300));
+  fake.hits.length = 0;
+  const id = fake.addComment({ user: { login: 'zed', avatar_url: null }, line: 6, start_line: 3, original_line: 6, body: 'Fresh from zed' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /Fresh from zed/.test(x.innerText)), null, { timeout: 5000 });
+  await page.waitForTimeout(900);
+  const hits = fake.hits.filter((h) => /\/pulls\/7( |\/comments |.*)->/.test(h) || /issues\/7\/comments/.test(h));
+  assert.ok(hits.filter((h) => h.endsWith('304')).length >= 3, 'polls answer 304: ' + hits.slice(-6).join(' ; '));
+  assert.equal(fake.hits.filter((h) => /\/graphql/.test(h)).length >= 1, true, 'a change is re-read in full once');
+  assert.equal(id > 0, true);
+});
+await step('live refresh: an open reply box keeps its text and focus while the margin updates', async () => {
+  const t = page.locator('#margin .thread', { hasText: 'Will trim it' });
+  await t.getByRole('button', { name: 'Reply' }).click();
+  await t.locator('textarea').fill('Typing while others comment');
+  await t.locator('textarea').press('End');
+  fake.addComment({ user: { login: 'yan' }, line: 6, original_line: 6, in_reply_to_id: 101, body: 'Reply from yan' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /Reply from yan/.test(x.innerText)), null, { timeout: 5000 });
+  const ta = page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply textarea');
+  assert.equal(await ta.inputValue(), 'Typing while others comment');
+  assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'TEXTAREA');
+  await page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply').getByRole('button', { name: 'Cancel' }).click();
+});
+await step('live refresh: no polling while the tab is hidden, and it resumes when you come back', async () => {
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); });
+  await page.waitForTimeout(400);
+  const n = fake.hits.length;
+  await page.waitForTimeout(900);
+  assert.equal(fake.hits.length, n, 'a hidden tab asks GitHub for nothing');
+  fake.addComment({ user: { login: 'xia' }, line: 6, original_line: 6, body: 'While you were away' });
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /While you were away/.test(x.innerText)), null, { timeout: 5000 });
+});
+await step('new commits on the PR show a banner; Reload opens the new head; composing warns about stale lines', async () => {
+  assert.equal(await page.locator('#stale').isHidden(), true);
+  fake.pushCommit('9999aaaabbbb');
+  await page.waitForSelector('#stale:not([hidden])', { timeout: 5000 });
+  assert.match(await page.locator('#stale').innerText(), /new commits[\s\S]*9999aaa/);
+  await drag('Second paragraph', 'testing');
+  assert.match(await page.locator('#c-range').innerText(), /new commits since you loaded it/);
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: path.join(root, 'e2e', 'stale.png') });
+  fake.pushCommit(SHA); // (the fake serves files only at its one commit)
+  await page.evaluate(() => window.__rico.setPollMs(10 * 60 * 1000));
+});
+
+await step('exact words: a partial-line comment highlights just those words (Google-Docs style); whole-line threads fall back to the block', async () => {
+  await gotoPlan();
+  await page.evaluate(() => window.__rico.setPollMs(10 * 60 * 1000));
+  await drag('paragraph is', 'hard');
+  assert.equal(await page.locator('#c-qinc').isChecked(), true);
+  await page.fill('#c-body', 'These exact words matter');
+  const n = fake.ops.length;
+  await page.keyboard.press('Control+Enter');
+  const op = await waitOp(n);
+  assert.equal(op.body, '> paragraph is hard\n\nThese exact words matter');
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /exact words matter/.test(x.innerText) && !x.classList.contains('local')));
+  const card = page.locator('#margin .thread', { hasText: 'exact words matter' });
+  const ranges = () => page.evaluate(() => ({ marked: [...CSS.highlights.get('rico-thread') || []].map((r) => r.toString()), hover: [...CSS.highlights.get('rico-hl') || []].map((r) => r.toString()), blocks: document.querySelectorAll('#doc [data-l].hl').length }));
+  assert.ok((await ranges()).marked.includes('paragraph is hard'), 'the exact words are marked: ' + JSON.stringify(await ranges()));
+  await card.hover();
+  assert.deepEqual(await ranges(), { marked: (await ranges()).marked, hover: ['paragraph is hard'], blocks: 0 });
+  await page.mouse.move(5, 5);
+  assert.deepEqual((await ranges()).hover, []);
+  await page.locator('#margin .thread', { hasText: 'Will trim it' }).hover(); // no quote in that one: the whole block
+  assert.equal((await ranges()).hover.length, 0);
+  assert.equal((await ranges()).blocks > 0, true);
+  await page.mouse.move(5, 5);
+  await deleteMine(card);
+});
+await step('outdated threads render faded with their quote struck through', async () => {
+  fake.addComment({ user: { login: 'olga' }, line: null, original_line: 9, body: '> item two\n\nOld wording comment' });
+  await page.evaluate(() => window.__rico.refreshComments(true));
+  const card = page.locator('#margin .thread.outdated', { hasText: 'Old wording comment' });
+  await card.waitFor();
+  assert.ok(Number(await card.evaluate((e) => getComputedStyle(e).opacity)) < 1);
+  assert.match(await card.locator('blockquote').evaluate((e) => getComputedStyle(e).textDecorationLine), /line-through/);
+  assert.match(await card.innerText(), /Outdated/);
+  await page.screenshot({ path: path.join(root, 'e2e', 'outdated.png') });
 });
 
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
