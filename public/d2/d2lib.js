@@ -11,8 +11,11 @@
 // `inputPath`. renderOpts (Go's d2svg.RenderOpts, the fields compile reads and writes): { themeID, darkThemeID, sketch, pad,
 // center, themeOverrides, darkThemeOverrides }; pass an object to read back the values compile derived from d2-config.
 //
-// ELK and TALA are not ported: layout 'elk' / 'tala' fail with errors named ElkNotPorted / TalaNotPorted. latex labels fail with
-// LatexNotPorted. LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
+// layout 'elk' runs the ELK engine (d2elklayout.js, ELK.js 0.12.0 from vendor/elk.js), loaded with a dynamic import() the first time a
+// diagram asks for it: compile() does that by itself; compileSync() needs `await loadLayout('elk')` first, or it fails with LayoutNotLoaded.
+// ELK's options (the `--elk-*` flags of D2's CLI) go in opts.elkOpts as JSON with the Go tags: { 'elk.algorithm', 'spacing.nodeNodeBetweenLayers',
+// 'elk.padding', 'spacing.edgeNodeBetweenLayers', 'elk.spacing.nodeSelfLoop' }. TALA is not ported: layout 'tala' fails with TalaNotPorted.
+// latex labels fail with LatexNotPorted. LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
 // re-running a deterministic layout.
 
 import { compile as compileGraph } from './d2compiler.js';
@@ -27,8 +30,9 @@ import { newRuler, loadMetrics, setMarkdownIt } from './textmeasure.js';
 
 export const DEFAULT_PADDING = 100; // d2svg.DEFAULT_PADDING
 
-export class ElkNotPorted extends Error {
-  constructor() { super('the elk layout engine is not ported'); this.name = 'ElkNotPorted'; }
+/** A layout engine that is loaded on demand (elk) has not been loaded: `await loadLayout(engine)` and compile again. */
+export class LayoutNotLoaded extends Error {
+  constructor(engine) { super(`the ${engine} layout engine is not loaded: await loadLayout('${engine}') first`); this.name = 'LayoutNotLoaded'; this.engine = engine; }
 }
 
 export class TalaNotPorted extends Error {
@@ -36,6 +40,14 @@ export class TalaNotPorted extends Error {
 }
 
 let ready = null;
+
+const layoutEngines = new Map(); // engine name -> module (loaded on demand)
+
+/** Loads a layout engine that is not part of the default path ('elk': ELK.js, about 1.6 MB, 460 KB gzipped). Resolves when compileSync can use it. */
+export async function loadLayout(engine) {
+  const name = String(engine).toLowerCase();
+  if (name === 'elk' && !layoutEngines.has('elk')) layoutEngines.set('elk', await import('./d2elklayout.js'));
+}
 
 /**
  * Loads what compile needs: the font metrics and dagre. `markdownit` is the markdown-it constructor (see
@@ -55,7 +67,14 @@ let defaultRuler = null;
  */
 export async function compile(input, compileOpts, renderOpts) {
   await init();
-  return compileSync(input, compileOpts, renderOpts);
+  if (compileOpts && typeof compileOpts.layout === 'string') await loadLayout(compileOpts.layout);
+  const r = compileSync(input, compileOpts, renderOpts);
+  if (r.err instanceof LayoutNotLoaded) {
+    // the engine came from d2-config: load it and compile again (compileOpts now carries it)
+    await loadLayout(r.err.engine);
+    return compileSync(input, compileOpts, renderOpts);
+  }
+  return r;
 }
 
 /** compile, once init() has resolved. */
@@ -123,7 +142,12 @@ function compile_(g, compileOpts, renderOpts) {
 function getLayout(opts) {
   if (opts.layout !== null && opts.layout !== undefined) {
     if (opts.layoutResolver) return opts.layoutResolver(opts.layout);
-    if (opts.layout.toLowerCase() === 'elk') throw new ElkNotPorted();
+    if (opts.layout.toLowerCase() === 'elk') {
+      const elk = layoutEngines.get('elk');
+      if (elk === undefined) throw new LayoutNotLoaded('elk');
+      const elkOpts = elk.hydrateOpts(opts.elkOpts);
+      return elkOpts === null ? elk.defaultLayout : (g) => elk.layout(g, elkOpts);
+    }
     if (opts.layout.toLowerCase() === 'tala') throw new TalaNotPorted();
     return d2dagrelayout.defaultLayout;
   }

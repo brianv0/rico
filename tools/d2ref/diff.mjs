@@ -14,7 +14,7 @@ import { compile } from '../../public/d2/d2ir.js';
 import { compile as compileGraph } from '../../public/d2/d2compiler.js';
 
 import markdownit from 'markdown-it';
-import { init as initD2, compileSync as d2compile } from '../../public/d2/d2lib.js';
+import { init as initD2, compileSync as d2compile, loadLayout } from '../../public/d2/d2lib.js';
 import { setMarkdownIt, loadMetrics, newRuler, getTextDimensionsWithMono, measureMarkdown, renderMarkdown } from '../../public/d2/textmeasure.js';
 import * as d2fonts from '../../public/d2/fonts.js';
 import { shapeCheck } from './shapecheck.mjs';
@@ -35,6 +35,7 @@ setMarkdownIt(markdownit);
 await loadMetrics();
 const ruler = newRuler();
 await initD2();
+await loadLayout('elk');
 
 // measure: input lines {text, fontFamily?, monoFamily?, fontSize, bold?, italic?, language?, markdown?} (see measurecorpus.mjs)
 function measure(c) {
@@ -80,7 +81,7 @@ const STAGES = {
   // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
   // ported) is reported as deferred.
   layout: (c) => {
-    const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
+    const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', elkOpts: c.elkopts, measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
     if (r.err && r.err.name === 'LatexNotPorted') return { deferred: 'latex' };
     return { diagram: r.diagram, err: r.err ? r.err.message : null };
   },
@@ -106,7 +107,9 @@ if (!STAGES[mode] || !file) {
   process.exit(2);
 }
 const utf16 = flags.includes('--utf16');
-let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...JSON.parse(l), utf16 }));
+// --layout elk (or dagre): the layout engine of every case (the Go runner takes it from the case's `layout` field)
+const layoutFlag = flag('--layout');
+let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...JSON.parse(l), utf16, ...(layoutFlag ? { layout: layoutFlag } : {}) }));
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -114,7 +117,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
 function runRef(batch) {
   try {
-    return execFileSync('go', ['run', '.', mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+    // D2REF_BIN: a prebuilt runner (go build -o /tmp/d2ref .) instead of `go run .`
+    return execFileSync(process.env.D2REF_BIN || 'go', process.env.D2REF_BIN ? [mode] : ['run', '.', mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
     if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];

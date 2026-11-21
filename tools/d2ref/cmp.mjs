@@ -1,18 +1,20 @@
 // Compares the JS port and the Go reference on one D2 file: node cmp.mjs file.d2 [bin] [runs]
 // Prints the first differing path and a compact table of shapes (id, x, y, w, h) and the first points of every route for JS and for Go
-// (bin = a prebuilt d2ref: `go build -o /tmp/d2ref .`; runs = how many times to run Go, to see Go-unstable output).
+// (bin = a prebuilt d2ref: `go build -o /tmp/d2ref .`; runs = how many times to run Go, to see Go-unstable output; env LAYOUT=elk for the ELK engine).
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import markdownit from 'markdown-it';
-import { init as initD2, compileSync as d2compile } from '../../public/d2/d2lib.js';
+import { init as initD2, compileSync as d2compile, loadLayout } from '../../public/d2/d2lib.js';
 import { setMarkdownIt } from '../../public/d2/textmeasure.js';
 
 const [file, bin = '/tmp/d2ref', runs = '1'] = process.argv.slice(2);
+const layout = process.env.LAYOUT || 'dagre';
 setMarkdownIt(markdownit);
 await initD2();
+await loadLayout(layout);
 const text = fs.readFileSync(file, 'utf8');
 const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-const r = d2compile(text, { inputPath: 'f.d2', layout: 'dagre' }, {});
+const r = d2compile(text, { inputPath: 'f.d2', layout }, {});
 const got = canon(JSON.parse(JSON.stringify({ diagram: r.diagram, err: r.err ? r.err.message : null })));
 const summary = (d) => {
   if (!d) return '(no diagram)';
@@ -32,7 +34,7 @@ console.log('JS err:', got.err);
 console.log('JS:\n' + summary(got.diagram));
 const seen = new Set();
 for (let i = 0; i < Number(runs); i++) {
-  const want = canon(JSON.parse(execFileSync(bin, ['layout'], { input: JSON.stringify({ path: 'f.d2', text }) + '\n', maxBuffer: 1 << 28 }).toString()));
+  const want = canon(JSON.parse(execFileSync(bin, ['layout'], { input: JSON.stringify({ path: 'f.d2', text, layout }) + '\n', maxBuffer: 1 << 28 }).toString()));
   const key = JSON.stringify(want);
   if (seen.has(key)) continue;
   seen.add(key);

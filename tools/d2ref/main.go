@@ -46,6 +46,7 @@ type input struct {
 	Text     string            `json:"text"`
 	UTF16Pos bool              `json:"utf16"`
 	Layout   string            `json:"layout"` // dagre (default) or elk
+	ElkOpts  json.RawMessage   `json:"elkopts"` // layout mode, elk engine: the JSON the elk plugin's HydrateOpts takes ({"elk.algorithm": ...})
 	FS       map[string]string `json:"fs"`     // extra files for imports
 
 	// measure mode
@@ -146,6 +147,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return xmlCheck(in)
 	case "dims":
 		return dimsCheck(in, ruler)
+	case "elk":
+		return elkCheck(in)
 	case "dagro":
 		return dagroCheck(in)
 	case "graphmethods":
@@ -189,6 +192,13 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 			UTF16Pos: in.UTF16Pos, FS: fsys, Ruler: ruler, InputPath: in.Path, Layout: go2.Pointer(layout),
 			LayoutResolver: func(engine string) (d2graph.LayoutGraph, error) {
 				if engine == "elk" {
+					if in.ElkOpts != nil {
+						var elkOpts d2elklayout.ConfigurableOpts
+						if err := json.Unmarshal(in.ElkOpts, &elkOpts); err != nil {
+							return nil, err
+						}
+						return func(ctx context.Context, g *d2graph.Graph) error { return d2elklayout.Layout(ctx, g, &elkOpts) }, nil
+					}
 					return d2elklayout.DefaultLayout, nil
 				}
 				return d2dagrelayout.DefaultLayout, nil
