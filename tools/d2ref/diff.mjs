@@ -10,9 +10,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../../public/d2/parser.js';
+import { compile } from '../../public/d2/d2ir.js';
 
 const STAGES = {
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
+  // d2ref's `ir` mode: a parse error is {err} alone; otherwise {ir, err} from d2ir.Compile.
+  ir: (c) => {
+    const { ast, err } = parse(c.path, c.text, { utf16: c.utf16 });
+    if (err) return { err };
+    const r = compile(ast, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs } });
+    return { ir: r.m, err: r.err };
+  },
 };
 
 const [mode, file, ...flags] = process.argv.slice(2);

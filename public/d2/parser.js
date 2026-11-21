@@ -26,10 +26,13 @@ export class ParseError {
 /**
  * Parse D2 source. Like Go, the returned map is always usable; errors are collected, not thrown.
  * utf16: count columns/bytes in UTF-16 code units (what the WASM build does for JS callers).
+ * parseError: an existing ParseError to append to (d2ir uses one for the whole compile); the returned err is then
+ * non-null if it holds any error, including earlier ones, as in Go.
  * @returns {{ ast: object, err: ParseError|null }}
  */
-export function parse(path, text, { utf16 = false } = {}) {
+export function parse(path, text, { utf16 = false, parseError = null } = {}) {
   const p = new Parser(path, text, utf16);
+  if (parseError) p.err = parseError; // Go's ParseOptions.ParseError: collect into the caller's errors
   const ast = p.parseMap(true);
   return { ast, err: p.err.empty() ? null : p.err };
 }
