@@ -1174,7 +1174,7 @@ function findBestEdgeLabelPosition(edge, g, placedFakeNodes, sharedSegmentFakeNo
   return [bestLabelFakeNode, bestLabelPosition, bestLabelPercentage];
 }
 
-function labelPercentageSearchRange(edge, length) {
+export function labelPercentageSearchRange(edge, length) {
   const halfHeight = edge.label.height / 2.;
   const halfWidth = edge.label.width / 2.;
   if (edge.from.cluster !== null) {

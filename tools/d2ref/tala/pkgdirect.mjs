@@ -49,8 +49,10 @@ for (const n of fs.readdirSync(path.join(td, 'ovg')).sort()) {
 }
 const stageFile = path.join(root, 'tala-pkg-pack.jsonl');
 if (fs.existsSync(stageFile)) {
+  let clusterGraphs = 0;
   fs.readFileSync(stageFile, 'utf8').trim().split('\n').forEach((l, i) => {
-    if (i % sample) return;
+    // every K-th graph, and up to 150 graphs with active clusters (cluster edge labels only exist there)
+    if (i % sample && !(l.includes('"clusters"') && l.includes('"kind":"pack"') && clusterGraphs < 150 && ++clusterGraphs)) return;
     const c = bigjson.parse(l);
     graphs.push({ name: `${c.name}/pre`, graph: c.graph });
     graphs.push({ name: `${c.name}/post`, graph: c.args.expect.graph });
@@ -68,9 +70,23 @@ function mutate(g0) {
   const steps = ri(1, 3);
   // records that graphjson repeats (tree nodes, cluster and sequence vessels, abductions) must stay consistent, and Go's message for an
   // inconsistent one depends on its map order: such graphs are not mutated
-  const repeats = !!(g.trees || g.sequenceVessels || g.clusterVessels || g.sequences || g.clusters);
+  const repeats = !!(g.trees || g.sequenceVessels || g.sequences);
+  const clustered = !!(g.clusters || g.clusterVessels); // the vessel records stay as they are: only edges and labels change
+  const kinds = clustered ? [2, 3, 4, 5, 7, 9, 10, 11, 11, 11] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11];
   for (let s = 0; s < steps; s++) {
-    switch (repeats ? -1 : ri(0, 9)) {
+    switch (repeats ? -1 : pick(kinds)) {
+      case 11: // give the unrouted edges an L-shaped route between the node centers (routes on graphs with active clusters)
+        for (const e of edges) {
+          if ((e.points ?? []).length === 0) {
+            const a = nodes.find((n) => n.id === e.from), b = nodes.find((n) => n.id === e.to);
+            if (a?.topLeft && b?.topLeft) {
+              const p = { x: a.topLeft.x + Math.trunc(a.width / 2), y: a.topLeft.y + Math.trunc(a.height / 2) };
+              const q = { x: b.topLeft.x + Math.trunc(b.width / 2), y: b.topLeft.y + Math.trunc(b.height / 2) };
+              e.points = rnd() < 0.5 ? [p, { x: q.x, y: p.y }, q] : [p, q];
+            }
+          }
+        }
+        break;
       case 0: // move some nodes
         for (const n of nodes) if (n.topLeft && rnd() < 0.3) { n.topLeft.x += ri(-6, 6) * 10; n.topLeft.y += ri(-6, 6) * 10; }
         break;
@@ -105,6 +121,9 @@ function mutate(g0) {
         break;
       case 8: // icons
         for (const n of nodes) if (rnd() < 0.3) n.icon = { Position: rnd() < 0.5 ? '' : pick(NODE_POS) };
+        break;
+      case 10: // edge border radius (the routed-container proof reads it)
+        for (const e of edges) if (rnd() < 0.5) e.style = { ...(e.style ?? {}), borderRadius: { value: pick(['0', '5', '10', '20', '3.5', 'abc', '', '1e2', '-4', 'x'.repeat(70)]) } };
         break;
       case -1:
         break;

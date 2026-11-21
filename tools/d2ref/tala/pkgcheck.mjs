@@ -18,12 +18,12 @@ const ctx = () => context.background();
 // Go charges the spare capacity of slices (edge routes, node edge lists, ...) in its preflights and snapshots; JS arrays have none, so
 // the JS work units are lower by that charge. Stage cases record the spare capacity of the pre-state (`args.spare`): when it is not 0 a
 // JS count below Go's is accepted (and counted here); with spare 0 the counts must be equal. Direct cases run on clipped slices.
-export const stats = { loose: 0, exact: 0 };
-process.on('exit', () => { if (stats.loose) console.error(`pkgcheck: ${stats.loose} work-unit counts accepted below Go's (spare slice capacity), ${stats.exact} exact`); });
+export const stats = { loose: 0, exact: 0, maxRatio: 0 };
+process.on('exit', () => { if (stats.loose) console.error(`pkgcheck: ${stats.loose} work-unit counts accepted below Go's (spare slice capacity; at most ${stats.maxRatio.toFixed(1)} units per spare slot), ${stats.exact} exact`); });
 function loose(c, got, want, key = 'used') {
   if (want && typeof want[key] === 'number' && typeof got[key] === 'number') {
     if (got[key] === want[key]) stats.exact++;
-    else if (c.args?.spare > 0 && got[key] < want[key]) { stats.loose++; got[key] = want[key]; }
+    else if (c.args?.spare > 0 && got[key] < want[key]) { stats.loose++; stats.maxRatio = Math.max(stats.maxRatio, (want[key] - got[key]) / c.args.spare); got[key] = want[key]; }
   }
   return got;
 }
@@ -77,7 +77,19 @@ export function loadGraph(c) {
   return g;
 }
 
-const ser = (g) => graphjson.serialize(ctx(), g);
+/** the first non-finite number of a serialized graph in encoding order, as Go's encoding/json reports it ("json: unsupported value: NaN") */
+function nonFinite(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? null : Number.isNaN(v) ? 'NaN' : v > 0 ? '+Inf' : '-Inf';
+  if (Array.isArray(v)) { for (const x of v) { const r = nonFinite(x); if (r) return r; } return null; }
+  if (v && typeof v === 'object') { for (const x of Object.values(v)) { const r = nonFinite(x); if (r) return r; } }
+  return null;
+}
+/** graphjson.Serialize; like the Go modes' serRaw a graph with a non-finite number (which encoding/json refuses) is {serializeError} */
+const ser = (g) => {
+  const s = graphjson.serialize(ctx(), g);
+  const bad = nonFinite(s);
+  return bad ? { serializeError: `json: unsupported value: ${bad}` } : s;
+};
 
 /** limits of the Go modes (limitList): used-1, used/2, 1, 0 below used, each once */
 function limitList(used) {

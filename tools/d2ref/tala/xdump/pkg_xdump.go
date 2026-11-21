@@ -190,7 +190,9 @@ func serRaw(g *layoutgraph.Graph) json.RawMessage {
 	return b
 }
 
-func takeSnap(g *layoutgraph.Graph) pkgSnap { return pkgSnap{graph: serRaw(g), deep: deepState(g), spare: spareCapacity(g)} }
+func takeSnap(g *layoutgraph.Graph) pkgSnap {
+	return pkgSnap{graph: serRaw(g), deep: deepState(g), spare: spareCapacity(g)}
+}
 
 type seedCases struct {
 	name  string
@@ -222,19 +224,30 @@ func (sc *seedCases) observe(index int, g *layoutgraph.Graph) {
 	switch index {
 	case 17, 24, 32, 33, 36:
 		snap := takeSnap(g)
-		expect := map[string]interface{}{}
-		penalty, area, used, err := quality.XEvaluateLimit(ctx, g, evaluationWorkUnits)
-		expect["penalty"], expect["area"], expect["used"], expect["err"] = penalty, area, used, errString(err)
-		if err != nil {
-			expect["penalty"], expect["area"] = 0.0, 0.0
-		}
-		metrics, mused, merr := quality.XInspectLimit(ctx, g, evaluationWorkUnits)
-		expect["metrics"], expect["mused"], expect["merr"] = metricsJSON(metrics), mused, errString(merr)
 		*sc.out = append(*sc.out, map[string]interface{}{
 			"name": fmt.Sprintf("%s/%d-quality", sc.name, index), "kind": "quality", "graph": snap.graph,
-			"args": map[string]interface{}{"deep": snap.deep, "spare": snap.spare, "expect": expect},
+			"args": map[string]interface{}{"deep": snap.deep, "spare": snap.spare, "expect": qualityExpect(ctx, g)},
 		})
 	}
+}
+
+// qualityExpect runs the evaluators on the live graph. The mid-pipeline graphs are not always valid input for them (the evaluator panics
+// on some graphs with unplaced vessels): such a panic is recorded as {"panic"} (the diff stage skips those cases) and must not end the seed.
+func qualityExpect(ctx context.Context, g *layoutgraph.Graph) (expect map[string]interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			expect = map[string]interface{}{"panic": fmt.Sprint(r)}
+		}
+	}()
+	expect = map[string]interface{}{}
+	penalty, area, used, err := quality.XEvaluateLimit(ctx, g, evaluationWorkUnits)
+	expect["penalty"], expect["area"], expect["used"], expect["err"] = penalty, area, used, errString(err)
+	if err != nil {
+		expect["penalty"], expect["area"] = 0.0, 0.0
+	}
+	metrics, mused, merr := quality.XInspectLimit(ctx, g, evaluationWorkUnits)
+	expect["metrics"], expect["mused"], expect["merr"] = metricsJSON(metrics), mused, errString(merr)
+	return expect
 }
 
 func runPkgCases(in input, ruler *textmeasure.Ruler) interface{} {
@@ -273,11 +286,12 @@ func runPkgCases(in input, ruler *textmeasure.Ruler) interface{} {
 		opts.MaxConcurrency = in.MaxConcurrency
 	}
 	invocation := 0
+	var runErrs []string // errors of single seeds (a seed that fails is not a case)
 	layoutFn := func(ctx context.Context, g *d2graph.Graph) error {
 		inv := invocation
 		invocation++
 		perSeed := map[int64]*seedCases{}
-		_, err := d2talalayout.XDumpLayout(ctx, g, &opts, func(seed int64, index int, name string, tg *layoutgraph.Graph) {
+		inv2, err := d2talalayout.XDumpLayout(ctx, g, &opts, func(seed int64, index int, name string, tg *layoutgraph.Graph) {
 			sc := perSeed[seed]
 			if sc == nil {
 				sc = &seedCases{name: fmt.Sprintf("%s/%d/s%d", in.Path, inv, seed), snaps: map[int]pkgSnap{}, out: &cases}
@@ -285,6 +299,13 @@ func runPkgCases(in input, ruler *textmeasure.Ruler) interface{} {
 			}
 			sc.observe(index, tg)
 		})
+		if inv2 != nil {
+			for _, r := range inv2.Runs {
+				if r.Err != "" {
+					runErrs = append(runErrs, fmt.Sprintf("%s/%d/s%d: %s", in.Path, inv, r.Seed, r.Err))
+				}
+			}
+		}
 		return err
 	}
 	copts := &d2lib.CompileOptions{
@@ -294,7 +315,7 @@ func runPkgCases(in input, ruler *textmeasure.Ruler) interface{} {
 	}
 	ro := &d2svg.RenderOpts{ThemeID: in.ThemeID}
 	_, _, err := d2lib.Compile(ctx, in.Text, copts, ro)
-	return map[string]interface{}{"cases": cases, "err": errString(err)}
+	return map[string]interface{}{"cases": cases, "err": errString(err), "seedErrs": runErrs}
 }
 
 // ---- shared pieces of the direct modes ----

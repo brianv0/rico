@@ -22,7 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
 const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const casesFile = path.join(root, opt('--cases', 'tala-corpus.jsonl'));
+const casesFile = path.resolve(root, opt('--cases', 'tala-corpus.jsonl'));
 const max = Number(opt('--max', 1e9));
 const tag = opt('--tag', ''); // output suffix: tala-pkg-pack<tag>.jsonl (for the fuzz corpora)
 const refDir = process.env.TALA_REF || '/tmp/tala-ref';
@@ -34,7 +34,7 @@ const out = {
   place: fs.openSync(path.join(root, `tala-pkg-place${tag}.jsonl`), 'w'),
   quality: fs.openSync(path.join(root, `tala-pkg-quality${tag}.jsonl`), 'w'),
 };
-const counts = { pack: 0, place: 0, quality: 0, errs: 0, inputs: 0 };
+const counts = { pack: 0, place: 0, quality: 0, errs: 0, seedErrs: 0, inputs: 0 };
 
 function run(inputs) {
   const stdout = execFileSync('nice', [bin, 'pkgcases'], { input: inputs.map((c) => bigjson.stringify(c)).join('\n') + '\n', maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
@@ -42,6 +42,7 @@ function run(inputs) {
     const r = bigjson.parse(line);
     counts.inputs++;
     if (r.panic) { counts.errs++; continue; }
+    counts.seedErrs += (r.seedErrs ?? []).length; // seeds whose pipeline failed (they give no cases after the failing stage)
     for (const c of r.cases ?? []) {
       fs.writeSync(out[c.kind], bigjson.stringify(c) + '\n');
       counts[c.kind]++;
