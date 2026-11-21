@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { vendorFiles } from '../src/vendor-map.js';
+import { SEC } from '../src/security.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
@@ -17,4 +18,6 @@ for (const [url, file] of Object.entries(vendorFiles(path.join(root, 'node_modul
   fs.copyFileSync(file, to);
   n++;
 }
+// Workers Assets serves the static app without running the Worker, so its security headers come from a _headers file
+fs.writeFileSync(path.join(dist, '_headers'), '/*\n' + Object.entries(SEC).map(([k, v]) => `  ${k}: ${v}\n`).join(''));
 console.log(`dist/ ready: public/ + ${n} vendor files`);
