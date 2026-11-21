@@ -15,7 +15,8 @@
 // diagram asks for it: compile() does that by itself; compileSync() needs `await loadLayout('elk')` first, or it fails with LayoutNotLoaded.
 // ELK's options (the `--elk-*` flags of D2's CLI) go in opts.elkOpts as JSON with the Go tags: { 'elk.algorithm', 'spacing.nodeNodeBetweenLayers',
 // 'elk.padding', 'spacing.edgeNodeBetweenLayers', 'elk.spacing.nodeSelfLoop' }. TALA is not ported: layout 'tala' fails with TalaNotPorted.
-// latex labels fail with LatexNotPorted. LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
+// latex labels are measured by d2latex.js (MathJax, loaded on first use: `compile` loads it and retries, `compileSync` throws NeedLatex until
+// loadLatex() has resolved). LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
 // re-running a deterministic layout.
 
 import { compile as compileGraph } from './d2compiler.js';
@@ -27,6 +28,7 @@ import * as d2layouts from './d2layouts.js';
 import * as d2dagrelayout from './d2dagrelayout.js';
 import { exportDiagram } from './d2exporter.js';
 import { newRuler, loadMetrics, setMarkdownIt } from './textmeasure.js';
+import * as d2latex from './d2latex.js';
 
 export const DEFAULT_PADDING = 100; // d2svg.DEFAULT_PADDING
 
@@ -68,13 +70,21 @@ let defaultRuler = null;
 export async function compile(input, compileOpts, renderOpts) {
   await init();
   if (compileOpts && typeof compileOpts.layout === 'string') await loadLayout(compileOpts.layout);
-  const r = compileSync(input, compileOpts, renderOpts);
-  if (r.err instanceof LayoutNotLoaded) {
-    // the engine came from d2-config: load it and compile again (compileOpts now carries it)
-    await loadLayout(r.err.engine);
-    return compileSync(input, compileOpts, renderOpts);
+  for (;;) {
+    try {
+      const r = compileSync(input, compileOpts, renderOpts);
+      if (r.err instanceof LayoutNotLoaded) {
+        // the engine came from d2-config: load it and compile again (compileOpts now carries it)
+        await loadLayout(r.err.engine);
+        continue;
+      }
+      return r;
+    } catch (e) {
+      // a latex label and the MathJax engine is not loaded yet: load it (once) and compile again
+      if (!(e instanceof d2latex.NeedLatex)) throw e;
+      await d2latex.loadLatex();
+    }
   }
-  return r;
 }
 
 /** compile, once init() has resolved. */
@@ -95,6 +105,7 @@ export function compileSync(input, compileOpts, renderOpts) {
   try {
     d = compile_(g, compileOpts, renderOpts);
   } catch (e) {
+    if (e instanceof d2latex.NeedLatex) throw e;
     return { diagram: null, graph: g, err: e instanceof Error ? e : new Error(String(e)) };
   }
   if (config === null) config = new d2target.Config();
