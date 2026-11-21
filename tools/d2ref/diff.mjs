@@ -33,6 +33,7 @@ import { dimsCheck } from './dimscheck.mjs';
 import * as bigjson from '../../public/d2/tala/bigjson.js';
 import * as talacheck from './talacheck.mjs';
 import * as t1check from './tala/t1check.mjs';
+import * as pkgcheck from './tala/pkgcheck.mjs';
 import { svgCheck, svgFullCheck, svgPrepare } from './svgcheck.mjs';
 import { latexCheck } from './latexcheck.mjs';
 import { loadLatex } from '../../public/d2/d2latex.js';
@@ -79,6 +80,11 @@ const TALA_MODES = {
   talastages: 'stages',
   talafstages: 'fstages',
   ...t1check.MODES, // T1 packages (loops, grouping, proximity, trees): tala/t1check.mjs
+  talapack: 'pkgpack', // packing, labeling, quality (tala/pkgcheck.mjs)
+  talaplace: 'pkgplace',
+  talaquality: 'pkgquality',
+  talacombine: 'pkgcombine',
+  talascore: 'pkgscore',
 };
 
 const STAGES = {
@@ -91,6 +97,11 @@ const STAGES = {
   talastages: talacheck.stagesStage,
   talafstages: talacheck.fstagesStage,
   ...t1check.STAGES,
+  talapack: pkgcheck.packStage,
+  talaplace: pkgcheck.placeStage,
+  talaquality: pkgcheck.qualityStage,
+  talacombine: pkgcheck.combineStage,
+  talascore: pkgcheck.scoreStage,
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
   measure,
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
