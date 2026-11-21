@@ -106,7 +106,7 @@ the routing and placement stages dominate (the corpus `times` figures per case: 
 ## Determinism: what a deterministic JS port must reproduce
 
 Measured: `tala/determinism.mjs` runs the real `Layout` (goroutines and all) N times and compares the whole output. **The 1077 corpus cases x 20 runs
-gave 0 differing outputs; the 41 slowest cases x 50 runs under full CPU load (all cores busy) gave 0** (see the end of this section for the load run).
+gave 0 differing outputs; the 91 cases that take 25-400 ms x 5 runs with every core also kept busy by spinning processes gave 0** (`tala/determinism.mjs cases.jsonl N --load`; a loaded run of those 91 cases takes about 50 s).
 Reading the source agrees: results do not depend on timing or scheduling.
 
 - **Seeds.** `Layout` runs every seed (`{1,2,3}`, or `tala-seeds` of the diagram data, at most 16 unique, deduplicated in first-seen order) in goroutines,
