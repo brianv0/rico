@@ -2,3 +2,4 @@ dist/
 e2e/*.png
 e2e/desktop/out/
 node_modules
+dist-embed/

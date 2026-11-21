@@ -55,11 +55,11 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
     move(x1, y1); sh('xdotool mousedown 1');
     for (let i = 1; i <= 8; i++) { move(x1 + ((x2 - x1) * i) / 8, y1 + ((y2 - y1) * i) / 8); await sleep(25); }
     sh('xdotool mouseup 1'); await sleep(250);
-    // the selection offers two icons under it; click the "lines" one with the real pointer
+    // the selection offers Comment and Suggest icons under it; click Comment with the real pointer
     await page.waitForSelector('#selbar:not([hidden])', { timeout: 3000 });
     if (shotBar) shot('os-selbar');
     shotBar = false;
-    click(...(await centerOf('#sb-lines'))); await sleep(250);
+    click(...(await centerOf('#sb-comment'))); await sleep(250);
   }
   const type = (t) => sh(`xdotool type --delay 35 -- '${t.replace(/'/g, "'\\''")}'`);
 
@@ -82,14 +82,14 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   check('textarea has keyboard focus (typing goes straight in)', await page.evaluate(() => document.activeElement.id) === 'c-body');
   type('Tighten this whole section - it repeats itself.');
   await sleep(200); shot('os-composer');
-  sh('xdotool key ctrl+Return'); await sleep(300);
-  check('comment queued with the exact text typed', (await page.evaluate(() => window.__rico.state.comments.map((c) => c.body)))[0] === 'Tighten this whole section - it repeats itself.');
+  sh('xdotool key ctrl+shift+Return'); await sleep(700); // "Start a review": a pending review on (fake) GitHub
+  check('comment added to a pending review with the exact text typed', readState().ops.some((o) => o.op === 'pending.add' && o.body.endsWith('Tighten this whole section - it repeats itself.')));
 
   // 3. selection spanning two hunks -> clamped, explained
   await drag('item two', 'const a');
   const note = await page.locator('#c-range').innerText();
   check('cross-hunk selection is clamped and explained', /GitHub can anchor lines 9–10 \(one hunk\)/.test(note), note);
-  type('This spans a hunk boundary.'); sh('xdotool key ctrl+Return'); await sleep(300);
+  type('This spans a hunk boundary.'); sh('xdotool key ctrl+shift+Return'); await sleep(700);
 
   // 4. reply from the margin using real clicks + keyboard
   click(...(await page.evaluate(() => { const c = [...document.querySelectorAll('#margin .thread')].find((x) => x.innerText.includes('Will trim it')); const b = c.querySelector('.tacts button').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }))); await sleep(250);
@@ -100,15 +100,15 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
 
   // 5. submit the review with a real click
   await page.evaluate(() => window.scrollTo(0, 0));
-  click(...(await centerOf('#review-btn'))); await page.waitForSelector('#review-pop:not([hidden])'); await sleep(200); // GitHub's flow: Review changes, then Submit
+  click(...(await centerOf('#review-btn'))); await page.waitForSelector('#review-pop:not([hidden])'); await sleep(200); // GitHub's flow: Finish review, then Submit
   click(...(await centerOf('#submit')));
   await page.waitForSelector('#result a', { timeout: 5000 });
   await sleep(500);
-  const posted = readState().posted;
-  check('review posted once', posted.length === 1);
-  const c = posted[0].comments;
-  check('multi-line anchor 3–6 on RIGHT', c[0].start_line === 3 && c[0].line === 6 && c[0].side === 'RIGHT' && c[0].body === '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section - it repeats itself.', JSON.stringify(c[0]));
-  check('clamped anchor 9–10 carries the header, the prose quote and the code as a fenced block', c[1].start_line === 9 && c[1].line === 10 && c[1].body === '_Selected lines 9–12; anchored to lines 9–10._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nThis spans a hunk boundary.', JSON.stringify(c[1]).slice(0, 200));
+  const st = readState();
+  check('review submitted once, as a COMMENT', st.posted.length === 1 && st.posted[0].event === 'COMMENT', JSON.stringify(st.posted));
+  const [a, b] = st.ops.filter((o) => o.op === 'pending.add');
+  check('multi-line anchor 3–6 on RIGHT', a.start_line === 3 && a.line === 6 && a.side === 'RIGHT' && a.body === '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section - it repeats itself.', JSON.stringify(a));
+  check('clamped anchor 9–10 carries the header, the prose quote and the code as a fenced block', b.start_line === 9 && b.line === 10 && b.body === '_Selected lines 9–12 of `docs/plan.md`. GitHub can only anchor lines 9–10 here, but this comment is about all of lines 9–12._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nThis spans a hunk boundary.\n\n<details><summary>Full selection: lines 9–12 of <code>docs/plan.md</code> at abc1234</summary>\n\n````\n- item two\n\n```js\nconst a = 1;\n````\n\n</details>', JSON.stringify(b).slice(0, 200));
   shot('os-submitted');
 
   console.log(results.every(Boolean) ? 'ALL OK' : 'SOME FAILED');

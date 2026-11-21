@@ -182,6 +182,8 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body [data-l].has-t { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 2px; }
 .markdown-body [data-l].hl { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 ::highlight(rico-sel) { background-color: var(--sel); }
+::highlight(rico-thread) { background-color: color-mix(in srgb, var(--attention) 22%, transparent); }
+::highlight(rico-hl) { background-color: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* removed blocks, drawn from the old version like GitHub's rich diff */
 .markdown-body .rm { margin: 8px 0; padding: 4px 12px; background: var(--diff-del-bg); border-left: 3px solid var(--danger); border-radius: 6px; }
@@ -205,8 +207,8 @@ textarea { resize: vertical; padding: 8px 12px; }
 
 /* review threads (margin) in GitHub's comment style */
 .thread { position: absolute; left: 0; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; transition: top .12s ease, box-shadow .12s, border-color .12s; }
-.thread.draft { border-color: var(--attention-border); }
-.thread.draft .msg:first-child .who { background: var(--attention-subtle); }
+.thread.pending { border-style: dashed; border-color: var(--attention-border); }
+.thread.pending .msg:first-child .who { background: var(--attention-subtle); }
 .thread.active, .thread:hover { border-color: var(--accent); box-shadow: var(--shadow); z-index: 5; }
 .thread.outdated { opacity: .85; }
 .thread .msg + .msg { border-top: 1px solid var(--border); }
@@ -220,7 +222,7 @@ textarea { resize: vertical; padding: 8px 12px; }
 .thread .text > :first-child { margin-top: 0; } .thread .text > :last-child { margin-bottom: 0; }
 .thread .text p { margin: .3em 0; } .thread .text pre { padding: 6px; font-size: 12px; overflow: auto; background: var(--bg-inset); border-radius: 6px; }
 .thread .badge { display: inline-block; padding: 0 7px; font-size: 12px; font-weight: 500; line-height: 18px; color: var(--fg-muted); border: 1px solid var(--border); border-radius: 2em; }
-.thread.draft .badge { color: var(--attention); background: var(--attention-subtle); border-color: var(--attention-border); }
+.thread.pending .badge { color: var(--attention); background: var(--attention-subtle); border-color: var(--attention-border); }
 .thread .tacts { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); }
 .thread .tacts button, .thread .reply button { padding: 2px 10px; font-size: 12px; }
 .thread .reply { padding: 8px 12px 0; } .thread .reply textarea { margin-top: 0; }
@@ -310,3 +312,91 @@ textarea { resize: vertical; padding: 8px 12px; }
 #who { margin-left: 0; }
 #who .chip { padding: 1px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 2em; }
 .intro a { color: var(--accent); }
+
+/* actions on comments and threads */
+.thread .who .macts { margin-left: auto; display: inline-flex; gap: 10px; opacity: 0; transition: opacity .1s; }
+.thread .msg:hover .macts, .thread .msg:focus-within .macts { opacity: 1; }
+.linkish { padding: 0; font: inherit; font-size: 12px; color: var(--accent); background: none; border: 0; cursor: pointer; }
+.linkish:hover { text-decoration: underline; } .linkish.danger { color: var(--danger); }
+.thread .edited { font-style: italic; }
+.thread.local { opacity: .75; }
+.thread .msg.failed { background: color-mix(in srgb, var(--danger) 6%, transparent); }
+.thread .msg.failed .row { display: flex; gap: 6px; padding: 0 12px 8px; }
+.thread .msg > .err { padding: 0 12px 6px; }
+.thread.outdated { opacity: .6; }
+.thread.outdated .text blockquote { text-decoration: line-through; }
+.thread.outdated:hover { opacity: 1; }
+.reacts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 0 12px 8px; position: relative; }
+.react { padding: 0 8px; font-size: 12px; line-height: 20px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 2em; cursor: pointer; }
+.react:hover:not(:disabled) { border-color: var(--accent); } .react:disabled { cursor: default; }
+.react.mine { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); }
+.react.add { opacity: 0; } .thread .msg:hover .react.add, .react.add:focus-visible { opacity: 1; }
+.picker { position: absolute; left: 12px; bottom: 30px; z-index: 6; display: flex; gap: 2px; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.picker .react { border: 0; font-size: 15px; }
+.thread.resolved .rmark { display: flex; align-items: center; gap: 4px; padding: 6px 12px; font-size: 12px; color: var(--fg-muted); overflow: hidden; white-space: nowrap; }
+.thread.resolved .rmark .tick { color: var(--success, #1a7f37); font-weight: 700; } .thread.resolved .rmark .rtext { overflow: hidden; text-overflow: ellipsis; flex: 1; } 
+.thread.resolved { border-color: var(--border); background: var(--bg-inset); }
+#general { margin: 0 0 16px; padding: 8px 12px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 6px; }
+#general h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--fg-muted); }
+#general .thread { position: static; margin-bottom: 8px; max-width: 640px; }
+#c-err { margin-top: 6px; font-size: 12px; color: var(--danger); }
+#c-err:empty { display: none; }
+.banner { margin: 0 0 12px; padding: 8px 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--attention-subtle); border: 1px solid var(--attention-border); border-radius: 6px; font-size: 13px; }
+.banner[hidden] { display: none; }
+#selbar button[hidden] { display: none; }
+.Counter[hidden] { display: none; }
+
+/* suggest an edit */
+#c-suggest { margin-top: 6px; }
+#c-suggest .sg-label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; } #c-suggest .sg-label small { font-weight: 400; color: var(--fg-muted); }
+#c-sugtext { font: 12px/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.sugdiff, .sugg { margin-top: 6px; font: 12px/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.sugdiff:empty { display: none; }
+.sugdiff > div, .sugg > div:not(.sugg-head) { display: flex; gap: 6px; padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sg-add { background: var(--diff-add-bg); } .sg-del { background: var(--diff-del-bg); }
+.sg-mark { flex: none; width: 1ch; color: var(--fg-muted); user-select: none; }
+.sugg { margin: 6px 12px; } .thread .sugg code { padding: 0; background: none; font: inherit; }
+.sugg-head { padding: 4px 8px; font: 600 12px var(--font); color: var(--fg-muted); background: var(--bg-inset); border-bottom: 1px solid var(--border); }
+#selbar button:disabled { opacity: .35; cursor: not-allowed; } #selbar button:disabled:hover { background: none; color: var(--fg); }
+
+.thread .msg { position: relative; }
+.thread .err:empty { display: none; }
+.picker { top: 30px; right: 8px; left: auto; bottom: auto; }
+.reacts { padding-top: 0; }
+.thread .who .macts .react.add { opacity: 1; padding: 0 6px; }
+
+/* condensed threads: first and last message, the rest on hover (peek) or click (pin) */
+.thread .more { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 12px; font-size: 12px; text-align: left; background: var(--bg-inset); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.thread .more .avatar, .thread .more .av { width: 16px; height: 16px; margin-right: -8px; border: 1px solid var(--bg); border-radius: 50%; font-size: 9px; }
+.thread .more span:last-child { margin-left: 12px; }
+.thread .mid { display: none; }
+.thread.folded.peek .mid { display: block; }
+.thread.folded.peek .more { display: none; }
+.thread.clamped:not(.peek) .text { max-height: 9em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.thread .showmore { display: block; padding: 0 12px 6px; }
+.thread.clamped.peek .showmore { display: none; }
+.thread.peek { box-shadow: var(--shadow); z-index: 8; }
+@media (prefers-reduced-motion: no-preference) { .thread .mid { animation: none; } }
+.thread.opened .mid { display: block; } .thread.opened .more { display: none; }
+.thread.opened.clamped .text { max-height: none; -webkit-mask-image: none; mask-image: none; } .thread.opened .showmore { display: none; }
+
+/* comments column: ribbons, synced (sticky, non-linear) mode, overview ticks */
+.file-body { position: relative; }
+.rico-track { position: absolute; left: 0; right: 0; top: 0; }
+.rico-ribbons { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 1; }
+.rico-ribbons path { fill: none; stroke: color-mix(in srgb, var(--accent) 28%, transparent); stroke-width: 1.5; transition: stroke .1s; }
+.rico-ribbons path.resolved { stroke-dasharray: 3 3; stroke: color-mix(in srgb, var(--fg-muted) 40%, transparent); }
+.rico-ribbons path.on { stroke: var(--accent); stroke-width: 2.5; }
+.file-body.sync .rico-margin { position: sticky; top: calc(var(--toolbar-h) + 8px); height: calc(100vh - var(--toolbar-h) - 24px); overflow: hidden; align-self: flex-start; }
+.file-body.sync .rico-track { will-change: transform; }
+.rico-margin .cnt { position: absolute; left: 50%; transform: translateX(-50%); z-index: 9; padding: 1px 10px; font-size: 11px; color: var(--accent); background: var(--bg); border: 1px solid var(--border); border-radius: 2em; box-shadow: var(--shadow); cursor: pointer; }
+.rico-margin .cnt.up { top: 4px; } .rico-margin .cnt.down { bottom: 4px; } .rico-margin .cnt[hidden] { display: none; }
+#ticks { position: fixed; right: 0; top: 0; width: 10px; height: 100vh; z-index: 30; pointer-events: none; }
+#ticks .tick { position: absolute; right: 1px; width: 8px; height: 4px; padding: 0; background: var(--accent); border: 0; border-radius: 1px; opacity: .8; cursor: pointer; pointer-events: auto; }
+#ticks .tick.pending { background: var(--attention); } #ticks .tick.resolved { background: var(--fg-muted); opacity: .4; } #ticks .tick.mine { width: 10px; right: 0; }
+@media (max-width: 1150px) { .rico-ribbons, #ticks { display: none; } .rico-track { position: static; } }
+
+.thread .who { position: relative; }
+.thread .who .macts { position: absolute; right: 6px; top: 50%; margin-left: 0; transform: translateY(-50%); padding-left: 16px; background: linear-gradient(90deg, transparent, var(--bg-inset) 12px); }
+.rico-margin .cnt { left: 0; right: 0; transform: none; border-radius: 0; border-left: 0; border-right: 0; text-align: center; box-shadow: none; background: color-mix(in srgb, var(--bg) 92%, var(--accent)); }
+.rico-margin .cnt.up { top: 0; border-top: 0; } .rico-margin .cnt.down { bottom: 0; border-bottom: 0; }

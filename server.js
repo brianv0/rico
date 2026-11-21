@@ -92,7 +92,10 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
     if (req.method === 'POST' && req.headers['x-rico'] !== '1') throw new HttpError(403, 'missing X-Rico header');
-    if (url.pathname === '/api/me') return send(200, { hosted: false }); // local: the server's own token, nothing to sign into
+    if (url.pathname === '/api/me') { // local: the server's own token, nothing to sign into; its login is "you" for edit/delete
+      const me = await github.route('GET', url, async () => ({}));
+      return send(200, { hosted: false, ...(me.ok ? await me.json() : {}) });
+    }
     const out = secure(await github.route(req.method, url, () => readJson(req))); // the route's own headers (e.g. /api/raw's stricter CSP) win
     res.writeHead(out.status, Object.fromEntries(out.headers));
     return res.end(Buffer.from(await out.arrayBuffer()));

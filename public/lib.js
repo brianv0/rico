@@ -218,31 +218,118 @@ export function coversWholeLines(selectedText, srcLines) {
 const spanOf = (s, e) => (s === e ? `line ${s}` : `lines ${s}–${e}`);
 
 /**
- * Turn queued comments into a GitHub "create review" payload.
- * Each comment may carry {quoteMd, includeQuote}. Comments that cannot be anchored to a diff line
- * go into the review body, always with their quote.
+ * When GitHub can anchor only part of the selection, the whole range still travels with the comment: a collapsed
+ * block holding the actual source lines (each cut to `maxLine` chars, long ranges to their head and tail).
+ *   c: {path, start, end, side, lines (the source lines start..end), sha (commit those lines are from)}
+ */
+export function rangeDetails(c, { maxLine = 240, maxLines = 40 } = {}) {
+  let lines = c.lines.map((l) => clipMiddle(String(l).replace(/\s+$/, ''), maxLine - 3));
+  if (lines.length > maxLines) {
+    const h = Math.ceil(maxLines / 2);
+    lines = [...lines.slice(0, h), `… ${lines.length - maxLines} more lines …`, ...lines.slice(lines.length - (maxLines - h))];
+  }
+  const text = lines.join('\n');
+  const f = fenceFor(text);
+  const sha = c.sha ? ` at ${String(c.sha).slice(0, 7)}${c.side === 'LEFT' ? ' (old file)' : ''}` : '';
+  return `<details><summary>Full selection: ${spanOf(c.start, c.end)} of <code>${c.path.replace(/[<&]/g, (x) => (x === '<' ? '&lt;' : '&amp;'))}</code>${sha}</summary>\n\n${f}\n${text}\n${f}\n\n</details>`;
+}
+
+/**
+ * One review comment, formatted for GitHub's line-comment API ({path, line, side, start_line?, start_side?, body}).
+ * The body is: an optional "Re:" note (a diagram element), a note when the range was clamped to the diff, the
+ * quote (only when `includeQuote`, or by default when the anchor is not exact), then the comment itself.
+ * Needs c.anchor; use buildPrComment for text outside the diff.
+ */
+export function buildLineComment(c) {
+  const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
+  const parts = [];
+  if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
+  if (!c.anchor.exact) { // GitHub can pin fewer lines than were selected: say the whole range, in words an agent can act on
+    const old = c.side === 'LEFT' ? ' (old file)' : '';
+    parts.push(`_Selected ${spanOf(c.start, c.end)} of \`${c.path}\`${old}. GitHub can only anchor ${spanOf(c.anchor.start, c.anchor.end)} here, but this comment is about all of ${spanOf(c.start, c.end)}._`);
+  }
+  const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
+  if (include && quote) parts.push(quote);
+  parts.push(c.body);
+  if (!c.anchor.exact && c.lines?.length) parts.push(rangeDetails(c));
+  const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
+  const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
+  if (c.anchor.start < c.anchor.end) {
+    item.start_line = c.anchor.start;
+    item.start_side = side;
+  }
+  return item;
+}
+
+// ---------- suggested edits ----------
+
+/** Can this selection carry a GitHub suggestion? Only whole new-file lines inside one hunk can. */
+export function canSuggest(sel) {
+  if (!sel) return { ok: false, reason: 'Select some text first.' };
+  if (sel.side === 'LEFT' || sel.touchesRemoved) return { ok: false, reason: 'Suggestions edit the new file, and this is removed text.' };
+  if (!sel.anchor) return { ok: false, reason: 'This text is outside the diff, so GitHub cannot attach a suggestion to it.' };
+  if (!sel.anchor.exact) return { ok: false, reason: 'Part of the selection is outside the diff or in another hunk. Select within one hunk.' };
+  return { ok: true, reason: '' };
+}
+
+/** The comment body for a suggestion: an optional note, then a ```suggestion block holding the replacement lines. */
+export function suggestionBody(newText, note = '') {
+  const text = String(newText).replace(/\r/g, '').replace(/\n$/, '');
+  let f = '```';
+  while (text.includes(f)) f += '`';
+  const block = text === '' ? `${f}suggestion\n${f}` : `${f}suggestion\n${text}\n${f}`; // an empty block deletes the lines
+  return [String(note).trim(), block].filter(Boolean).join('\n\n');
+}
+
+/** Line diff for the live preview: [{type: 'ctx' | 'del' | 'add', text}] (LCS; falls back to replace-all for huge input). */
+export function lineDiff(a, b) {
+  const x = Array.isArray(a) ? a : String(a).split('\n');
+  const y = Array.isArray(b) ? b : String(b).split('\n');
+  if (x.length * y.length > 250000) return [...x.map((text) => ({ type: 'del', text })), ...y.map((text) => ({ type: 'add', text }))];
+  const n = x.length;
+  const m = y.length;
+  const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) t[i][j] = x[i] === y[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (x[i] === y[j]) { out.push({ type: 'ctx', text: x[i] }); i++; j++; }
+    else if (t[i + 1][j] >= t[i][j + 1]) out.push({ type: 'del', text: x[i++] });
+    else out.push({ type: 'add', text: y[j++] });
+  }
+  while (i < n) out.push({ type: 'del', text: x[i++] });
+  while (j < m) out.push({ type: 'add', text: y[j++] });
+  return out;
+}
+
+/** Pull the replacement lines out of a comment body's ```suggestion block (null when there is none). */
+export function parseSuggestion(body) {
+  const m = /(^|\n)(`{3,})suggestion[^\n]*\n([\s\S]*?)(?:\n)?\2[ \t]*(?:\n|$)/.exec(String(body || ''));
+  return m ? m[3] : null;
+}
+
+/**
+ * Text outside the diff cannot be a line comment: it becomes a normal PR comment that says where it is
+ * (file and lines), quotes the text, and carries the comment. parseQuote reads the quote back to place it.
+ */
+export function buildPrComment(c) {
+  const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
+  const where = c.start === c.end ? `L${c.start}` : `L${c.start}–${c.end}`;
+  return [`**\`${c.path}\` ${where}**`, c.about ? `_Re: ${c.about}_` : '', quote, c.body].filter(Boolean).join('\n\n');
+}
+
+/**
+ * Turn queued comments into a GitHub "create review" payload (kept for batch posting through REST).
+ * Comments that cannot be anchored to a diff line go into the review body, always with their quote.
  */
 export function buildReview({ comments, summary, event, commitId }) {
   const inline = [];
   const loose = [];
   for (const c of comments) {
     const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
-    if (c.anchor) {
-      const parts = [];
-      if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
-      if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
-      // comments saved before the quote option existed carry no flag: quote only when not exact
-      const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
-      if (include && quote) parts.push(quote);
-      parts.push(c.body);
-      const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
-      const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
-      if (c.anchor.start < c.anchor.end) {
-        item.start_line = c.anchor.start;
-        item.start_side = side;
-      }
-      inline.push(item);
-    } else {
+    if (c.anchor) inline.push(buildLineComment(c));
+    else {
       const where = c.start === c.end ? `L${c.start}` : `L${c.start}–${c.end}`;
       loose.push(`**\`${c.path}\` ${where}**\n${quote}\n\n${c.body}`);
     }
@@ -251,6 +338,79 @@ export function buildReview({ comments, summary, event, commitId }) {
   const out = { commit_id: commitId, event, comments: inline };
   if (body) out.body = body;
   return out;
+}
+
+/**
+ * Read a comment body written by buildLineComment / buildPrComment back apart:
+ *   {path, lines, about, quote, rest}  quote is the first prose blockquote (plain text, no "> "), null when there is none.
+ * Only the lead-in lines (location header, "Re:" / "Selected" notes) may come before the quote, so a quote the
+ * reviewer typed deeper in their own text is not mistaken for the selection.
+ */
+export function parseQuote(body) {
+  const lines = String(body || '').replace(/\r/g, '').split('\n');
+  let i = 0;
+  let path = null;
+  let about = null;
+  const skipBlank = () => { while (i < lines.length && !lines[i].trim()) i++; };
+  skipBlank();
+  for (let guard = 0; guard < 3 && i < lines.length; guard++) {
+    const l = lines[i].trim();
+    let m;
+    if ((m = /^\*\*`([^`]+)` (L\d+(?:–\d+)?)\*\*$/.exec(l))) path = m[1];
+    else if ((m = /^_Re: (.*)_$/.exec(l))) about = m[1];
+    else if (/^_Selected .*\._$/.test(l)) { /* clamp note */ } else break;
+    i++;
+    skipBlank();
+  }
+  const out = { path, about, quote: null, rest: lines.slice(i).join('\n').trim() };
+  if (i < lines.length && /^>/.test(lines[i])) {
+    const q = [];
+    let j = i;
+    for (; j < lines.length && /^>/.test(lines[j]); j++) q.push(lines[j].replace(/^>\s?/, ''));
+    out.quote = q.join('\n').trim();
+    out.rest = lines.slice(j).join('\n').trim();
+  }
+  return out;
+}
+
+/** A quote's paragraphs (a selection across blocks is quoted block by block), each to be found on its own. */
+export function quoteParts(quote) {
+  return String(quote || '').split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** Collapse whitespace runs to one space and trim; map[i] = index in the original string of normalized char i. */
+export function normalizeWithMap(str) {
+  const s = String(str);
+  let text = '';
+  const map = [];
+  let space = false;
+  for (let i = 0; i < s.length; i++) {
+    if (/\s/.test(s[i])) { space = text.length > 0; continue; }
+    if (space) { text += ' '; map.push(i); space = false; }
+    text += s[i];
+    map.push(i);
+  }
+  return { text, map };
+}
+
+/**
+ * Where does a quote sit in a block of rendered text? Returns {start, end} offsets into `hay` (end exclusive) or null.
+ * A quote shortened with "…" (head … tail) matches from its head to its tail.
+ */
+export function findQuote(hay, quote) {
+  const h = normalizeWithMap(hay);
+  const parts = normalizeWithMap(String(quote || '').replace(/\n+/g, ' ')).text.split(/\s*…\s*/).filter(Boolean);
+  if (!parts.length) return null;
+  const head = parts[0];
+  const i = h.text.indexOf(head);
+  if (i < 0) return null;
+  let end = i + head.length;
+  if (parts.length > 1) {
+    const tail = parts[parts.length - 1];
+    const j = h.text.indexOf(tail, end);
+    if (j >= 0) end = j + tail.length;
+  }
+  return { start: h.map[i], end: h.map[end - 1] + 1 };
 }
 
 /**
@@ -488,3 +648,26 @@ export function oldToNewMap(rows) {
   for (const r of rows) if (r.type === 'ctx') m.set(r.old, r.new);
   return m;
 }
+
+// ---------- synced margin: text position -> margin position ----------
+
+/**
+ * Margin offset for a text position d. pts = [{d, m}] sorted by d (text position of a thread's anchor, margin position of
+ * its card): linear between neighbours, 1:1 before the first and after the last. Never decreases, so it can be inverted.
+ */
+export function mapPosition(pts, d) {
+  if (!pts.length) return d;
+  if (d <= pts[0].d) return pts[0].m + (d - pts[0].d);
+  for (let i = 1; i < pts.length; i++) {
+    if (d <= pts[i].d) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      return b.d === a.d ? b.m : a.m + ((d - a.d) * (b.m - a.m)) / (b.d - a.d);
+    }
+  }
+  const z = pts[pts.length - 1];
+  return z.m + (d - z.d);
+}
+
+/** How many margin pixels one pixel of text is worth at d (never 0, so the wheel can always move). */
+export const positionSlope = (pts, d) => Math.max(0.05, mapPosition(pts, d + 1) - mapPosition(pts, d));
