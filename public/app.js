@@ -1246,6 +1246,32 @@ function renderMargin() {
   scheduleTicks();
 }
 
+// Change bars: one fixed gutter column at the document's left edge, whatever the nesting, so they read as a clean
+// line of marks like GitHub's rich diff. Each bar spans the element's text (not its heading padding or underline).
+function layoutBars(root) {
+  let layer = root.querySelector(':scope > .rico-bars');
+  if (!layer) {
+    layer = el('div', 'rico-bars');
+    layer.setAttribute('aria-hidden', 'true');
+    root.prepend(layer);
+  }
+  const base = root.getBoundingClientRect().top;
+  const bars = [];
+  for (const e of root.querySelectorAll('[data-l].chg, [data-l].ctx, [data-l].out')) {
+    if (e.closest('.rm')) continue; // removed blocks draw their own red edge
+    const r = e.getBoundingClientRect();
+    if (!r.height) continue; // collapsed (a closed <details>) or hidden
+    const cs = getComputedStyle(e);
+    const bottom = r.bottom - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderBottomWidth) || 0);
+    const bar = document.createElement('i');
+    bar.className = e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
+    bar.style.top = (r.top - base + 2) + 'px';
+    bar.style.height = Math.max(4, bottom - r.top - 4) + 'px';
+    bars.push(bar);
+  }
+  layer.replaceChildren(...bars);
+}
+
 // ---------- margin layout: aligned beside the text, or synced (sticky, non-linear scroll) when comments outgrow the doc ----------
 // Aligned: each card sits level with its text, pushed down by the cards above it. When that makes the margin much longer than
 // the document, SYNCED takes over: the margin is a sticky, window-high column; the cards are stacked with no gaps, and as you
@@ -1258,6 +1284,7 @@ const toolbarH = () => parseFloat(getComputedStyle(document.documentElement).get
 
 function layoutMargin() {
   if (!margin) return;
+  if (doc) layoutBars(doc);
   const v = cur;
   const wide = !matchMedia('(max-width: 1150px)').matches;
   const note = margin.querySelector('[data-note]');

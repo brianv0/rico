@@ -165,18 +165,17 @@ textarea { resize: vertical; padding: 8px 12px; }
 .seg button[aria-pressed="true"] { background: var(--accent-subtle); border-color: var(--accent); position: relative; z-index: 1; }
 .file-body { display: flex; align-items: flex-start; gap: 28px; padding: 24px 24px 24px 32px; }
 .file-body .load-more { margin: 8px auto; }
-.rico-doc { flex: 1 1 0; min-width: 0; max-width: 920px; font-size: 16px; }
+.rico-doc { position: relative; flex: 1 1 0; min-width: 0; max-width: 920px; font-size: 16px; }
 .rico-margin { position: relative; flex: 0 0 300px; width: 300px; }
 .file-card.src .file-body { display: none; }
 .rico-src { display: none; }
 .file-card.src .rico-src { display: block; }
 .markdown-body { background: transparent; }
 .markdown-body [data-l] { position: relative; }
-.markdown-body [data-l].chg::before, .markdown-body [data-l].ctx::before, .markdown-body [data-l].out::before { content: ""; position: absolute; left: -16px; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; }
-.markdown-body [data-l].chg::before { background: var(--chg); }
-.markdown-body [data-l].ctx::before { background: var(--ctx); }
-.markdown-body [data-l].out::before { background: var(--out); }
-.markdown-body li[data-l]::before { left: -2.2em !important; }
+/* change bars: drawn by layoutBars() in one gutter column at the document's left edge */
+.rico-bars { position: absolute; inset: 0 auto 0 0; width: 0; pointer-events: none; }
+.rico-bars i { position: absolute; left: -16px; width: 3px; border-radius: 2px; }
+.rico-bars i.chg { background: var(--chg); } .rico-bars i.ctx { background: var(--ctx); } .rico-bars i.out { background: var(--out); }
 .markdown-body [data-l].chg { background: color-mix(in srgb, var(--chg) 9%, transparent); } /* like GitHub's rich diff */
 .markdown-body [data-l].has-c { background: var(--mark); box-shadow: 0 0 0 3px var(--mark); border-radius: 2px; }
 .markdown-body [data-l].has-t { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 2px; }
@@ -190,12 +189,6 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body .rm > :first-child { margin-top: 0; } .markdown-body .rm > :last-child { margin-bottom: 0; }
 .markdown-body li.rm { margin: 2px 0; padding: 0 8px; }
 .markdown-body tr.rm td, .markdown-body tr.rm th { background: var(--diff-del-bg); }
-/* A ::before on a table row is wrapped in an anonymous empty cell (a phantom first column), so rows
-   carry their change bar as an inset shadow on the first cell instead. */
-.markdown-body tr[data-l]::before { content: none !important; }
-.markdown-body tr[data-l].chg > :first-child { box-shadow: inset 3px 0 0 var(--chg); }
-.markdown-body tr[data-l].ctx > :first-child { box-shadow: inset 3px 0 0 var(--ctx); }
-.markdown-body tr[data-l].out > :first-child { box-shadow: inset 3px 0 0 var(--out); }
 .markdown-body tr.rm > :first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .markdown-body .rm [data-l]::before { display: none; }
 .markdown-body [data-l].gone.has-t, .markdown-body [data-l].gone.has-c { box-shadow: 0 0 0 3px var(--mark); }

@@ -657,6 +657,27 @@ await step('linkable URL: /github.com/org/repo/PR[@commit]?file= loads the PR, f
   await p4.waitForSelector('#doc h1', { timeout: 10000 }); // the page and its assets loaded from the absolute paths
   await p4.close();
 });
+await step('change bars: one gutter column for every block (nested lists, quotes, tables), spanning the text only', async () => {
+  const p5 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  await p5.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fcomplex.md`);
+  await p5.waitForSelector('#doc h1');
+  await p5.waitForFunction(() => document.querySelectorAll('#doc .rico-bars i').length > 8, null, { timeout: 15000 });
+  const res = await p5.evaluate(() => {
+    const doc = document.getElementById('doc').getBoundingClientRect();
+    const bars = [...document.querySelectorAll('#doc .rico-bars i')].map((b) => { const r = b.getBoundingClientRect(); return { x: Math.round(r.left - doc.left), top: r.top, bottom: r.bottom }; });
+    const kinds = { list: !!document.querySelector('#doc li[data-l]:is(.chg,.ctx,.out)'), nested: !!document.querySelector('#doc li li[data-l]'), table: !!document.querySelector('#doc tr[data-l]:is(.chg,.ctx,.out)') };
+    const h2 = [...document.querySelectorAll('#doc h2[data-l]:is(.chg,.ctx,.out)')][0];
+    const hr = h2.getBoundingClientRect();
+    const hb = bars.find((b) => Math.abs(b.top - (hr.top + 2)) < 1.5);
+    return { xs: [...new Set(bars.map((b) => b.x))], n: bars.length, kinds, headingBarEnd: hb && hb.bottom, headingTextEnd: hr.bottom - parseFloat(getComputedStyle(h2).paddingBottom) - parseFloat(getComputedStyle(h2).borderBottomWidth), pseudo: [...document.querySelectorAll('#doc [data-l]')].some((e) => getComputedStyle(e, '::before').content !== 'none' && !e.closest('.rm') && getComputedStyle(e, '::before').position === 'absolute' && getComputedStyle(e, '::before').width === '3px') };
+  });
+  assert.deepEqual(res.xs, [-16], 'every bar sits in the same column: ' + JSON.stringify(res.xs));
+  assert.ok(res.kinds.list && res.kinds.nested && res.kinds.table, 'the document has lists, nested lists and tables: ' + JSON.stringify(res.kinds));
+  assert.ok(Math.abs(res.headingBarEnd - (res.headingTextEnd - 2)) < 1.5, `heading bar ends at its text (${res.headingBarEnd} vs ${res.headingTextEnd})`);
+  assert.equal(res.pseudo, false, 'no leftover per-element ::before bars');
+  await p5.screenshot({ path: path.join(root, 'e2e', 'bars.png'), clip: { x: 280, y: 150, width: 900, height: 800 } });
+  await p5.close();
+});
 await step('removed sections: Source diff and Rendered show the same threads', async () => {
   const c = card('docs/removed.md');
   await c.getByRole('button', { name: 'Source diff' }).click();
