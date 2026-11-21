@@ -1,0 +1,1 @@
+{"name":"INI","rules":{"root":[["\\s+",["t","Text"],0],["[;#].*",["t","CommentSingle"],0],["\\[.*?\\]$",["t","Keyword"],0],["(.*?)([ \\t]*)(=)([ \\t]*)(.*(?:\\n[ \\t].+)*)",["g",[["t","NameAttribute"],["t","Text"],["t","Operator"],["t","Text"],["t","LiteralString"]]],0],["(.+?)$",["t","NameAttribute"],0]]}}

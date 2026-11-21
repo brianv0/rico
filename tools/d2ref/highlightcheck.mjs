@@ -24,6 +24,10 @@ const langs = {
   yaml: ['key:', '- item', '---', '...', '&anchor', '*alias', '!!str', '|', '>', '"q"', "'s'", '# c', 'true', 'null', '1.5', '? x', ': y', '- ', 'a: b', '[1, 2]', '{a: 1}'],
 };
 const aliasOf = { python: ['python', 'py', 'Python'], go: ['go', 'golang'], bash: ['bash', 'sh'], javascript: ['javascript', 'js'], typescript: ['typescript', 'ts'], json: ['json'], yaml: ['yaml', 'yml'] };
+// every other exported lexer: the generic fragments, under one of its names
+const names = {};
+for (const [k, v] of Object.entries(index.names)) if (index.files[v] && !(v in names && names[v].length <= k.length)) names[v] = k;
+for (const [v, k] of Object.entries(names)) if (!Object.values(aliasOf).flat().includes(k) && !(k in langs)) { langs[k] = ['SELECT', 'FROM', 'WHERE', 'public', 'static', 'void', 'int', 'class', 'struct', '#include', '<stdio.h>', 'fn', 'let', 'mut', 'impl', 'def', 'end', 'begin', 'module', 'use', 'require', '<div class="x">', '</div>', '<?xml version="1.0"?>', '<!-- c -->', '&amp;', 'color: red;', '.cls {', '@media', '$var', 'all:', '\t@echo', '[section]', 'key=value', '+++', '--- a', '@@ -1 +1 @@', 'FROM alpine', 'RUN x'].concat(common); aliasOf[k] = [k]; }
 const cases = [];
 for (let i = 0; i < N; i++) {
   const lang = pick(Object.keys(langs));
@@ -36,15 +40,19 @@ for (let i = 0; i < N; i++) {
 cases.push({ language: 'asdf', text: 'x := 1\n\nfoo' }, { language: 'Text', text: 'plain text\nmore' }, { language: 'go', text: '' });
 const out = execFileSync('go', ['run', '.', 'highlight'], { cwd: here, input: cases.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 28 }).toString().trim().split('\n');
 let same = 0, deferred = 0;
+const defBy = {}, okBy = {};
 const bad = [];
 cases.forEach((c, i) => {
   const want = JSON.parse(out[i]);
-  if (want.panic) { deferred++; return; }
+  if (want.panic) { deferred++; defBy['(go panic)'] = (defBy['(go panic)'] || 0) + 1; return; }
   let got;
-  try { got = highlight(c.language, c.text).light.lines.map((l) => l.map((t) => [t.type, t.value])); } catch (e) { if (e.name === 'Deferred') { deferred++; return; } got = String(e); }
-  if (JSON.stringify(got) === JSON.stringify(want.lines)) same++;
+  try { got = highlight(c.language, c.text).light.lines.map((l) => l.map((t) => [t.type, t.value])); } catch (e) { if (e.name === 'Deferred') { deferred++; defBy[c.language] = (defBy[c.language] || 0) + 1; return; } got = String(e); }
+  if (JSON.stringify(got) === JSON.stringify(want.lines)) { same++; okBy[c.language] = (okBy[c.language] || 0) + 1; }
   else bad.push(`${JSON.stringify(c)}\n   got  ${JSON.stringify(got).slice(0, 400)}\n   want ${JSON.stringify(want.lines).slice(0, 400)}`);
 });
-console.log(`highlight: ${same}/${cases.length - deferred} identical to chroma` + (deferred ? `, ${deferred} deferred/skipped` : ''));
+const perLang = {};
+for (const b of bad) { const l = JSON.parse(b.split('\n')[0]).language; perLang[l] = (perLang[l] || 0) + 1; }
+console.log(`highlight: ${same}/${cases.length - deferred} identical to chroma` + (deferred ? `, ${deferred} deferred/skipped` : '') + (bad.length ? `; mismatches by language ${JSON.stringify(perLang)}` : ''));
 for (const b of bad.slice(0, 6)) console.log(b);
+if (process.env.BYLANG) console.log('deferred by language', JSON.stringify(defBy), '\nidentical by language', JSON.stringify(okBy));
 process.exitCode = bad.length ? 1 : 0;

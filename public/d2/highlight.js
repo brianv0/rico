@@ -79,10 +79,13 @@ function translate(pattern, lexer) {
   }
   let out = '';
   let inClass = false;
+  let classStart = 0, classOut = 0;
+  let shorthands = ''; // the \w \W \d \D \s \S escapes of the current character class
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
     if (c === '\\') {
       const n = pattern[i + 1];
+      if (inClass && n !== undefined && 'wWdDsS'.includes(n)) shorthands += n;
       if (n === 'p' || n === 'P') {
         // \p{L} and \p{N} on ASCII input
         const m = /^\\([pP])\{(L|N)\}/.exec(pattern.slice(i));
@@ -102,12 +105,26 @@ function translate(pattern, lexer) {
       continue;
     }
     if (inClass) {
-      if (c === ']') inClass = false;
+      if (c === ']') {
+        inClass = false;
+        // regexp2 does not combine several shorthand escapes of which one is negated the way JavaScript does (for example [^\W\d]
+        // matches digits): the generator stored the ASCII set regexp2 matches for such a class
+        if (shorthands.length >= 2 && /[WDS]/.test(shorthands)) {
+          const cls = pattern.slice(classStart, i + 1);
+          const set = lexer.cls?.[cls];
+          if (set === undefined) throw new Unsupported('class with several shorthand escapes');
+          out = out.slice(0, classOut) + set;
+          continue;
+        }
+      }
       out += c;
       continue;
     }
     if (c === '[') {
       inClass = true;
+      shorthands = '';
+      classStart = i;
+      classOut = out.length;
       out += c;
       if (pattern[i + 1] === '^') { out += '^'; i++; }
       // a ] right after [ or [^ is a literal in .NET; in JavaScript it would close the (empty) class
