@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2compiler package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.): compile.go.
+// JavaScript port of D2's d2compiler package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.): compile.go.
 // Parses a D2 source, resolves it to the IR (d2ir.js) and builds the graph (d2graph.js) and the `d2-config` variables.
 //
 // Same algorithm, same names (camelCase), same error messages. Conventions as in d2ir.js and d2graph.js. The compile
@@ -82,11 +82,27 @@ class Compiler {
   constructor() {
     this.err = new ParseError();
     this.errorsLookup = null;
+    this.activeClassMaps = null;
+  }
+
+  beginClass(class_, className, classMap) {
+    if (this.activeClassMaps === null) this.activeClassMaps = new Set();
+    if (this.activeClassMaps.has(classMap)) {
+      this.errorf(class_.lastRef().ast(), 'class %q forms a reference cycle', className);
+      return false;
+    }
+    this.activeClassMaps.add(classMap);
+    return true;
+  }
+
+  endClass(classMap) {
+    this.activeClassMaps.delete(classMap);
   }
 
   compileBoard(g, ir) {
-    ir = ir.copy(null);
-    // c.preprocessSeqDiagrams(ir)
+    // Graph compilation reads the IR. Nested boards still need an independent root for class lookup, and boards with children
+    // need a copy because the folder comparison below uses CopyBase, which also modifies its source.
+    if (!ir.root() || hasBoardFields(ir)) ir = ir.copy(null);
     this.compileMap(g.root, ir);
     this.setDefaultShapes(g);
     if (this.err.errs.length === 0) this.validateKeys(g.root, ir);
@@ -100,8 +116,8 @@ class Compiler {
     this.compileBoardsField(g, ir, 'layers');
     this.compileBoardsField(g, ir, 'scenarios');
     this.compileBoardsField(g, ir, 'steps');
-    if (d2ir.copyBase(d2ir.parentMap(ir), null).equal(d2ir.copyBase(ir, null))) {
-      if ((g.layers || []).length > 0 || (g.scenarios || []).length > 0 || (g.steps || []).length > 0) g.isFolderOnly = true;
+    if ((g.layers || []).length > 0 || (g.scenarios || []).length > 0 || (g.steps || []).length > 0) {
+      if (d2ir.copyBase(d2ir.parentMap(ir), null).equal(d2ir.copyBase(ir, null))) g.isFolderOnly = true;
     }
     if ((g.objects || []).length === 0) g.isFolderOnly = true;
     return g;
@@ -199,8 +215,12 @@ class Compiler {
 
       for (const className of classNames || []) {
         const classMap = m.getClassMap(className);
-        if (classMap !== null) this.compileMap(obj, classMap);
-        else if (className.includes(',')) {
+        if (classMap !== null) {
+          if (this.beginClass(class_, className, classMap)) {
+            this.compileMap(obj, classMap);
+            this.endClass(classMap);
+          }
+        } else if (className.includes(',')) {
           const split = className.split(',');
           let allFound = true;
           for (let maybeClassName of split) {
@@ -642,6 +662,9 @@ class Compiler {
 
     if (e.primary() !== null) this.compileLabel(edge.attributes, e);
     if (e.map() !== null) this.compileEdgeMap(edge, e.map());
+    if (edge.attributes.link !== null && edge.attributes.label.value === '' && edge.attributes.label.mapKey === null) {
+      edge.attributes.label.value = edge.attributes.link.value;
+    }
 
     edge.attributes.label.mapKey = e.lastPrimaryKey();
     for (const er of e.references || []) {
@@ -676,7 +699,12 @@ class Compiler {
 
       for (const className of classNames || []) {
         const classMap = m.getClassMap(className);
-        if (classMap !== null) this.compileEdgeMap(edge, classMap);
+        if (classMap !== null) {
+          if (this.beginClass(class_, className, classMap)) {
+            this.compileEdgeMap(edge, classMap);
+            this.endClass(classMap);
+          }
+        }
       }
     }
     for (const f of m.fields || []) {
@@ -1069,6 +1097,12 @@ const slicesEqual = (a, b) => {
 };
 
 // compileClass / compileSQLTable: remove the children from the graph's objects
+function hasBoardFields(ir) {
+  // Use the same lookups as compileBoardsField, including GetField's live ReservedKeywords rules for distinguishing quoted and
+  // unquoted names.
+  return ir.getField(flat('layers')) !== null || ir.getField(flat('scenarios')) !== null || ir.getField(flat('steps')) !== null;
+}
+
 function removeChildrenFromObjects(obj) {
   for (const ch of obj.childrenArray || []) {
     for (let i = 0; i < (obj.graph.objects || []).length; i++) {
