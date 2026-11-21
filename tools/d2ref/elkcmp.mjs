@@ -44,12 +44,15 @@ function firstDiff(a, b, p = '$') {
   }
   return `${p}: elkjs ${JSON.stringify(a)?.slice(0, 120)} elk-go ${JSON.stringify(b)?.slice(0, 120)}`;
 }
-let same = 0, bothErr = 0, keyOrder = 0;
+let same = 0, bothErr = 0, keyOrder = 0, glueDies = 0;
 const bad = [];
 captured.forEach((c, k) => {
   const want = JSON.parse(lines[k]);
   if (c.err !== null || want.err !== undefined) {
     if (c.err !== null && want.err !== undefined) bothErr++;
+    // ELK.js refuses a cross-hierarchy edge under a non-layered algorithm (the child graphs are laid out by layered, which cannot reach the edge's other end);
+    // elk-go lays the graph out and leaves that edge without a section, which makes D2's glue panic (index out of range on the empty route): not a case
+    else if (c.err !== null && /could not be found/.test(c.err) && (want.out.edges || []).some((e) => !e.sections || !e.sections.length)) glueDies++;
     else bad.push({ k, i: c.i, from: c.from, d: `elkjs ${c.err !== null ? 'error ' + c.err : 'ok'}; elk-go ${want.err !== undefined ? 'error ' + want.err : 'ok'}` });
     return;
   }
@@ -57,7 +60,15 @@ captured.forEach((c, k) => {
   const d = firstDiff(canon(a), canon(b));
   if (d) bad.push({ k, i: c.i, from: c.from, d }); else { same++; if (JSON.stringify(a) === JSON.stringify(b)) keyOrder++; }
 });
-console.log(`elk: ${same}/${captured.length - bothErr} ELK layouts identical to elk-go (${captured.length} layouts from ${cases.length} cases; ${keyOrder} also in the same key order)` + (bothErr ? `, ${bothErr} errors in both` : ''));
+console.log(`elk: ${same}/${captured.length - bothErr - glueDies} ELK layouts identical to elk-go (${captured.length} layouts from ${cases.length} cases; ${keyOrder} also in the same key order)` + (bothErr ? `, ${bothErr} errors in both` : '') + (glueDies ? `, ${glueDies} where ELK.js refuses a cross-hierarchy edge under a non-layered algorithm and D2's Go glue panics on elk-go's answer` : ''));
+// what kinds of mismatch, and under which algorithm (cases carry `elkopts`)
+const kinds = {};
+for (const b of bad) {
+  const kind = /^elkjs error/.test(b.d) ? 'elkjs fails, elk-go lays out' : /^elkjs ok/.test(b.d) ? 'elk-go fails, elkjs lays out' : 'different layout';
+  const alg = (cases[b.i].elkopts && cases[b.i].elkopts['elk.algorithm']) || 'layered';
+  kinds[`${alg}: ${kind}`] = (kinds[`${alg}: ${kind}`] || 0) + 1;
+}
+if (bad.length) console.log(JSON.stringify(kinds));
 for (const b of bad.slice(0, show)) console.log(`\n#${b.i} ${b.from} (layout ${b.k})\n  ${b.d.slice(0, 500)}`);
 if (flag('--dump', false) && bad.length) fs.writeFileSync(flag('--dump'), bad.map((b) => JSON.stringify({ diagram: JSON.parse(captured[b.k].raw) })).join('\n') + '\n');
 process.exitCode = bad.length ? 1 : 0;

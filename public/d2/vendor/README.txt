@@ -42,3 +42,19 @@ It is only imported by d2sketch.js, which d2svg.js loads on demand in sketch mod
 identical text, except that ellipses, circles and zigzag fills differ in the last bit of some numbers (V8's sin/cos against Go's), which d2sketch's
 six-decimal truncation removes (no difference left over 100000+ generated calls and every call of the corpus and D2's e2e boards).
 To refresh, take bundled/rough.esm.js from `npm pack roughjs@4.6.6` and copy it over rough.js.
+
+elk.js is ELK (Eclipse Layout Kernel) 0.12.0 as compiled to JavaScript by elkjs 0.12.0 (https://github.com/kieler/elkjs, npm elkjs@0.12.0; EPL-2.0 OR GPL-3.0-or-later,
+Copyright (c) Kiel University and others; the licence text is elk.LICENSE.txt, the file header says what was modified). It is lib/elk-worker.min.js of the package (the code elkjs's own
+elk.bundled.js, sha256 1222e44f953ce7746af23801e723708f8e6f436b8b377a6a5fc7552f34a307b3, embeds byte for byte; elk-go, D2 v0.9.0's native Go port, names that bundle as its oracle) as an ES module
+that exports ELK's worker `Dispatcher`, so d2elklayout.js can lay a graph out synchronously on the main thread: no Web Worker, no `eval`, no `new Function`, no `importScripts`, no timers
+(it runs under a CSP with `script-src 'self'` only; tools/d2ref/elkcsp.mjs checks that in Chromium). 1.6 MB, 464 KB gzipped, sha256 cb3864c608bce5fad4cded642c09b8c3d410f2097941865b0c1113870436df23.
+It is only imported by d2elklayout.js, which d2lib.js loads with `import()` the first time a diagram uses the ELK layout (`layout: 'elk'`), so the default (dagre) path never downloads it.
+
+Edits to the package's code, made by tools/d2ref/elkbuild/build.py (read its header for the reasons; `ELK_COMPAT=none` builds the engine with edits 1 to 3 only):
+  1. to 3. the module wrapper, the worker branch disabled, the Dispatcher exported;
+  4. and 5. an edge from a compound node to one of its own descendants keeps its coordinate-system origin and the offset walk stops at the root graph (what elk-go does; ELK 0.12 returns null / ELK.js throws);
+  6. to 8. the ports and external-port dummies of compound nodes are created and ordered edge by edge, and a compound node is FIXED_SIDE from its first dummy on (elk-go's order of events);
+  9. the sides of a two-sided opposing self loop are taken in the order north, east, south, west (ELK.js: order of a hash map of identity-hashed enum constants).
+With them the engine gives the same layout as elk-go for every graph D2's glue built in the corpus, D2's e2e tests and about 22000 generated programs (tools/d2ref/elkcmp.mjs; exact numbers in docs/d2-port.md).
+To rebuild:  npm pack elkjs@0.12.0; tar xzf elkjs-0.12.0.tgz; python3 tools/d2ref/elkbuild/build.py package/lib/elk-worker.min.js public/d2/vendor/elk.js package/lib/elk.bundled.js
+Do not edit elk.js by hand; re-run the script when D2 moves to another ELK (and diff against its native engine again: elk-go is not ELK.js).
