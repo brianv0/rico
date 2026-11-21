@@ -3,7 +3,7 @@
 // sizes, icons, 3d/multiple, scenarios): node fuzzlayout.mjs [count] [seed] > f.jsonl && node diff.mjs layout f.jsonl
 import fs from 'node:fs';
 
-const [count = '2000', seed = '1'] = process.argv.slice(2);
+const [count = '2000', seed = '1', profile = ''] = process.argv.slice(2); // profile `elk`: more of what the ELK glue and engine care about (programElk)
 let x = Number(seed) >>> 0 || 1;
 const rnd = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
 const int = (n) => Math.floor(rnd() * n);
@@ -131,4 +131,40 @@ function program() {
   return lines.join('\n');
 }
 
-for (let i = 0; i < Number(count); i++) console.log(JSON.stringify({ from: `fuzzlayout:${seed}:${i}`, path: 'f.d2', text: program() + '\n' }));
+// ELK profile: containers with edges to their own descendants (both directions), SQL tables and classes with column edges and self loops in every direction,
+// self loops with labels, deep nesting with cross-hierarchy edges, and (one case in four) ELK options (the `--elk-*` flags: `elkopts` is the JSON the elk
+// plugin's HydrateOpts takes)
+function programElk() {
+  const lines = [];
+  if (chance(0.7)) lines.push(`direction: ${pick(dirs)}`);
+  const tables = [];
+  for (let i = 0, k = int(3); i < k; i++) { const n = `t${i}`; tables.push(n); lines.push((chance(0.7) ? sql() : cls()).replace(/^[^:]+/, n)); }
+  for (let i = 0, k = 1 + int(4); i < k; i++) lines.push(node(0));
+  const all = () => (chance(0.6) ? pick(names) : chance(0.5) ? `${pick(names)}.${pick(names)}` : `${pick(names)}.${pick(names)}.${pick(names)}`);
+  for (let i = 0, k = 1 + int(10); i < k; i++) {
+    const kind = rnd();
+    const l = chance(0.4) ? `: ${JSON.stringify(pick(labels.filter(Boolean))).replace(/\\n/g, '\\n')}` : '';
+    const arrow = pick(['->', '->', '<-', '<->', '--']);
+    if (kind < 0.2) { const c = pick(names); lines.push(`${c} ${arrow} ${c}.${pick(names)}${l}`); }
+    else if (kind < 0.35) { const c = pick(names); lines.push(`${c}.${pick(names)} ${arrow} ${c}${l}`); }
+    else if (kind < 0.5 && tables.length) { const t = pick(tables); lines.push(`${t}.col${int(4)} ${arrow} ${chance(0.5) ? t : pick(tables)}.col${int(4)}${l}`); }
+    else if (kind < 0.6 && tables.length) { const t = pick(tables); lines.push(chance(0.5) ? `${t} ${arrow} ${t}${l}` : `${all()} ${arrow} ${t}.col${int(3)}${l}`); }
+    else if (kind < 0.7) { const r = all(); lines.push(`${r} ${arrow} ${r}${l}`); }
+    else lines.push(`${all()} ${arrow} ${all()}${l}`);
+  }
+  const c = { path: 'f.d2', text: lines.join('\n') + '\n' };
+  if (chance(0.25)) {
+    c.elkopts = {};
+    if (chance(0.5)) c.elkopts['elk.algorithm'] = pick(['layered', 'layered', 'layered', 'stress', 'mrtree', 'radial', 'force', 'box']);
+    if (chance(0.5)) c.elkopts['spacing.nodeNodeBetweenLayers'] = 10 + int(120);
+    if (chance(0.5)) c.elkopts['elk.padding'] = `[top=${int(80)},left=${int(80)},bottom=${int(80)},right=${int(80)}]`;
+    if (chance(0.5)) c.elkopts['spacing.edgeNodeBetweenLayers'] = 5 + int(80);
+    if (chance(0.5)) c.elkopts['elk.spacing.nodeSelfLoop'] = int(100);
+  }
+  return c;
+}
+
+for (let i = 0; i < Number(count); i++) {
+  if (profile === 'elk') console.log(JSON.stringify({ from: `fuzzlayout:${seed}:elk:${i}`, ...programElk() }));
+  else console.log(JSON.stringify({ from: `fuzzlayout:${seed}:${i}`, path: 'f.d2', text: program() + '\n' }));
+}

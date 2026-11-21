@@ -24,6 +24,9 @@
 #      from the boundary port (the layout direction, or the side of the port the edge ends at when it ends at the node itself) instead of from the net flow.
 #      The patch tags every imported edge with its position in the import order, finds for each compound node the first edge that crosses its boundary
 #      (elkgoPrepare) and reports PORT_CONSTRAINTS = FIXED_SIDE to createExternalPortDummy for every later one (elkgoConstraints);
+#   8. the ports a compound node gets for its cross-hierarchy edges come in the order of the edges, and the dummies are ordered like elk-go's
+#      reorderCompoundPortDummies (elkgoPorts, elkgoReorder);
+#   9. the sides of a two-sided opposing self loop are taken in the order north, east, south, west (ELK.js: hash map order of identity-hashed enums);
 #   7. and likewise for the side introduceHierarchicalEdgeSegment passes then (ELK: WEST for an input, EAST for an output; elk-go: the direction-based
 #      side of the new boundary port).
 import os
@@ -64,6 +67,9 @@ if compat == 'all':
     rep("JD(oNb(c,qxc),102),e,d==nAc?-1:1,null,new jgd,new lgd(0,0),i,b);", "elkgoConstraints(c,f),e,d==nAc?-1:1,null,new jgd,new lgd(0,0),i,b);")
     # 8: the ports a compound node gets for its cross-hierarchy edges are appended in the order of the edges (elk-go), not of the node-by-node walk
     rep("null,new jgd,new lgd(0,0),i,b);h=$Vb(g,c,d);", "null,new jgd,new lgd(0,0),i,b);h=$Vb(g,c,d);h.elkgoOrd=f.elkgoOrd;")
+    # 9: the sides a two-sided opposing self loop touches come out of a hash map keyed by identity-hashed enum constants in ELK.js (their order depends on
+    #    which constant was hashed first); elk-go always has them in the order north, east, south, west
+    rep("i=JD(De(Ec(b.k),SC(M2,sye,64,2,0,1)),126);j=b.g;", "i=JD(De(Ec(b.k),SC(M2,sye,64,2,0,1)),126);i.sort(function(x,y){return x.g-y.g});j=b.g;")
     # 7
     rep("Old(JD(oNb(c,qxc),102))&&(k=f==nAc?Amd:gmd);", "Old(elkgoConstraints(c,d))&&(k=f==nAc?Dmd(Gmd(PXb(DYb(c)))):Gmd(PXb(DYb(c))));")
     src += '''
