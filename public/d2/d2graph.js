@@ -17,7 +17,7 @@
 
 import {
   unbox, scalarString, rawString, equalFold, goLower, posBefore,
-  ReservedKeywords, ReservedKeywordHolders, NearConstants, FillPatterns, TextTransforms, Range, isSpace,
+  ReservedKeywords, ReservedKeywordHolders, NearConstants, FillPatterns, TextTransforms, Range, isSpace, LabelPositionsMapping,
 } from './ast.js';
 import { format } from './format.js';
 import { parseKey } from './parser.js';
@@ -32,6 +32,11 @@ import { getTextDimensions, getTextDimensionsWithMono, measureMarkdown, findMeas
 import { atoi as strconvAtoi, parseBool as strconvParseBool, parseFloat64 } from './strconv.js';
 import { sprintf } from './gofmt.js';
 import { sortSlice } from './gosort.js';
+
+/** Thrown where Go calls d2latex.Measure (MathJax in goja), which is not ported. */
+export class LatexNotPorted extends Error {
+  constructor() { super('d2latex is not ported: latex labels cannot be measured'); this.name = 'LatexNotPorted'; }
+}
 
 export const INNER_LABEL_PADDING = 5;
 export const DEFAULT_SHAPE_SIZE = 100.;
@@ -200,6 +205,159 @@ export class Graph {
     for (const board of this.steps || []) for (const t of board.texts() || []) texts = appendTextDedup(texts, t);
 
     return texts;
+  }
+
+  /**
+   * SetDimensions sets the width and height of every object (obj.box) and the label dimensions of objects and edges.
+   * @returns {string|null} error message
+   */
+  setDimensions(mtexts, ruler, fontFamily, monoFontFamily) {
+    const g = this;
+    if (ruler && fontFamily != null) {
+      if (!ruler.hasFontFamilyLoaded(fontFamily)) return `ruler does not have entire font family ${fontFamily} loaded, is a style missing?`;
+    }
+    if (ruler && monoFontFamily != null) {
+      if (!ruler.hasFontFamilyLoaded(monoFontFamily)) return `ruler does not have entire mono font family ${monoFontFamily} loaded, is a style missing?`;
+    }
+
+    if (g.theme !== null && g.theme.specialRules.mono) fontFamily = d2fonts.SourceCodePro;
+
+    for (const obj of g.objects || []) {
+      obj.box = new geo.Box(null, 0, 0);
+
+      // user-specified label/icon positions
+      if (obj.hasLabel() && obj.attributes.labelPosition !== null) {
+        const scalar = obj.attributes.labelPosition;
+        const position = LabelPositionsMapping[scalar.value];
+        obj.labelPosition = label.positionString(position);
+      }
+      if (obj.attributes.icon !== null && obj.attributes.iconPosition !== null) {
+        const scalar = obj.attributes.iconPosition;
+        const position = LabelPositionsMapping[scalar.value];
+        obj.iconPosition = label.positionString(position);
+      }
+
+      let desiredWidth = 0;
+      let desiredHeight = 0;
+      if (obj.attributes.widthAttr !== null) [desiredWidth] = strconvAtoi(obj.attributes.widthAttr.value);
+      if (obj.attributes.heightAttr !== null) [desiredHeight] = strconvAtoi(obj.attributes.heightAttr.value);
+
+      const dslShape = lc(obj.attributes.shape.value);
+
+      if (obj.attributes.label.value === '' &&
+        dslShape !== d2target.ShapeImage &&
+        dslShape !== d2target.ShapeSQLTable &&
+        dslShape !== d2target.ShapeClass) {
+        if (dslShape === d2target.ShapeCircle || dslShape === d2target.ShapeSquare) {
+          let sideLength = DEFAULT_SHAPE_SIZE;
+          if (desiredWidth !== 0 || desiredHeight !== 0) sideLength = Math.max(desiredWidth, desiredHeight);
+          obj.box.Width = sideLength;
+          obj.box.Height = sideLength;
+        } else {
+          obj.box.Width = DEFAULT_SHAPE_SIZE;
+          obj.box.Height = DEFAULT_SHAPE_SIZE;
+          if (desiredWidth !== 0) obj.box.Width = desiredWidth;
+          if (desiredHeight !== 0) obj.box.Height = desiredHeight;
+        }
+
+        continue;
+      }
+
+      if (g.theme !== null && g.theme.specialRules.capsLock && !equalFold(obj.attributes.shape.value, d2target.ShapeCode)) {
+        if (obj.attributes.language !== 'latex' && !obj.attributes.style.noneTextTransform()) {
+          obj.attributes.label.value = goUpper(obj.attributes.label.value);
+        }
+      }
+      obj.attributes.applyTextTransform();
+
+      const [labelDims, lerr] = obj.getLabelSize(mtexts, ruler, fontFamily, monoFontFamily);
+      if (lerr !== null) return lerr;
+      obj.attributes.labelDimensions = new d2target.TextDimensions(labelDims.width, labelDims.height);
+
+      // if there is a desired width or height, fit to content box without inner label padding for smallest minimum size
+      const withInnerLabelPadding = desiredWidth === 0 && desiredHeight === 0 &&
+        dslShape !== d2target.ShapeText && obj.attributes.label.value !== '';
+      const [defaultDims, derr] = obj.getDefaultSize(mtexts, ruler, fontFamily, monoFontFamily, labelDims, withInnerLabelPadding);
+      if (derr !== null) return derr;
+
+      if (dslShape === d2target.ShapeImage) {
+        if (desiredWidth === 0) desiredWidth = defaultDims.width;
+        if (desiredHeight === 0) desiredHeight = defaultDims.height;
+        obj.box.Width = Math.max(MIN_SHAPE_SIZE, desiredWidth);
+        obj.box.Height = Math.max(MIN_SHAPE_SIZE, desiredHeight);
+        // images don't need further processing
+        continue;
+      }
+
+      const contentBox = geo.newBox(geo.newPoint(0, 0), defaultDims.width, defaultDims.height);
+      const shapeType = d2target.DSL_SHAPE_TO_SHAPE_TYPE[dslShape];
+      const s = shape.newShape(shapeType, contentBox);
+      let [paddingX, paddingY] = s.getDefaultPadding();
+      if (desiredWidth !== 0) paddingX = 0.;
+      if (desiredHeight !== 0) paddingY = 0.;
+
+      // give shapes with icons extra padding to fit their label
+      if (obj.attributes.icon !== null) {
+        switch (shapeType) {
+          case shape.TABLE_TYPE: case shape.CLASS_TYPE: case shape.CODE_TYPE: case shape.TEXT_TYPE:
+            break;
+          default: {
+            const labelHeight = labelDims.height + INNER_LABEL_PADDING;
+            // Evenly pad enough to fit label above icon
+            if (desiredWidth === 0) paddingX += labelHeight;
+            if (desiredHeight === 0) paddingY += labelHeight;
+          }
+        }
+      }
+      if (desiredWidth === 0) {
+        switch (shapeType) {
+          case shape.TABLE_TYPE: case shape.CLASS_TYPE: case shape.CODE_TYPE:
+            break;
+          default:
+            if (obj.attributes.link !== null && obj.attributes.tooltip !== null) paddingX += 64;
+        }
+      }
+
+      obj.sizeToContent(contentBox.Width, contentBox.Height, paddingX, paddingY);
+    }
+    for (const edge of g.edges || []) {
+      let usedFont = fontFamily;
+      if (edge.attributes.style.font !== null) usedFont = d2fonts.D2_FONT_TO_FAMILY[edge.attributes.style.font.value];
+
+      if (edge.srcArrowhead !== null && edge.srcArrowhead.label.value !== '') {
+        const t = edge.text();
+        t.text = edge.srcArrowhead.label.value;
+        const dims = getTextDimensions(mtexts, ruler, t, usedFont);
+        edge.srcArrowhead.labelDimensions = new d2target.TextDimensions(dims.width, dims.height);
+      }
+      if (edge.dstArrowhead !== null && edge.dstArrowhead.label.value !== '') {
+        const t = edge.text();
+        t.text = edge.dstArrowhead.label.value;
+        const dims = getTextDimensions(mtexts, ruler, t, usedFont);
+        edge.dstArrowhead.labelDimensions = new d2target.TextDimensions(dims.width, dims.height);
+      }
+
+      if (edge.attributes.label.value === '') continue;
+
+      if (g.theme !== null && g.theme.specialRules.capsLock && !edge.attributes.style.noneTextTransform()) {
+        edge.attributes.label.value = goUpper(edge.attributes.label.value);
+      }
+      edge.attributes.applyTextTransform();
+
+      let dims;
+      if (edge.attributes.language === 'latex') {
+        // d2latex.Measure: not ported
+        throw new LatexNotPorted();
+      } else if (edge.attributes.language === 'markdown') {
+        let err;
+        [dims, err] = getMarkdownDimensions(mtexts, ruler, edge.text(), usedFont, monoFontFamily);
+        if (err !== null) return err;
+      } else dims = getTextDimensions(mtexts, ruler, edge.text(), usedFont);
+      if (dims === null) return `dimensions for edge label ${goSharpV(edge.text())} not found`;
+
+      edge.attributes.labelDimensions = new d2target.TextDimensions(dims.width, dims.height);
+    }
+    return null;
   }
 
   getBoard(name) {
@@ -1047,7 +1205,7 @@ export class GraphObject {
       default:
         if (obj.attributes.language === 'latex') {
           // d2latex.Measure: not ported yet
-          throw new Error('d2graph: latex labels are measured by d2latex, which is not ported');
+          throw new LatexNotPorted();
         } else if (obj.attributes.language !== '' && shapeType !== d2target.ShapeCode) {
           let err;
           [dims, err] = getMarkdownDimensions(mtexts, ruler, obj.text(), fontFamily, monoFontFamily);
