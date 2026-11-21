@@ -6,6 +6,7 @@ import { diagramFromJSON } from '../../public/d2/target.js';
 import { setMarkdownIt, loadMetrics } from '../../public/d2/textmeasure.js';
 import { URL as GoURL } from '../../public/d2/url.js';
 import { render, renderMultiboard, hooks, Deferred, NeedAsset } from '../../public/d2/d2svg.js';
+import { compileSync } from '../../public/d2/d2lib.js';
 
 const FONT_URL = /url\("data:application\/font-woff;base64,[^"]*"\)/g;
 const blank = (s) => s.replace(FONT_URL, 'url("FONT")');
@@ -36,6 +37,7 @@ export async function svgPrepare(nofonts) {
   try { hooks.markdown = await import('../../public/d2/mdlayout.js'); } catch (e) { /* not ported yet */ }
   hooks.highlight = await import('../../public/d2/highlight.js');
   for (const f of Object.values(hooks.highlight.index.files)) await hooks.highlight.loadLexer(f);
+  hooks.sketch = await import('../../public/d2/d2sketch.js');
   hooks.patterns = await import('../../public/d2/d2svgpatterns.js');
   await hooks.patterns.loadPattern('paper');
   await hooks.patterns.loadPattern('grain');
@@ -44,7 +46,6 @@ export async function svgPrepare(nofonts) {
 export function svgCheck(c, want, { nofonts }) {
   if (want.ro == null || want.diagram == null) return { deferred: 'compile-error' };
   const ro = want.ro;
-  if (ro.sketch) return { deferred: 'sketch' };
   sawUserinfo = false;
   const diagram = fixIcons(diagramFromJSON(JSON.parse(JSON.stringify(want.diagram))));
   if (sawUserinfo) return { deferred: 'icon-userinfo' };
@@ -64,4 +65,26 @@ export function svgCheck(c, want, { nofonts }) {
     else if (typeof want.svg === 'string') want.svg = blank(want.svg);
   }
   return { diagram: want.diagram, ro: want.ro, svg: svg ?? (c.ropts && c.ropts.multiboard ? [] : ''), err };
+}
+
+// `svgfull` stage: the whole JS pipeline against Go's. Go's `svgfromdiagram` mode compiles the text (dagre) with the case's render options and renders
+// it; the JS port compiles the same text with the same options (so `--sketch` / `vars.d2-config.sketch` change fonts, sizes and layout) and renders.
+// Compared: the diagram, the SVG (byte for byte) and the error.
+export function svgFullCheck(c, want, { nofonts }) {
+  const ro = { ...(c.ropts ?? {}) };
+  delete ro.multiboard;
+  const r = compileSync(c.text, { utf16: false, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre' }, ro);
+  if (r.err) {
+    if (r.err.name === 'LatexNotPorted') return { deferred: 'latex' };
+    return { diagram: null, err: r.err.message };
+  }
+  let svg = null, err = null;
+  try { svg = render(r.diagram, { ...ro, fonts: 'embed' }); } catch (e) {
+    if (e instanceof NeedAsset) return { deferred: `unported-${e.kind}` };
+    if (e instanceof Deferred) return { deferred: e.reason.replace(/ \(.*$/, '').replace(/^code language .*/, 'code-language') };
+    err = e.message;
+  }
+  if (nofonts) { svg = svg == null ? svg : blank(svg); if (typeof want.svg === 'string') want.svg = blank(want.svg); }
+  const roKeys = ['pad', 'sketch', 'center', 'themeID', 'darkThemeID', 'themeOverrides', 'darkThemeOverrides', 'scale', 'masterID', 'noXMLTag', 'salt', 'omitVersion'];
+  return { diagram: r.diagram, ro: Object.fromEntries(roKeys.map((k) => [k, ro[k] ?? (k === 'masterID' ? '' : null)])), svg: svg ?? '', err };
 }

@@ -30,3 +30,15 @@ creates the TeX/SVG jax and the document for every formula (D2 starts a fresh Ja
 LaTeX label. It uses no eval and no `new Function` (checked by grep on the bundle and by running it under a CSP without 'unsafe-eval').
 To rebuild:  sh tools/d2ref/mathjaxbuild/build.sh   (esbuild is fetched into a temporary directory by npm and is not a dependency of the repo)
 Do not edit mathjax.js by hand.
+
+rough.js is roughjs 4.6.6 (https://github.com/rough-stuff/rough, npm roughjs@4.6.6, MIT, Copyright (c) 2019 Preet Shihn) exactly as the package ships it:
+bundled/rough.esm.js (one minified ES module with its four dependencies hachure-fill 0.5.2, path-data-parser 0.1.0, points-on-curve 0.2.0 and
+points-on-path 0.2.1 inside; default export `{ generator, canvas, svg, newSeed }`), unmodified. The licence texts are in rough.LICENSE.txt.
+npm tarball sha256 373873b2c3f1b7ddba878525c774816057c5818029780c7fba081f06018ba78c (the one rough-go, D2 v0.9.0's native Go port of Rough.js 4.6.6,
+names as its oracle); rough.js sha256 e921535f216ebc93d422489d614da955b5286812220b3149fc70978f4cb5bd45.
+
+It is only imported by d2sketch.js, which d2svg.js loads on demand in sketch mode, so a page that never draws a sketch diagram never downloads it
+(8.9 KB gzipped). It is used as is because tools/d2ref/roughcmp.mjs shows it prints the same paths as rough-go on every call d2sketch makes:
+identical text, except that ellipses, circles and zigzag fills differ in the last bit of some numbers (V8's sin/cos against Go's), which d2sketch's
+six-decimal truncation removes (no difference left over 100000+ generated calls and every call of the corpus and D2's e2e boards).
+To refresh, take bundled/rough.esm.js from `npm pack roughjs@4.6.6` and copy it over rough.js.

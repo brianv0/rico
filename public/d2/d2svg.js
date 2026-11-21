@@ -10,7 +10,7 @@
 //
 // Pieces that are not in this file are loaded on demand through `hooks` (see `prepare`): the font subsetter (d2svgfonts.js,
 // needs the font tables under public/d2/fonts/), the Markdown layout (mdlayout.js), syntax highlighting (highlight.js),
-// the MathJax engine for LaTeX labels (d2latex.js, vendor/mathjax.js) and sketch mode (not ported: it throws `Deferred`).
+// the MathJax engine for LaTeX labels (d2latex.js, vendor/mathjax.js) and sketch mode (d2sketch.js, which brings vendor/rough.js).
 
 import * as color from './color.js';
 import * as geo from './geo.js';
@@ -52,7 +52,7 @@ export class Deferred extends Error {
 
 /**
  * Thrown by `render` when it needs something that is loaded lazily (and has not been loaded yet): `renderAsync` loads it and
- * retries. kind is 'metrics' | 'latex' (the MathJax engine, d2latex.js) | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' (the highlight.js module) | 'lexer' (name is the file under lexers/) | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain).
+ * retries. kind is 'metrics' | 'latex' (the MathJax engine, d2latex.js) | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' (the highlight.js module) | 'lexer' (name is the file under lexers/) | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain) | 'sketch' (the d2sketch.js module).
  */
 export class NeedAsset extends Error {
   constructor(kind, name = '') { super(`d2svg: ${kind} ${name} is not loaded (use renderAsync, or load it first)`); this.name = 'NeedAsset'; this.kind = kind; this.assetName = name; }
@@ -70,12 +70,19 @@ export const hooks = {
   ruler: null,
   /** patternassets: {paperSVG(), grainSVG(), streakSVG()} (d2svgpatterns.js) */
   patterns: null,
+  /** d2sketch.js: the sketch-mode drawing (loads vendor/rough.js, Rough.js 4.6.6) */
+  sketch: null,
 };
 
 /** d2latex.Render; the engine is loaded on demand (`renderAsync` loads it and retries) */
 function renderLatex(text) {
   if (!d2latex.isLoaded()) throw new NeedAsset('latex');
   return d2latex.render(text);
+}
+
+function sk() {
+  if (hooks.sketch == null) throw new NeedAsset('sketch');
+  return hooks.sketch;
 }
 
 function getRuler() {
@@ -877,7 +884,10 @@ function drawConnection(writer, diagramHash, connection, markers, idToShape, ske
   const mask = `mask="url(#${diagramHash})"`;
 
   if (sketch) {
-    throw new Deferred('sketch');
+    writer.write(sk().connection(connection, path, mask));
+
+    // render sketch arrowheads separately
+    writer.write(sk().arrowheads(connection, srcAdj, dstAdj));
   } else {
     let animatedClass = '';
     if (connection.animated) animatedClass = ' animated-connection';
@@ -1280,15 +1290,15 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
 
   switch (targetShape.type) {
     case d2target.ShapeClass:
-      if (sketch) throw new Deferred('sketch');
-      drawClass(writer, diagramHash, targetShape, inlineTheme);
+      if (sketch) writer.write(sk().klass(targetShape));
+      else drawClass(writer, diagramHash, targetShape, inlineTheme);
       addAppendixItems(appendixWriter, diagramHash, targetShape, s, markdown);
       writer.write('</g>');
       writer.write(closingTag);
       return labelMask;
     case d2target.ShapeSQLTable:
-      if (sketch) throw new Deferred('sketch');
-      drawTable(writer, diagramHash, targetShape, inlineTheme);
+      if (sketch) writer.write(sk().table(targetShape));
+      else drawTable(writer, diagramHash, targetShape, inlineTheme);
       addAppendixItems(appendixWriter, diagramHash, targetShape, s, markdown);
       writer.write('</g>');
       writer.write(closingTag);
@@ -1296,12 +1306,12 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
     case d2target.ShapeOval:
       if (targetShape['double-border']) {
         if (targetShape.multiple) writer.write(renderDoubleOval(multipleTL, width, height, fill, '', stroke, style, inlineTheme));
-        if (sketch) throw new Deferred('sketch');
-        writer.write(renderDoubleOval(tl, width, height, fill, targetShape.fillPattern, stroke, style, inlineTheme));
+        if (sketch) writer.write(sk().doubleOval(targetShape, diagramHash));
+        else writer.write(renderDoubleOval(tl, width, height, fill, targetShape.fillPattern, stroke, style, inlineTheme));
       } else {
         if (targetShape.multiple) writer.write(renderOval(multipleTL, width, height, fill, '', stroke, style, inlineTheme));
-        if (sketch) throw new Deferred('sketch');
-        writer.write(renderOval(tl, width, height, fill, targetShape.fillPattern, stroke, style, inlineTheme));
+        if (sketch) writer.write(sk().oval(targetShape, diagramHash));
+        else writer.write(renderOval(tl, width, height, fill, targetShape.fillPattern, stroke, style, inlineTheme));
       }
       break;
 
@@ -1340,21 +1350,24 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
           el.Rx = borderRadius;
           writer.write(el.render());
         }
-        if (sketch) throw new Deferred('sketch');
-        const el = themes.newThemableElement('rect', inlineTheme);
-        el.X = targetShape.pos.x;
-        el.Y = targetShape.pos.y;
-        el.Width = targetShape.width;
-        el.Height = targetShape.height;
-        el.Fill = fill;
-        el.FillPattern = targetShape.fillPattern;
-        el.Stroke = stroke;
-        el.Style = style;
-        el.Rx = borderRadius;
+        if (sketch) {
+          writer.write(sk().rect(targetShape, diagramHash));
+        } else {
+          const el = themes.newThemableElement('rect', inlineTheme);
+          el.X = targetShape.pos.x;
+          el.Y = targetShape.pos.y;
+          el.Width = targetShape.width;
+          el.Height = targetShape.height;
+          el.Fill = fill;
+          el.FillPattern = targetShape.fillPattern;
+          el.Stroke = stroke;
+          el.Style = style;
+          el.Rx = borderRadius;
 
-        if (targetShape.label !== '' && label.isBorder(label.fromString(targetShape.labelPosition))) el.Mask = `url(#${diagramHash})`;
+          if (targetShape.label !== '' && label.isBorder(label.fromString(targetShape.labelPosition))) el.Mask = `url(#${diagramHash})`;
 
-        writer.write(el.render());
+          writer.write(el.render());
+        }
       } else {
         if (targetShape.multiple) {
           let el = themes.newThemableElement('rect', inlineTheme);
@@ -1380,29 +1393,32 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
           el.Rx = borderRadius;
           writer.write(el.render());
         }
-        if (sketch) throw new Deferred('sketch');
-        let el = themes.newThemableElement('rect', inlineTheme);
-        el.X = targetShape.pos.x;
-        el.Y = targetShape.pos.y;
-        el.Width = targetShape.width;
-        el.Height = targetShape.height;
-        el.Fill = fill;
-        el.FillPattern = targetShape.fillPattern;
-        el.Stroke = stroke;
-        el.Style = style;
-        el.Rx = borderRadius;
-        writer.write(el.render());
+        if (sketch) {
+          writer.write(sk().doubleRect(targetShape, diagramHash));
+        } else {
+          let el = themes.newThemableElement('rect', inlineTheme);
+          el.X = targetShape.pos.x;
+          el.Y = targetShape.pos.y;
+          el.Width = targetShape.width;
+          el.Height = targetShape.height;
+          el.Fill = fill;
+          el.FillPattern = targetShape.fillPattern;
+          el.Stroke = stroke;
+          el.Style = style;
+          el.Rx = borderRadius;
+          writer.write(el.render());
 
-        el = themes.newThemableElement('rect', inlineTheme);
-        el.X = targetShape.pos.x + O;
-        el.Y = targetShape.pos.y + O;
-        el.Width = targetShape.width - 2 * O;
-        el.Height = targetShape.height - 2 * O;
-        el.Fill = 'transparent';
-        el.Stroke = stroke;
-        el.Style = style;
-        el.Rx = borderRadius;
-        writer.write(el.render());
+          el = themes.newThemableElement('rect', inlineTheme);
+          el.X = targetShape.pos.x + O;
+          el.Y = targetShape.pos.y + O;
+          el.Width = targetShape.width - 2 * O;
+          el.Height = targetShape.height - 2 * O;
+          el.Fill = 'transparent';
+          el.Stroke = stroke;
+          el.Style = style;
+          el.Rx = borderRadius;
+          writer.write(el.render());
+        }
       }
       break;
     }
@@ -1422,15 +1438,18 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
           }
         }
 
-        if (sketch) throw new Deferred('sketch');
-        const el = themes.newThemableElement('path', inlineTheme);
-        el.Fill = fill;
-        el.FillPattern = targetShape.fillPattern;
-        el.Stroke = stroke;
-        el.Style = style;
-        for (const pd of s.getSVGPathData()) {
-          el.D = pd;
-          writer.write(el.render());
+        if (sketch) {
+          writer.write(sk().paths(targetShape, diagramHash, s.getSVGPathData()));
+        } else {
+          const el = themes.newThemableElement('path', inlineTheme);
+          el.Fill = fill;
+          el.FillPattern = targetShape.fillPattern;
+          el.Stroke = stroke;
+          el.Style = style;
+          for (const pd of s.getSVGPathData()) {
+            el.D = pd;
+            writer.write(el.render());
+          }
         }
       }
       break;
@@ -1449,18 +1468,21 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
         }
       }
 
-      if (sketch) throw new Deferred('sketch');
-      const el = themes.newThemableElement('path', inlineTheme);
-      el.Fill = fill;
-      el.FillPattern = targetShape.fillPattern;
-      el.Stroke = stroke;
-      el.Style = style;
+      if (sketch) {
+        writer.write(sk().paths(targetShape, diagramHash, s.getSVGPathData()));
+      } else {
+        const el = themes.newThemableElement('path', inlineTheme);
+        el.Fill = fill;
+        el.FillPattern = targetShape.fillPattern;
+        el.Stroke = stroke;
+        el.Style = style;
 
-      if (targetShape.label !== '' && label.isBorder(label.fromString(targetShape.labelPosition))) el.Mask = `url(#${diagramHash})`;
+        if (targetShape.label !== '' && label.isBorder(label.fromString(targetShape.labelPosition))) el.Mask = `url(#${diagramHash})`;
 
-      for (const pd of s.getSVGPathData()) {
-        el.D = pd;
-        writer.write(el.render());
+        for (const pd of s.getSVGPathData()) {
+          el.D = pd;
+          writer.write(el.render());
+        }
       }
     }
   }
@@ -2492,7 +2514,7 @@ export function render(diagram, opts) {
     else themeStylesheet = pruneThemeCSSWithClasses(themeStylesheet, classes, backgroundStr, doubleBorderElStr);
     upperBuf.write(`<style type="text/css"><![CDATA[${BaseStylesheet}${themeStylesheet}]]></style>`);
 
-    if (sketch) throw new Deferred('sketch');
+    if (sketch) sk().defineFillPatterns(upperBuf, diagramHash, upperBuf.s);
   }
 
   const bufStr = buf.s;
@@ -2654,6 +2676,7 @@ const loaders = {
   async lexer(file) { hooks.highlight ??= await import('./highlight.js'); await hooks.highlight.loadLexer(file); },
   async latex() { await d2latex.loadLatex(); },
   async patterns() { hooks.patterns = await import('./d2svgpatterns.js'); },
+  async sketch() { hooks.sketch = await import('./d2sketch.js'); },
   async pattern(name) { hooks.patterns ??= await import('./d2svgpatterns.js'); await hooks.patterns.loadPattern(name); },
 };
 
