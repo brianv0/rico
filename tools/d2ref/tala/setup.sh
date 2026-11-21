@@ -39,5 +39,9 @@ for f in "$here"/overlay/*.go; do
   cp "$f" "$t/internal/${b%%.*}/xdump_${b#*.}.go"
 done
 "$here/pkghooks.sh" "$t"
+# overlay/<package>/*.go: files added to internal/<package>/ (export shims for the unexported functions that xdump modes call)
+for f in "$here"/overlay/*/*.go; do
+  [ -e "$f" ] && cp "$f" "$t/internal/$(basename "$(dirname "$f")")/"
+done
 (cd "$dest" && go build -o "$dest/xdump.bin" ./d2layouts/d2talalayout/internal/xdump)
 echo "built $dest/xdump.bin"

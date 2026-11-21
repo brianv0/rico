@@ -3197,7 +3197,7 @@ Object.assign(Node.prototype, {
   transpose_() {
     const n = this;
     [n.box.Width, n.box.Height] = [n.box.Height, n.box.Width];
-    n.topLeft.transpose();
+    if (n.topLeft !== null) n.topLeft.transpose(); // geo.Point.Transpose is nil-safe in Go
     [n.padding.left, n.padding.top] = [n.padding.top, n.padding.left];
     [n.padding.right, n.padding.bottom] = [n.padding.bottom, n.padding.right];
     [n.margin.left, n.margin.top] = [n.margin.top, n.margin.left];

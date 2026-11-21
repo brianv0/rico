@@ -14,6 +14,8 @@ needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelge
 
 **Status (T1, `packing`, `labeling`, `quality`): done**, see "Packing, labeling and quality (T1)" at the end: ported line for line and identical to Go on
 every stage and function input of the harness (below), including work units. Plan rows 7, 8 and 9 are done.
+**T1 (parallel ports, per package, each in its own branch): `hierarchy` and `placementcost` done** (section "hierarchy and placementcost" below);
+the other packages from `loops` up are ported by other agents (plan below).
 
 | Go package | JS | Lines of Go (tests) | Verified by (cases identical to Go) |
 |---|---|---|---|
@@ -35,6 +37,8 @@ every stage and function input of the harness (below), including work units. Pla
 | `internal/packing` (`binpack.go`, `guard.go`, `routed_container.go`, `combine*.go`, `snapshot.go`) | `tala/packing.js` | 3059 (1552) | `talapack`: BinPack stages 18 and 32 of the corpus and fixtures with deep state 5880/5880 identical (graph and work units), fuzz programs 9684/9684, direct cases (work limits used-1..0, containers as root, canceled context, mutated graphs) 4737/4737; `talacombine` (CombineSubgraphs of split subgraphs with random offsets and obstacles) 6726/6726 |
 | `internal/labeling` | `tala/labeling.js` | 2080 (681) | `talaplace`: PlaceLabels stage 33 2940/2940 identical (positions, percentages, work units), fuzz programs 4842/4842, direct: Place, PlaceNewEdges, Initialize, PositionArrowheadLabel, limits and cancellation 8825/8825; the Go tests that need no fixtures are ported (`test/tala-pkg.test.js`) |
 | `internal/quality` | `tala/quality.js` | 1271 (389) | `talaquality`: EvaluateWithArea and Inspect on graphs after stages 17, 24, 32, 33, 36 14126/14126 (+574 Go panics skipped), fuzz programs 17004/17004 (+7206 Go panics skipped), direct 2455/2455 (+231 skipped) (penalty, area, every metric, work units, limits); `pkgscores.mjs`: the per-seed `scores` dump of the whole corpus 2859/2859 and the seed selection 953/953; `talascore` (Score.Compare incl. NaN, Inf, negative areas) |
+| `internal/hierarchy` | `tala/hierarchy.js`, `hierarchyrank.js` | 4003 (4955) | `talahierrank` 8000 DAGs x 6 work limits, `talahiersimple` 24815, `talahierstage` 13929 stage inputs + 3965 with budgets and failing contexts + 4512 place/assign on later stages, `talahiercompound` 4998: all identical, see "hierarchy and placementcost" |
+| `internal/placementcost` | `tala/placementcost.js` | 3002 (1747) | `talapcscore` 37651/37651 stage graphs (every function, with and without edge abductions, polls), `talapcunit` 20000 hypot pairs, worker counts, compass tables: see below |
 
 ## Running it
 
@@ -80,6 +84,7 @@ v0.9.0 tree to `$TALA_REF` and adds, **inside that copy**:
 | `root_xdump.go` | `xdump_export.go` | `XDumpTranslate` (adapter only), `XDumpLayout` (Layout with the seeds run one after another, per-seed records, the real selection and compound candidate, then the real patch) |
 | `routing_xdump.go` + `routing_hooks.mjs` | `internal/routing/xdump_hook.go` (+ a few inserted `xHook*` calls) | the call recorder of the routing core check (section "Routing core"); the hooks do nothing unless an xdump routing mode switches them on |
 | `xdump/*.go` | `internal/xdump/` | `package main`, may import the internal packages; the modes below; `sanitize.go` prints non-finite floats as strings `"+Inf"`, `"-Inf"`, `"NaN"` |
+| `overlay/<package>/*.go` | `internal/<package>/` | export shims (`XRankDAG`, `XEdgeLengthState`, ...) for the unexported functions that a mode calls directly; copied by `setup.sh` into the package of the module copy. `xdump/main.go` consults `hierModes` (registered in `init()` of `hierarchy_xdump.go`, `placementcost_xdump.go`) before its own switch: a package's modes can be added in new files |
 
 `xdump.bin <mode> < cases.jsonl > out.jsonl`, one JSON object per line. The case format is d2ref's (`path`, `text`, `utf16`, `fs`) plus `seeds`,
 `maxConcurrency`, `themeID`. Graph dumps are `graphjson.Serialize` output (the representation of `internal/graphjson`; **int64 IDs print as JSON numbers
@@ -101,6 +106,9 @@ and can exceed 2^53**: read them with `public/d2/tala/bigjson.js`, which is what
 | `nodeshape` | `{shape, x, y, width, height, numColumns}` | ports and label policy of a TALA shape |
 | `routing`, `routinglabels` | D2 text (`seeds`) | `{invocations: [{seeds: [{seed, err, calls: [{stage, name, call}]}], compound}], err}`: every `RouteGraph` call with the router level record (see "Routing core"); `routinglabels` runs the routers with `considerNodeLabels` |
 | `frouting`, `froutinglabels` | `{graph, seeds:[123]}` | the same on a graphjson fixture through the engine pipeline: `{err, calls}` |
+| `hiergen` | D2 text or graphjson fixture, `args: {stages, seeds, deep}` | `{records: [{inv, seed, index, name, graph, deep}]}`: the graphs after the listed stages with the deep state (margins, paddings, loop offsets, herd assignments, long-distance requirements, common uncle siblings; dumped by reflection, `hierDeepDump`). Generator of the stage cases of the hierarchy and placementcost checks |
+| `hierrank`, `hiersimple`, `hierstage`, `hiercompound` | see `xdump/hierarchy_xdump.go` | `rankDAG`; `makeSimpleDAG` and `build`; the body of the `PreprocessHierarchies` stage (+ budgets, polls); `Clone` + `PlaceCompound` |
+| `pcscore`, `pcunit` | see `xdump/placementcost_xdump.go` | every function of `placementcost` on a graph; the pure helpers |
 
 `go test` of the TALA packages can be run in the copy: `cd $TALA_REF && go test ./d2layouts/d2talalayout/...`.
 `tala/e2egolden.mjs` checks the harness itself: `xdump layout` with seeds `[1]` reproduces **309/309** of D2's own `e2etests/testdata/*/*/tala/board.exp.json`
@@ -321,6 +329,99 @@ The corpus check (1370 calls, Go run and JS replay) takes about 150 s on a share
 - Not verified by the call replay (ported line for line, exercised by later stages): `considerNodeLabels` outside the `routinglabels` mode, `tryStraightEdgeFallbackGuarded`,
   `reorderDuplicatesInEdgesGuarded`, `traceToShapeBorderGuarded` (the stage-30 check covers `traceToShapeBorder`), the unguarded branches of `routeLineChecked`, `snapshot.js`,
   `makeLoopRoute`, `treeEdgePath`, `OVG.unmarshalJSON`.
+## hierarchy and placementcost (T1)
+
+`public/d2/tala/hierarchy.js` (discovery, eligibility, layered placement, crossing minimization, sifting, Brandes-Kopf alignment, compound
+placement), `hierarchyrank.js` (the network-simplex ranker: `rank.go`, `rank_graph.go`, `rank_simplex.go`, `rank_queue.go`) and
+`placementcost.js` (axis, cluster, geometry, obstruction bounds, `EdgeLength` and its cache key, the node scorer, flow continuity, symmetry).
+Gzipped: 21.2 KB + 7.2 KB + 19.0 KB. Every function is a line-for-line port; the deviations are listed under "Notes".
+
+**API for dependents** (`placement`, `routing`, `engine`):
+
+- `hierarchy.js`: `candidates(graph)` (a `Set`), `assign(ctx, g, root, hierarchicalNodes)`, `place(ctx, g, root, rand)` (`rand` is a `gorand` `Rand`
+  or `null`, the pipeline's `hierarchyPlacementRandom`: `newRand(BigInt(seed))`, used by nothing else), `removeIsolatedMemberships(g)`,
+  `isHorizontal(nodes)` (routing needs it), `placeCompound(ctx, g, rand)` -> `changed` (`CompoundCandidate`: `lg.clone` first, `newRand(0n)`),
+  `build`, `makeSimpleDAG`. `Node.HierarchyLevel()` has no method in `layoutgraph.js`: read `node.hierarchy.levels().get(node)`.
+- `hierarchyrank.js`: `rankDAG(ctx, g)` and `rankDAGWithLimit(ctx, g, limit)` -> `{nodeToLevel: Map<Node, number>, levelCount}`.
+- `placementcost.js`: `edgeLength(ctx, graph, options)`, `nodeEdgeLength`, `nodesEdgeLength`, `nodeSymmetry`, `nodesSymmetry`, `columnCrossingCost`,
+  `graphEdgeCrossings`, `containerAlignmentCost`, `axisScore(nodes)`, `newNodeEdgeLengthScorer(node, options)` (`score(ctx)`, `close()`),
+  `SideEdgeSpacing`, `IdealGapSize`, `placementEdgeLengthState`. **Options** are plain objects `{edgeAbductions, includeNodeSizes,
+  enforceMinimumGap, penalizeDirection}`; `edgeAbductions` is `null` for Go's nil slice (then the cluster abductions of the graph apply, which
+  is not the same as `[]`). Costs read the deep state that graphjson does not carry: `node.herdAssignment`, `graph.commonUncleSiblings`
+  (`Map<Node, Node[]>` or `null`), cluster records, nears. `graph.edgeLengthCache` keys are BigInt hashes (FNV-1a 64 of the Go source).
+- Both packages throw `GoError` where Go returns an error; the cancellation polls (every 64 iterations in the scoring loops) and the work units are
+  charged where Go charges them.
+
+**Verification** (the Go side is `tools/d2ref/tala/xdump/hierarchy_xdump.go`, `placementcost_xdump.go`, and `tala/overlay/<package>/xdump_export.go`:
+files that `setup.sh` copies into `internal/<package>/` of the module copy to export unexported functions; the JS twins are
+`tala/hierarchycheck.mjs`, `placementcostcheck.mjs`):
+
+```bash
+export TALA_REF=...; tools/d2ref/tala/setup.sh
+cd tools/d2ref
+node tala/hierrankcases.mjs 3000 1 > tala-hierrank.jsonl                    # random DAGs and defective inputs for the ranker
+node tala/hierfuzz.mjs 800 1 > tala-hierfuzz.jsonl                          # D2 programs written to make hierarchies (layers, containers, tables, cycles, `shape: hierarchy`)
+node tala/hiergen.mjs hier [cases.jsonl] [out.jsonl]                        # stage-3 graph + deep state + golden stage-4 graph, per case/seed (xdump hiergen)
+node tala/hiergen.mjs compound [cases.jsonl] [out.jsonl]                    # stage 20 and 36 graphs with 3..64 top-level containers
+node tala/hiergen.mjs pc [cases.jsonl] [out.jsonl]                          # placement-stage graphs with deep state (stages 6-23)
+node tala/hierlimits.mjs tala-hier.jsonl 2 [op] > tala-hierlim.jsonl        # + work budgets and failing contexts (rolled-back graph compared)
+node tala/pcunitcases.mjs 40 1 > tala-pcunit.jsonl
+node diff.mjs talahierrank tala-hierrank.jsonl                              # rankDAG, 6 work limits per case
+node diff.mjs talahiersimple tala-hier.jsonl                                # makeSimpleDAG and build(force false/true) on any graph
+node diff.mjs talahierstage tala-hier.jsonl                                 # Candidates + Assign + Place + RemoveIsolatedMemberships (= PreprocessHierarchies)
+node diff.mjs talahiercompound tala-compound.jsonl                          # Clone + PlaceCompound
+node diff.mjs talapcscore tala-pc.jsonl                                     # every placementcost function on the graph, with abductions, polls
+node diff.mjs talapcunit tala-pcunit.jsonl
+node --test test/tala-hierarchy.test.js                                     # unit tests (part of npm test)
+```
+
+The stage check feeds Go's graph after stage 3 and its deep state (margins and paddings: `Place` reads them through `containerPadding`) to JS
+`PreprocessHierarchies` and compares with Go's graph after stage 4 (the case also carries that graph as `golden`: Go reports `pipelineGolden`
+when its own function result differs from the pipeline's, which never happened). Deep state is dumped by reflection (`hierDeepDump` in
+`hierarchy_xdump.go`: margins, paddings, loop offsets, herd assignments, long-distance requirements, common uncle siblings) and applied to the
+JS graph by `applyDeep` in `hierarchycheck.mjs`; other agents can reuse both.
+
+**Results** (every row: cases identical to Go; "skipped" = Go itself panics on an input outside the contract, such as `Place` on a mutated graph):
+
+| check | inputs | identical |
+|---|---|---|
+| `talahierrank` (`rankDAG`, 6 work limits per case: the budget runs out at every kind of step) | 8000 generated DAGs of every shape, ID style, weight pattern, plus defective ones (cycle, self edge, duplicate ID, zero weight, disconnected) | 8000/8000 (about 40% of the 48000 runs end in an error: all message texts identical) |
+| `talahiersimple` (`makeSimpleDAG`, `build` with force false/true: edges, weights, levels, errors) | stage-3 graphs of the corpus, of 1300 hierarchy-fuzz programs, of 1350 `fuzzlayout`/`fuzzgrid`/`fuzzseq` programs, fixtures, 3162 mutants, 10868 later-stage graphs | 24815/24815 |
+| `talahierstage` (`Candidates`, `Assign`, `Place`, `RemoveIsolatedMemberships`: the body of stage 4, with the deep state; Go's pipeline graph after stage 4 equals Go's function result in every case) | 2862 (D2 corpus, 3 seeds, 33 with hierarchies), 2508 + 1581 (hierarchy fuzz, 753 with hierarchies; with `shape: hierarchy` roots and containers), 3489 (layout/grid/sequence fuzz), 345 (testdata fixtures, seeds 1, 2, 123), 3144 mutated graphs (arrowheads, directions, sizes, edges) | 13929/13929 (+18 skipped) |
+| `talahierstage` with a transaction work budget of 7 sizes and a context failing in the middle (error text = the exact work unit or poll, rolled-back graph) | 3965 of the above (the graphs with routes run without it: see Notes) | 3965/3965 (+7 skipped) |
+| `talahierstage` `place`/`assign` only, on graphs of later stages (hierarchies already assigned, positions set, margins, loops) | 4512 (stages 6-23 of fixtures and hierarchy fuzz) | 4512/4512 (+39 skipped) |
+| `talahiercompound` (`Clone` + `PlaceCompound`, 486 of them change the layout) | 4998 final and rescaled graphs with 3 to 64 top-level containers (corpus, fuzz, fixtures) | 4998/4998 |
+| `talapcscore` (state hash, `EdgeLength` for 8 option sets twice (cache), `NodeEdgeLength`, symmetry, column crossings, flow continuity, axis scores, crossings, container alignment, pair helpers, cluster helper, table distances; the same with the edge abductions of up to 3 containers, with common uncle siblings, the scorer with moved nodes, and the poll counts and failing-context errors of each) | 37651 stage graphs (stages 6-23 with margins, paddings, loop offsets, herd assignments, tables, clusters, nears) of the D2 corpus, fixtures, hierarchy fuzz and layout fuzz | 37651/37651 |
+| `talapcunit` (`math.Hypot` against `goHypot`, `edgeLengthWorkerCount`, compass tables) | 20000 pairs, 41 x 9 worker counts, 81 compass pairs | 40/40 |
+| `test/tala-hierarchy.test.js` | rank answers (chain, diamond, weights), errors, exact budget, `makeSimpleDAG`, FNV-1a 64 known answers, `goHypot`, `EdgeLength` cache | 10/10 |
+
+**Notes (deviations and findings)**
+
+- **Go is not deterministic in the work it charges inside `findCycleEdges`.** It ranges over maps and its guard steps per visited node, so the
+  number of work units (and with it the number of context polls at the 64-unit stride) differs by one between runs of Go itself for some graphs
+  (the result never does). The `polls` comparison of `talahierstage` therefore runs Go 24 times and skips the case (`pollsUnstable`) when the
+  count varies. Everything else is exact. The sink/source peeling is confluent, the maximum-difference node is a total order, so the set of
+  reversed edges does not depend on the order.
+- **Work budgets of graphs with routes.** Go's snapshots (`captureGeometryStateContext`) charge the spare capacity of every edge's `Points` slice
+  (`accountSpareCapacity`, known from T0: JS arrays have none), so the budget variants and poll counts of `talahierstage` are only compared on
+  graphs without routes; with routes the results are identical except for the exact unit at which a tiny budget runs out.
+- **Order-independent map loops.** `Node.aboves/belows` (maps of `placementNode`) are `Set`s in insertion order; the loops that range over them
+  are order-independent (see the comments in `hierarchy.js`: `findNonDummyNode` has one neighbor, the rewiring of container edges picks the
+  closest child per edge, `medianNeighbors` sorts by x, the conflict marking only adds to sets). All stage inputs above gave identical graphs.
+- **int64 arithmetic of the ranker.** The checked add/sub/mul of `rank*.go` return `null` when the result leaves 2^53 (Go: 2^63). Weights are
+  at most `MaxEngineEdges`, levels at most the node count, so no overflow is reachable.
+- **`slices.SortFunc` / `sort.Slice` are the same pdqsort**: `sortSlice` of `gosort.js` is used with `less(i, j) = cmp(s[i], s[j]) < 0`;
+  `slices.SortStableFunc` is `Array.prototype.sort`.
+- **`placeBlock` of the Brandes-Kopf compaction is recursive** (depth = blocks in a rank): fine for any layout this engine finishes, but a rank
+  of several thousand blocks would exceed the JS stack (Go grows its stack).
+- **EdgeLength hash.** `placementEdgeLengthState` is FNV-1a over little-endian uint64 words, computed with two uint32 halves (exact) and returned
+  as a BigInt; it equals Go's value on every graph and option set (`talapcscore` `state`). Go's worker goroutines write `costs[i]` and the sum is
+  taken in node order afterwards, which is the sequential float sequence JS uses.
+- **`math.Hypot`** of the flow-continuity cost is Go's portable algorithm (`goHypot`), not `Math.hypot` (20000 pairs identical).
+- Two small fixes in the foundation, found by this stage: `Node.transpose` (a nil `TopLeft` is a no-op in Go: `geo.Point.Transpose` is nil safe)
+  and `context.err()` reading `cancelErr` once (a counting context in the checks counts the reads).
+- In `evaluateNodeEdgeLength` the two near-identical "penalize being on the same side as the other external node" switches of the cluster
+  blocks are one helper (`clusterSidePenalty`), the only place where the port is not textually line for line.
 
 ## Plan for the remaining packages
 
@@ -339,6 +440,11 @@ what to compare against Go; every stage below is checked with the same pattern: 
 | 7 | `packing` | 3062 | `graphbounds`, `SplitSubgraphs`, `Transaction`, `fixedBounds` | graphbounds | `stages` index 18 and 32 (`BinPack`; the second one "doesn't try to avoid edges") | uses work budget 1e9; recursion over subgraphs. **Done (T1).** |
 | 8 | `labeling` (node/icon/edge/arrowhead labels) | 2080 | `labelTopLeft`, `Label`/`Icon`, `nodeshape.labelPositionPreferences`, `labelgeom`, edge geometry | labelgeom, nodeshape | `stages` index 33 (`PlaceLabels`) | overlaps `quality`; 50M budget. **Done (T1).** |
 | 9 | `quality` | 1271 | `Graph.area`, `validatePositionedGraphSelection`, `countSegmentCrossings`, labeling | labeling | `scores` per seed (`penalty`, `area`): exact float equality needed for seed selection | the score decides which seed is printed: port early after labeling and diff on `scores`. **Done (T1).** |
+| 5 | `hierarchy` (DAG detection, network-simplex ranking, layered placement, compound placement) **(done, T1)** | 4003 | `Hierarchy`, `edges` (`hierarchyRankWeight`), `Transaction`, `rdfs` orders | rand (`hierarchyPlacementRandom`, `limits.Shuffle`), nodeshape | `stages` index 4 (`PreprocessHierarchies`) and `CompoundCandidate`; the ranker (`rank_simplex.go`) is a pure function with a testable contract | exact integer arithmetic (checked add/mul, Bland's rule): no float risk; also used by routing |
+| 6 | `placementcost` **(done, T1)** | 3002 | graph costs and `edgeLengthCache` (uint64 state hash: BigInt or a 2x32 hash), geometry, ports, `Transaction` | layoutgraph | `EdgeLength` of fixtures/stage graphs through `lgops` | goroutines in `EdgeLength` collapse to a sequential sum in node order (see Determinism); check the hash of the cache key |
+| 7 | `packing` | 3062 | `graphbounds`, `SplitSubgraphs`, `Transaction`, `fixedBounds` | graphbounds | `stages` index 18 and 32 (`BinPack`; the second one "doesn't try to avoid edges") | uses work budget 1e9; recursion over subgraphs |
+| 8 | `labeling` (node/icon/edge/arrowhead labels) | 2080 | `labelTopLeft`, `Label`/`Icon`, `nodeshape.labelPositionPreferences`, `labelgeom`, edge geometry | labelgeom, nodeshape | `stages` index 33 (`PlaceLabels`) | overlaps `quality`; 50M budget |
+| 9 | `quality` | 1271 | `Graph.area`, `validatePositionedGraphSelection`, `countSegmentCrossings`, labeling | labeling | `scores` per seed (`penalty`, `area`): exact float equality needed for seed selection | the score decides which seed is printed: port early after labeling and diff on `scores` |
 | 10 | `placement` (prescale, prepare, stress init, sized/sizeless optimizers, swap, transpose, align, gap normalization, equidistance, symmetry, dejitter, node placement, pad, normalize) | 9437 | everything: transactions, costs, `abductEdges`, nears, hubs, trees, clusters, loops | grouping, labeling, loops, packing, placementcost, proximity, trees, rand (`Float64` temperature noise, own `rand.New(rand.NewSource(seed))`) | `stages` 0 (`Prescale`) to 17, 19-20 (`CleanupStuff`, `Rescale`), 23 (`Dejitter`), 36 (`Normalize`) | the largest package; split by stage (placement is stages 7-17 of the pipeline: see the list below); the randomized optimizers make any one wrong draw diverge everything after it, so diff after every stage |
 | 11 | `routing` (OVG visibility graph, edge router with flavors, postprocessing, nudging, shortcuts, swap ports, slingshot, tunnels, tree routes) | 15715 | `Graph` costs (`turnCost`, `crossingCost`, `nonCenterPortCost`), ports, `PortEdges`, `graphbounds`, hierarchy, loops, quality | graphbounds, hierarchy, labeling, loops, nodeshape, quality | `stages` 21 (`EdgeRouting`) .. 36 (`Normalize`), and `ovg` fixtures of `testdata/ovg` (`exp` OVG JSON per case) | the biggest; flavors run in parallel in Go but are independent (see Determinism); priority queue tie-breaks and `sort.Slice` calls must use `gosort.js`; budget `routeWorkGuard`. **Core done (T1)**, see "Routing core"; the stage half remains |
 | 12 | `engine` (pipeline, `CompoundCandidate`) | 737 | all | all above | `fstages` against `graph.exp.json` (seed 123), `scores` | `pipeline.go` is a flat list of 37 stages: port early as the skeleton with each stage a no-op and fill in |

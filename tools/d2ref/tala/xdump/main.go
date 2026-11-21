@@ -105,6 +105,9 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 			res = map[string]string{"panic": fmt.Sprint(r)}
 		}
 	}()
+	if h, ok := hierModes[mode]; ok { // hierarchy_xdump.go, placementcost_xdump.go
+		return h(in, ruler)
+	}
 	switch mode {
 	case "adapter", "scores", "stages", "layout", "times", "svg":
 		return runD2(mode, in, ruler)

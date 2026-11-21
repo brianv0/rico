@@ -158,6 +158,11 @@ export class PositionedArrowheadLabel {
   get topLeft() { return this.box.TopLeft; }
   get width() { return this.box.Width; }
   get height() { return this.box.Height; }
+
+  /** Go value copy (the routing core copies positioned labels as Go copies the struct) */
+  copy() {
+    return new PositionedArrowheadLabel(this.box.copy(), this.edge, this.isTarget, this.text);
+  }
 }
 
 /**
