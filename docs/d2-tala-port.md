@@ -291,7 +291,7 @@ Modes (Go, `tala/xdump/{pkg,packing,labeling,quality}_xdump.go`): `pkgcases` (th
 Direct cases run Go on the unmarshalled graph with every slice clipped to its length (`slices.Clip`; the JS port has no spare slice capacity, see the residue) and, with `args.limits`, again with
 work limits `used-1`, `used/2`, 1 and 0 (the exhaustion error `TALA BinPack work exceeds limit N`, the work units at the failure and the rolled-back graph are compared), with `args.cancel` with an
 already canceled context, and `args.root` packs inside a container. The mutants of `pkgdirect.mjs` move and resize nodes, strip or partially strip routes, add L-shaped routes (also on graphs
-with active clusters, which is the only place cluster edge labels exist), set random label, icon and arrowhead label positions and edge border radii (which the routed-container proof reads), fix nodes.
+with active clusters, which is the only place cluster edge labels exist), set random label, icon and arrowhead label positions and edge border radii (which the routed-container proof reads), fix nodes. A second run with `--seed 7 --mutants 3000` (pack 7747, place 14057, quality 3824, combine 10326 cases) was identical too.
 
 ### Residue and notes
 
