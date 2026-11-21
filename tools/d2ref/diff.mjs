@@ -30,6 +30,8 @@ import { strconvCheck } from './strconvcheck.mjs';
 import { sprintfCheck } from './sprintfcheck.mjs';
 import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
+import * as bigjson from '../../public/d2/tala/bigjson.js';
+import * as talacheck from './talacheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -59,7 +61,28 @@ function measure(c) {
   return out;
 }
 
+// TALA stages: the Go side is tala/xdump.bin (tala/setup.sh builds it; env TALA_REF is the module copy, default /tmp/tala-ref), the mode is
+// the Go mode name. Cases and results may hold int64 IDs beyond 2^53, so they are read and written with bigjson.
+const TALA_MODES = {
+  talagraphjson: 'graphjson',
+  talaadapter: 'adapter',
+  talarand: 'rand',
+  talaops: 'lgops',
+  talanodeshape: 'nodeshape',
+  talascores: 'scores',
+  talastages: 'stages',
+  talafstages: 'fstages',
+};
+
 const STAGES = {
+  talagraphjson: talacheck.graphjsonStage,
+  talaadapter: talacheck.adapterStage,
+  talarand: talacheck.randStage,
+  talaops: talacheck.opsStage,
+  talanodeshape: talacheck.nodeshapeStage,
+  talascores: talacheck.scoresStage,
+  talastages: talacheck.stagesStage,
+  talafstages: talacheck.fstagesStage,
   parse: (c) => parse(c.path, c.text, { utf16: c.utf16 }),
   measure,
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
@@ -106,7 +129,8 @@ if (!STAGES[mode] || !file) {
   process.exit(2);
 }
 const utf16 = flags.includes('--utf16');
-let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...JSON.parse(l), utf16 }));
+const isTala = mode in TALA_MODES;
+let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...(isTala ? bigjson.parse(l) : JSON.parse(l)), utf16 }));
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -114,7 +138,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
 function runRef(batch) {
   try {
-    return execFileSync('go', ['run', '.', mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+    const [cmd, args, opts] = isTala
+      ? [(process.env.TALA_REF || '/tmp/tala-ref') + '/xdump.bin', [TALA_MODES[mode]], {}]
+      : ['go', ['run', '.', mode], { cwd: here }];
+    return execFileSync(cmd, args, { ...opts, input: batch.map((c) => (isTala ? bigjson.stringify(c) : JSON.stringify(c))).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
     if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];
@@ -142,10 +169,10 @@ let same = 0, panics = 0, withinTol = 0, deferred = 0, unstable = 0;
 const bad = [];
 const t0 = performance.now();
 cases.forEach((c, i) => {
-  const want = JSON.parse(ref[i]);
+  const want = isTala ? bigjson.plain(bigjson.parse(ref[i])) : JSON.parse(ref[i]);
   if (want.panic) { panics++; return; } // Go itself panicked: nothing to match
   let got;
-  try { got = canon(JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
+  try { got = canon(isTala ? bigjson.plain(STAGES[mode](c)) : JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   if (got.deferred) { deferred++; return; }
   let d = firstDiff(got, canon(want));
   if (d && mode === 'layout') {
@@ -154,7 +181,7 @@ cases.forEach((c, i) => {
     const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
-  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
+  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.name ?? c.from ?? (isTala ? bigjson.stringify(c) : JSON.stringify(c)).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
 });
 console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}` + (b.errs ? `\n  err  ${b.errs}` : ''));
