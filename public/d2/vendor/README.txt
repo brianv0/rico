@@ -19,3 +19,14 @@ names for the edges dagre reverses (`rev1`...), which only matters for a caller 
 
 To rebuild:  npm pack @dagrejs/dagre@3.1.1; tar xzf *.tgz; python3 tools/d2ref/dagrebuild/build.py package/dist/dagre.js public/d2/vendor/dagre.js
 Do not edit dagre.js by hand; re-run the script when D2 moves to another dagre.
+
+
+mathjax.js is MathJax 3.2.2 (https://github.com/mathjax/MathJax-src, npm mathjax-full@3.2.2, Apache License 2.0, licence text in
+mathjax.LICENSE.txt) with mhchemparser 4.1.1 (Apache License 2.0), as one minified ES module (1.7 MB, 599 KB gzipped). It is built by
+tools/d2ref/mathjaxbuild/build.sh from tools/d2ref/mathjaxbuild/entry.js, which configures it like D2's LaTeX component (lite DOM adaptor,
+TeX packages base mathtools ams amscd braket cancel cases color gensymb mhchem physics, SVG output with fontCache none, em 16, ex 8) and
+creates the TeX/SVG jax and the document for every formula (D2 starts a fresh JavaScript engine per formula). It exports
+`render(tex) -> svg string` and `version`. Nothing loads it except d2latex.js, with a dynamic import() the first time a diagram has a
+LaTeX label. It uses no eval and no `new Function` (checked by grep on the bundle and by running it under a CSP without 'unsafe-eval').
+To rebuild:  sh tools/d2ref/mathjaxbuild/build.sh   (esbuild is fetched into a temporary directory by npm and is not a dependency of the repo)
+Do not edit mathjax.js by hand.

@@ -31,11 +31,14 @@ import { sprintfCheck } from './sprintfcheck.mjs';
 import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
 import { svgCheck, svgPrepare } from './svgcheck.mjs';
+import { latexCheck } from './latexcheck.mjs';
+import { loadLatex } from '../../public/d2/d2latex.js';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
 const ruler = newRuler();
 await initD2();
+await loadLatex(); // vendor/mathjax.js (the browser loads it only when a diagram has a LaTeX label)
 
 // measure: input lines {text, fontFamily?, monoFamily?, fontSize, bold?, italic?, language?, markdown?} (see measurecorpus.mjs)
 function measure(c) {
@@ -78,15 +81,15 @@ const STAGES = {
   sprintf: sprintfCheck,
   graphmethods: graphMethods,
   dims: (c) => dimsCheck(c, ruler),
+  // d2ref's `latex` mode: d2latex.Render and d2latex.Measure of the TeX source in `text` (see latexfuzz.mjs, latexformulas.mjs)
+  latex: latexCheck,
   // d2ref's `svgfromdiagram` mode: the JS renderer takes Go's own diagram JSON (and the render options Go ended up with) and
   // must print Go's SVG byte for byte. `svg` is the full SVG (fonts embedded), `svgnofonts` blanks the font data on both sides.
   svg: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', flags }),
   svgnofonts: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', nofonts: true, flags }),
-  // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
-  // ported) is reported as deferred.
+  // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout.
   layout: (c) => {
     const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
-    if (r.err && r.err.name === 'LatexNotPorted') return { deferred: 'latex' };
     return { diagram: r.diagram, err: r.err ? r.err.message : null };
   },
   // d2ref's `graph` mode: {graph, config, err} from d2compiler.Compile, err as its text.
@@ -182,14 +185,13 @@ async function e2e(file, flags) {
   const src = (flags.includes('--src') ? flags[flags.indexOf('--src') + 1] : null) ||
     execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'github.com/d2lang/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
   const cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  let same = 0, noGolden = 0, deferred = 0, errSame = 0;
+  let same = 0, noGolden = 0, errSame = 0;
   const bad = [];
   const tolv = Number(flags.includes('--tol') ? flags[flags.indexOf('--tol') + 1] : 0);
   for (const c of cases) {
     const gp = path.join(src, 'e2etests/testdata', c.name, 'dagre/board.exp.json');
     const copts = { utf16: false, layout: 'dagre', ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined };
     const r = d2compile(c.text, copts, c.themeID != null ? { themeID: c.themeID } : {});
-    if (r.err && r.err.name === 'LatexNotPorted') { deferred++; continue; }
     if (c.expErr) { if (r.err && r.err.message === c.expErr) errSame++; else bad.push({ name: c.name, path: '$err', got: r.err && r.err.message, want: c.expErr }); continue; }
     if (c.dagreFeatureError || !fs.existsSync(gp)) { noGolden++; continue; }
     if (r.err) { bad.push({ name: c.name, path: '$err', got: r.err.message, want: 'a diagram' }); continue; }
@@ -199,7 +201,7 @@ async function e2e(file, flags) {
     const d = firstDiff(sortKeys(got), sortKeys(want), "$", tolv); // key order is not compared (v0.9.0 goldens write url.URL fields in another order)
     if (d) bad.push({ name: c.name, ...d }); else same++;
   }
-  console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden, ${deferred} deferred (latex)`);
+  console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden`);
   for (const b of bad.slice(0, Number(flags.includes('--show') ? flags[flags.indexOf('--show') + 1] : 8))) console.log(`\n${b.name}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
   process.exit(bad.length ? 1 : 0);
 }

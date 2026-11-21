@@ -32,11 +32,7 @@ import { getTextDimensions, getTextDimensionsWithMono, measureMarkdown, findMeas
 import { atoi as strconvAtoi, parseBool as strconvParseBool, parseFloat64 } from './strconv.js';
 import { sprintf } from './gofmt.js';
 import { sortSlice } from './gosort.js';
-
-/** Thrown where Go calls d2latex.Measure (MathJax in goja), which is not ported. */
-export class LatexNotPorted extends Error {
-  constructor() { super('d2latex is not ported: latex labels cannot be measured'); this.name = 'LatexNotPorted'; }
-}
+import * as d2latex from './d2latex.js';
 
 export const INNER_LABEL_PADDING = 5;
 export const DEFAULT_SHAPE_SIZE = 100.;
@@ -346,8 +342,9 @@ export class Graph {
 
       let dims;
       if (edge.attributes.language === 'latex') {
-        // d2latex.Measure: not ported
-        throw new LatexNotPorted();
+        const [width, height, err] = d2latex.measure(edge.text().text);
+        if (err !== null) return err;
+        dims = new d2target.TextDimensions(width, height);
       } else if (edge.attributes.language === 'markdown') {
         let err;
         [dims, err] = getMarkdownDimensions(mtexts, ruler, edge.text(), usedFont, monoFontFamily);
@@ -1248,8 +1245,9 @@ export class GraphObject {
         break;
       default:
         if (obj.attributes.language === 'latex') {
-          // d2latex.Measure: not ported yet
-          throw new LatexNotPorted();
+          const [width, height, err] = d2latex.measure(obj.text().text);
+          if (err !== null) return [null, err];
+          dims = new d2target.TextDimensions(width, height);
         } else if (obj.attributes.language !== '' && shapeType !== d2target.ShapeCode) {
           let err;
           [dims, err] = getMarkdownDimensions(mtexts, ruler, obj.text(), fontFamily, monoFontFamily);

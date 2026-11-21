@@ -6,10 +6,12 @@ import { execFileSync } from 'node:child_process';
 import markdownit from 'markdown-it';
 import { init as initD2, compileSync as d2compile } from '../../public/d2/d2lib.js';
 import { setMarkdownIt } from '../../public/d2/textmeasure.js';
+import { loadLatex } from '../../public/d2/d2latex.js';
 
 const [file, index, bin = '/tmp/d2ref'] = process.argv.slice(2);
 setMarkdownIt(markdownit);
 await initD2();
+await loadLatex();
 const c0 = file.endsWith('.d2') ? { path: 'f.d2', text: fs.readFileSync(file, 'utf8') } : JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n')[Number(index)]);
 
 const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
@@ -18,7 +20,6 @@ function differs(text) {
   const want = JSON.parse(execFileSync(bin, ['layout'], { input: JSON.stringify(c) + '\n', maxBuffer: 1 << 28 }).toString());
   if (want.panic) return false;
   const r = d2compile(text, { fs: c.fs && { [c.path]: text, ...c.fs }, inputPath: c.path, layout: 'dagre' }, {});
-  if (r.err && r.err.name === 'LatexNotPorted') return false;
   const got = canon(JSON.parse(JSON.stringify({ diagram: r.diagram, err: r.err ? r.err.message : null })));
   return JSON.stringify(got) !== JSON.stringify(canon(want));
 }

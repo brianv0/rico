@@ -194,6 +194,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
 	case "zlib":
 		return zlibCheck(in)
+	case "latex":
+		return latexCheck(in)
 	case "regexp2":
 		return regexp2Probe(in)
 	case "highlight":

@@ -5,12 +5,7 @@ import { newRuler } from '../../public/d2/textmeasure.js';
 export function dimsCheck(c, ruler = newRuler()) {
   const r = compileGraph(c.path, c.text, { utf16: c.utf16 });
   if (r.err) return { err: r.err.message };
-  try {
-    return { boards: dimsBoards(r.g, ruler) };
-  } catch (e) {
-    if (e.name === 'LatexNotPorted') return { deferred: 'latex' };
-    throw e;
-  }
+  return { boards: dimsBoards(r.g, ruler) };
 }
 
 function dimsBoards(g, ruler) {

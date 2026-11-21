@@ -10,7 +10,7 @@
 //
 // Pieces that are not in this file are loaded on demand through `hooks` (see `prepare`): the font subsetter (d2svgfonts.js,
 // needs the font tables under public/d2/fonts/), the Markdown layout (mdlayout.js), syntax highlighting (highlight.js),
-// sketch mode and LaTeX (not ported: they throw `Deferred`).
+// the MathJax engine for LaTeX labels (d2latex.js, vendor/mathjax.js) and sketch mode (not ported: it throws `Deferred`).
 
 import * as color from './color.js';
 import * as geo from './geo.js';
@@ -25,6 +25,7 @@ import * as textmeasure from './textmeasure.js';
 import * as urlmod from './url.js';
 import { goRound, goInt, goFixed, goV } from './gomath.js';
 import { FillPatterns } from './ast.js';
+import * as d2latex from './d2latex.js';
 import { TooltipIcon, LinkIcon, BaseStylesheet, dots, lines } from './d2svgassets.js';
 import { pruneThemeCSS, pruneThemeCSSWithClasses, collectFontCorporaAndClasses, restrictFontCorpora } from './d2svgcorpus.js';
 
@@ -44,14 +45,14 @@ const multipleOffset = geo.newVector(d2target.MULTIPLE_OFFSET, -d2target.MULTIPL
 
 export { TooltipIcon, LinkIcon, BaseStylesheet };
 
-/** A case the port does not cover (sketch, LaTeX, a code language without a lexer): the harness counts these as deferred. */
+/** A case the port does not cover (sketch, a code language without a lexer): the harness counts these as deferred. */
 export class Deferred extends Error {
   constructor(reason) { super(`not ported: ${reason}`); this.name = 'Deferred'; this.reason = reason; }
 }
 
 /**
  * Thrown by `render` when it needs something that is loaded lazily (and has not been loaded yet): `renderAsync` loads it and
- * retries. kind is 'metrics' | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' (the highlight.js module) | 'lexer' (name is the file under lexers/) | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain).
+ * retries. kind is 'metrics' | 'latex' (the MathJax engine, d2latex.js) | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' (the highlight.js module) | 'lexer' (name is the file under lexers/) | 'patterns' (the d2svgpatterns.js module) | 'pattern' (name is paper or grain).
  */
 export class NeedAsset extends Error {
   constructor(kind, name = '') { super(`d2svg: ${kind} ${name} is not loaded (use renderAsync, or load it first)`); this.name = 'NeedAsset'; this.kind = kind; this.assetName = name; }
@@ -70,6 +71,12 @@ export const hooks = {
   /** patternassets: {paperSVG(), grainSVG(), streakSVG()} (d2svgpatterns.js) */
   patterns: null,
 };
+
+/** d2latex.Render; the engine is loaded on demand (`renderAsync` loads it and retries) */
+function renderLatex(text) {
+  if (!d2latex.isLoaded()) throw new NeedAsset('latex');
+  return d2latex.render(text);
+}
 
 function getRuler() {
   if (hooks.ruler == null) {
@@ -917,7 +924,17 @@ function drawConnection(writer, diagramHash, connection, markers, idToShape, ske
       writer.write(`<a href="${l}" xlink:href="${l}">`);
     }
     if (connection.language === 'latex') {
-      throw new Deferred('latex');
+      let [render, err] = renderLatex(connection.label);
+      if (err !== null) throw new Error(err);
+      // Remove XML declaration and DOCTYPE from LaTeX SVG output
+      const xmlDecl = '<?xml version="1.0" encoding="UTF-8"?>';
+      const doctype = '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">';
+      render = render.split(xmlDecl).join('').split(doctype).join('');
+      const gEl = themes.newThemableElement('g', inlineTheme);
+      gEl.setTranslate(labelTL.x, labelTL.y);
+      gEl.Color = connection.color;
+      gEl.Content = render;
+      writer.write(gEl.render());
     } else if (connection.language === 'markdown') {
       const layout = markdown.layout(connection.label, connection.fontFamily, connection.fontSize);
       writer.write(markdown.render(layout, labelTL.x, labelTL.y, connection.labelWidth, connection.labelHeight,
@@ -1503,7 +1520,25 @@ function drawShape(writer, appendixWriter, diagramHash, targetShape, sketch, inl
     if (targetShape.underline) fontClass += ' text-underline';
 
     if (targetShape.language === 'latex') {
-      throw new Deferred('latex');
+      let [render, err] = renderLatex(targetShape.label);
+      if (err !== null) throw new Error(err);
+      // Remove XML declaration and DOCTYPE from LaTeX SVG output
+      const xmlDecl = '<?xml version="1.0" encoding="UTF-8"?>';
+      const doctype = '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">';
+      render = render.split(xmlDecl).join('').split(doctype).join('');
+      const gEl = themes.newThemableElement('g', inlineTheme);
+
+      let labelPosition = label.fromString(targetShape.labelPosition);
+      if (labelPosition === label.Unset) labelPosition = label.InsideMiddleCenter;
+      let box;
+      if (label.isOutside(labelPosition)) box = s.getBox();
+      else box = s.getInnerBox();
+      const labelTL = label.getPointOnBox(labelPosition, box, label.PADDING, targetShape.labelWidth, targetShape.labelHeight);
+      gEl.setTranslate(labelTL.x, labelTL.y);
+
+      gEl.Color = targetShape.stroke;
+      gEl.Content = render;
+      writer.write(gEl.render());
     } else if (targetShape.language === 'markdown') {
       const layout = markdown.layout(targetShape.label, targetShape.fontFamily, targetShape.fontSize);
       writer.write(markdown.render(layout, labelTL.x, labelTL.y, targetShape.labelWidth, targetShape.labelHeight,
@@ -2250,7 +2285,7 @@ export function embedFonts(buf, diagramHash, source, fontFamily, monoFontFamily,
 
 /**
  * Render renders the diagram to an SVG document (a string). See the file header for `opts`.
- * Throws `Deferred` for the parts that are not ported (sketch, LaTeX, code languages without a lexer).
+ * Throws `Deferred` for the parts that are not ported (sketch, code languages without a lexer).
  */
 export function render(diagram, opts) {
   let sketch = false;
@@ -2617,6 +2652,7 @@ const loaders = {
   async markdown() { hooks.markdown = await import('./mdlayout.js'); },
   async highlight() { hooks.highlight = await import('./highlight.js'); },
   async lexer(file) { hooks.highlight ??= await import('./highlight.js'); await hooks.highlight.loadLexer(file); },
+  async latex() { await d2latex.loadLatex(); },
   async patterns() { hooks.patterns = await import('./d2svgpatterns.js'); },
   async pattern(name) { hooks.patterns ??= await import('./d2svgpatterns.js'); await hooks.patterns.loadPattern(name); },
 };

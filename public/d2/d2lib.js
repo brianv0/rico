@@ -11,8 +11,9 @@
 // `inputPath`. renderOpts (Go's d2svg.RenderOpts, the fields compile reads and writes): { themeID, darkThemeID, sketch, pad,
 // center, themeOverrides, darkThemeOverrides }; pass an object to read back the values compile derived from d2-config.
 //
-// ELK and TALA are not ported: layout 'elk' / 'tala' fail with errors named ElkNotPorted / TalaNotPorted. latex labels fail with
-// LatexNotPorted. LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
+// ELK and TALA are not ported: layout 'elk' / 'tala' fail with errors named ElkNotPorted / TalaNotPorted. latex labels are measured by
+// d2latex.js (MathJax, loaded on first use: `compile` loads it and retries, `compileSync` throws NeedLatex until loadLatex() has
+// resolved). LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
 // re-running a deterministic layout.
 
 import { compile as compileGraph } from './d2compiler.js';
@@ -24,6 +25,7 @@ import * as d2layouts from './d2layouts.js';
 import * as d2dagrelayout from './d2dagrelayout.js';
 import { exportDiagram } from './d2exporter.js';
 import { newRuler, loadMetrics, setMarkdownIt } from './textmeasure.js';
+import * as d2latex from './d2latex.js';
 
 export const DEFAULT_PADDING = 100; // d2svg.DEFAULT_PADDING
 
@@ -55,7 +57,15 @@ let defaultRuler = null;
  */
 export async function compile(input, compileOpts, renderOpts) {
   await init();
-  return compileSync(input, compileOpts, renderOpts);
+  for (;;) {
+    try {
+      return compileSync(input, compileOpts, renderOpts);
+    } catch (e) {
+      // a latex label and the MathJax engine is not loaded yet: load it (once) and compile again
+      if (!(e instanceof d2latex.NeedLatex)) throw e;
+      await d2latex.loadLatex();
+    }
+  }
 }
 
 /** compile, once init() has resolved. */
@@ -76,6 +86,7 @@ export function compileSync(input, compileOpts, renderOpts) {
   try {
     d = compile_(g, compileOpts, renderOpts);
   } catch (e) {
+    if (e instanceof d2latex.NeedLatex) throw e;
     return { diagram: null, graph: g, err: e instanceof Error ? e : new Error(String(e)) };
   }
   if (config === null) config = new d2target.Config();
