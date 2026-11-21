@@ -1843,6 +1843,24 @@ function validateMarkdownSVGNodes(n) {
   for (let child = n.firstChild; child != null; child = child.nextSibling) validateMarkdownSVGNodes(child);
 }
 
+/**
+ * x/net/html parses a document: <script>, <style>, <title>, <meta>, <link> and <base> before any other content land in <head>, which
+ * the painter never sees (`doc.Find("body")`). parseBody only builds the body, so drop that leading run first.
+ */
+function stripLeadingHead(src) {
+  let s = src;
+  let dropped = false;
+  for (;;) {
+    let m = /^(?:[ \t\n\r\f]+|<!--[\s\S]*?-->)/.exec(s);
+    if (m) { s = s.slice(m[0].length); continue; }
+    m = /^<(script|style|title|noscript)(?=[\s>/])[^>]*>[\s\S]*?<\/\1\s*>/i.exec(s) ?? /^<(meta|link|base|basefont|bgsound)(?=[\s>/])[^>]*>/i.exec(s);
+    if (!m) break;
+    s = s.slice(m[0].length);
+    dropped = true;
+  }
+  return dropped ? s : src;
+}
+
 // ---- MarkdownLayout ----
 
 /**
@@ -1850,7 +1868,7 @@ function validateMarkdownSVGNodes(n) {
  * primitives. Returns {Width, Height, Primitives, Corpus, svg(opts)}.
  */
 export function layoutMarkdown(mdText, ruler, fontFamily, monoFontFamily, fontSize) {
-  const render = renderMarkdown(mdText);
+  const render = stripLeadingHead(renderMarkdown(mdText));
   const body = parseBody(render);
   const legacyBody = parseBody(render);
   validateMarkdownSVGNodes(body);
