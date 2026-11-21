@@ -14,7 +14,11 @@
 // layout 'elk' runs the ELK engine (d2elklayout.js, ELK.js 0.12.0 from vendor/elk.js), loaded with a dynamic import() the first time a
 // diagram asks for it: compile() does that by itself; compileSync() needs `await loadLayout('elk')` first, or it fails with LayoutNotLoaded.
 // ELK's options (the `--elk-*` flags of D2's CLI) go in opts.elkOpts as JSON with the Go tags: { 'elk.algorithm', 'spacing.nodeNodeBetweenLayers',
-// 'elk.padding', 'spacing.edgeNodeBetweenLayers', 'elk.spacing.nodeSelfLoop' }. TALA is not ported: layout 'tala' fails with TalaNotPorted.
+// 'elk.padding', 'spacing.edgeNodeBetweenLayers', 'elk.spacing.nodeSelfLoop' }.
+// layout 'tala' runs D2's own TALA engine (tala/layout.js, loaded on demand like ELK: `await loadLayout('tala')` before compileSync). Its seeds come from
+// the diagram (`vars: {d2-config: {data: {tala-seeds: [1; 2; 3]}}}`, which takes precedence) or from opts.talaOpts, JSON with the Go tag { 'tala-seeds': [1, 2, 3] }
+// (default seeds 1, 2, 3). The edge router of the layout (d2wasm's RouterResolver) is TALA's RouteEdges. While placement or routing stages of the
+// pipeline are not ported the layout fails with a NotPorted error that names the missing function (tala/stagepkgs.js).
 // latex labels are measured by d2latex.js (MathJax, loaded on first use: `compile` loads it and retries, `compileSync` throws NeedLatex until
 // loadLatex() has resolved). LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
 // re-running a deterministic layout.
@@ -37,18 +41,15 @@ export class LayoutNotLoaded extends Error {
   constructor(engine) { super(`the ${engine} layout engine is not loaded: await loadLayout('${engine}') first`); this.name = 'LayoutNotLoaded'; this.engine = engine; }
 }
 
-export class TalaNotPorted extends Error {
-  constructor() { super('the tala layout engine is not ported'); this.name = 'TalaNotPorted'; }
-}
-
 let ready = null;
 
 const layoutEngines = new Map(); // engine name -> module (loaded on demand)
 
-/** Loads a layout engine that is not part of the default path ('elk': ELK.js, about 1.6 MB, 460 KB gzipped). Resolves when compileSync can use it. */
+/** Loads a layout engine that is not part of the default path ('elk': ELK.js, about 1.6 MB, 460 KB gzipped; 'tala': D2's TALA). Resolves when compileSync can use it. */
 export async function loadLayout(engine) {
   const name = String(engine).toLowerCase();
   if (name === 'elk' && !layoutEngines.has('elk')) layoutEngines.set('elk', await import('./d2elklayout.js'));
+  if (name === 'tala' && !layoutEngines.has('tala')) layoutEngines.set('tala', await import('./tala/layout.js'));
 }
 
 /**
@@ -159,7 +160,12 @@ function getLayout(opts) {
       const elkOpts = elk.hydrateOpts(opts.elkOpts);
       return elkOpts === null ? elk.defaultLayout : (g) => elk.layout(g, elkOpts);
     }
-    if (opts.layout.toLowerCase() === 'tala') throw new TalaNotPorted();
+    if (opts.layout.toLowerCase() === 'tala') {
+      const tala = layoutEngines.get('tala');
+      if (tala === undefined) throw new LayoutNotLoaded('tala');
+      const talaOpts = tala.hydrateOpts(opts.talaOpts);
+      return talaOpts === null ? tala.defaultLayout : (g) => tala.layoutWithOptions(g, talaOpts);
+    }
     return d2dagrelayout.defaultLayout;
   }
   throw new Error('no available layout');
@@ -169,6 +175,10 @@ function getEdgeRouter(opts) {
   if (opts.layout !== null && opts.layout !== undefined && opts.routerResolver) {
     const router = opts.routerResolver(opts.layout);
     if (router !== null && router !== undefined) return router;
+  }
+  if (opts.layout !== null && opts.layout !== undefined && String(opts.layout).toLowerCase() === 'tala') {
+    const tala = layoutEngines.get('tala');
+    if (tala !== undefined) return tala.routeEdgesDefault; // d2wasm: RouterResolver gives TALA's RouteEdges
   }
   return d2layouts.defaultRouter;
 }

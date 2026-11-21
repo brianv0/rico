@@ -3,8 +3,8 @@
 //
 // JavaScript port of the root of the Go package d2layouts/d2talalayout (D2 v0.9.0, Copyright 2022 Terrastruct Inc.): the D2 <-> TALA
 // adapter. This file has the D2 -> TALA translation (adapter.go, adapter_validate.go, limits.go, seedgraph.go) and the seed plan
-// (layout.go: Options, layoutPlan, normalizeSeeds, seedsFromData). The engine call (runSeed, seed selection), the result validation and
-// the patch back onto the D2 graph (layout.go's Layout, result.go, result_validate.go, patch.go) are the engine stage's.
+// (layout.go: Options, layoutPlan, normalizeSeeds, seedsFromData). The rest of the package: layout.js (Layout, seed selection, RouteEdges),
+// result.js (result.go, result_validate.go), patch.js (patch.go); the engine is engine.js.
 //
 // translateGraph(ctx, g, talaGraph, loadExistingLayout) fills `talaGraph` (a layoutgraph.Graph) from a D2 graph whose objects have been
 // sized (SetDimensions) and returns the bindings {objectIDs, edgeIDs, edgeDestinations} (Maps keyed by the D2 object/edge).
@@ -796,7 +796,7 @@ function validateD2TableColumnIndex(edgeIndex, endpointName, object, index) {
   }
 }
 
-// result_validate.go: the checks the adapter shares with the result validation (the rest of that file is the engine stage's)
+// result_validate.go: the checks the adapter shares with the result validation (the rest of that file is result.js)
 
 /** isFiniteResultNumber */
 export const isFiniteResultNumber = (value) => !Number.isNaN(value) && Number.isFinite(value);
