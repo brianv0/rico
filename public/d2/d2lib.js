@@ -11,7 +11,9 @@
 // `inputPath`. renderOpts (Go's d2svg.RenderOpts, the fields compile reads and writes): { themeID, darkThemeID, sketch, pad,
 // center, themeOverrides, darkThemeOverrides }; pass an object to read back the values compile derived from d2-config.
 //
-// ELK is not ported: layout 'elk' fails with an error named ElkNotPorted. latex labels fail with LatexNotPorted.
+// ELK and TALA are not ported: layout 'elk' / 'tala' fail with errors named ElkNotPorted / TalaNotPorted. latex labels fail with
+// LatexNotPorted. LayoutReuse (the opt-in reuse of a base board's geometry for scenarios and steps) is not ported: it only avoids
+// re-running a deterministic layout.
 
 import { compile as compileGraph } from './d2compiler.js';
 import * as d2graph from './d2graph.js';
@@ -27,6 +29,10 @@ export const DEFAULT_PADDING = 100; // d2svg.DEFAULT_PADDING
 
 export class ElkNotPorted extends Error {
   constructor() { super('the elk layout engine is not ported'); this.name = 'ElkNotPorted'; }
+}
+
+export class TalaNotPorted extends Error {
+  constructor() { super('the tala layout engine is not ported'); this.name = 'TalaNotPorted'; }
 }
 
 let ready = null;
@@ -118,6 +124,7 @@ function getLayout(opts) {
   if (opts.layout !== null && opts.layout !== undefined) {
     if (opts.layoutResolver) return opts.layoutResolver(opts.layout);
     if (opts.layout.toLowerCase() === 'elk') throw new ElkNotPorted();
+    if (opts.layout.toLowerCase() === 'tala') throw new TalaNotPorted();
     return d2dagrelayout.defaultLayout;
   }
   throw new Error('no available layout');

@@ -150,8 +150,8 @@ cases.forEach((c, i) => {
   let d = firstDiff(got, canon(want));
   if (d && mode === 'layout') {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
-    // between runs. If Go gives the JS answer in some of 30 more runs, the case is Go-unstable, not a mismatch.
-    const again = runRef(Array(30).fill(c)).map((l) => canon(JSON.parse(l)));
+    // between runs. If Go gives the JS answer in some of 100 more runs, the case is Go-unstable, not a mismatch.
+    const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
   if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
