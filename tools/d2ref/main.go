@@ -131,6 +131,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return labelCheck(in)
 	case "color":
 		return colorCheck(in)
+	case "mdtree":
+		return mdtree(in)
 	case "element":
 		return elementCheck(in)
 	case "target":

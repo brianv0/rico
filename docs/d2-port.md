@@ -13,9 +13,9 @@ Source: D2 **v0.7.2** (`oss.terrastruct.com/d2`, MPL-2.0). Every ported file kee
 |---|---|---|---|
 | parse | `d2ast`, `d2parser` | `public/d2/ast.js`, `parser.js` | 972/972 corpus cases, UTF-8 and UTF-16 |
 | ir | `d2ir` (+ `d2format.Format`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | 1025/1025 corpus cases, UTF-8 and UTF-16; 190/190 extra cases (`extra.jsonl`); about 40k fuzzed cases. Residue below |
-| graph | `d2compiler`, `d2graph` (no dimensions), `d2target` types, `d2themes` | | |
-| layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout`, `d2exporter`, `lib/geo`, `lib/shape`, `lib/label` | | |
-| render | `d2renderers/d2svg`, `lib/svg`, `lib/color` | | |
+| graph | `d2compiler`, `d2graph` (no dimensions), `d2target` types, `d2themes` | `d2target` -> `target.js`, `d2themes` + catalog -> `themes.js` (done; compiler and graph not yet) | `target`: 793/794 corpus layouts (JSON bytes, hashes, bounding boxes, label positions); `element` 1500/1500; statics 1/1 |
+| layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout`, `d2exporter`, `lib/geo`, `lib/shape`, `lib/label` | done: `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js` | `measure`: 127259/127259 (plain, code, markdown, unicode fuzz); `shape`: 297/360 exact, the other 63 within 1e-9 (libm); `label`: 381/381. Rest of the row not started. Residue: see "Leaf packages" |
+| render | `d2renderers/d2svg`, `lib/svg`, `lib/color` | done: `svg.js`, `color.js` (renderer itself not started) | `color`: 2436/2438 (the two are `oklch()` last-bit libm) |
 | later | `d2elklayout`, `d2sketch`, `d2latex`, `d2animate` | | |
 
 Not needed: `d2oracle`, `d2lsp`, `d2format` (except what `d2ir` calls), `d2plugin`, `d2renderers/d2ascii`, `d2js`.
@@ -117,3 +117,37 @@ These are the places where the JS output is not (or cannot be) the same as Go's;
   source ranges on elements as `data-*` attributes for click-to-comment. Rico currently draws diagrams in a
   sandboxed, script-less iframe because diagram source is untrusted; drawing into the page loses that, so
   markdown labels (`foreignObject`) must go through DOMPurify and link/icon URLs must be checked.
+
+
+## Leaf packages (`lib/*`, `d2fonts`, `d2themes`, `d2target`): what was learned
+
+Files: `gomath.js` (Go number semantics: `goFloat`/`goV`/`goFixed` for `%v`/`%.Nf`, `goRound`, `goInt`, `goPow`, `exactDiv`,
+sha1, `strings.Fields`), `geo.js`, `shape.js`, `label.js`, `svg.js`, `color.js`, `fonts.js`, `textmeasure.js`, `uniseg.js`,
+`htmlparse.js`, `themes.js`, `target.js`, `fonts/metrics.json`. Diff stages (all in `tools/d2ref/diff.mjs`): `measure`
+(`measurecorpus.mjs [--big]`, `fuzzleaf.mjs measure`), `mdhtml`, `shape` (`shapecorpus.mjs`, use `--tol 1e-9`), `label`
+(`labelcheck.mjs`), `color` (`colorcheck.mjs`), `element` (`elementcheck.mjs`), `target` (`targetcorpus.mjs`, needs Go layout
+output), `targetstatics`. `go run . fontmetrics` regenerates the font tables, `go run . themes` the theme data (`themes.js` is
+generated from it; keep the template in sync).
+
+- **Text measuring**: freetype's no-hinting path replayed over a dump of the glyph records (advance, bearings, point bounding
+  box or component list, kern pairs, hhea metrics). 197 KB JSON, 31 KB gzipped, for all ten distinct TTFs and the 353 runes the
+  atlas holds. The atlas packing (`makeSquareMapping`) is ported too: it decides rounding of the glyph rects. Any rune outside
+  the atlas measures as U+FFFD, as in Go; non-ASCII strings go through `uniseg` (grapheme width).
+- **Markdown**: markdown-it with `html`, `xhtmlOut`, any link scheme, `<del>` for strikethrough reproduces goldmark's HTML except
+  on pathological input (`</pre>` alone on a line, tables inside list items/quotes, `\r`, trailing space after an HTML comment):
+  `mdhtml` 124596/127247, `measure` fuzz (`fuzzleaf.mjs measure`) 3965/4000. The tree builder in `htmlparse.js` stands in for
+  `x/net/html` (quirks mode, formatting elements with the adoption agency algorithm, foster parenting, implied end tags). Register
+  markdown-it with `setMarkdownIt(markdownit)`; load the metrics with `await loadMetrics()` (or `setMetrics(json)`).
+  `replaceSubstitutionsMarkdown` stays the line scanner d2ir needs: markdown-it tokens have no source offsets.
+- **Go semantics that bit**: constant expressions are exact in Go (`40 * 14 / 18.925`, `20.2 / 68.3`, `math.Sqrt2` quotients): use
+  `exactDiv`; `float -> int` of NaN/Inf is `math.MinInt64` on amd64 (`goInt`); `math.Round` is half away from zero; `%f`
+  rounds exact ties to even; `go2.Min` is not `Math.min`; a shadowed named result in `label.GetPointOnRoute` makes Outside*
+  positions return index 0 (kept); `bounds` in textmeasure starts at the replacement glyph kern, even for the first rune.
+- **Libm residue**: Go's `Exp`/`Log` have amd64 assembly and `Sin`/`Cos`/`Acos`/`Pow` (fractional) are Cephes, V8's are fdlibm.
+  Affected: bezier/ellipse intersections in `geo.js` (cubic roots: last-bit differences, up to 1e-12 absolute at 500 px),
+  `oklab()`/`oklch()` colors. They only reach layout through `TraceToShapeBorder`, which rounds to integers.
+- **`target`**: one corpus diagram is not reproduced because Go's `json.Unmarshal` rejects it (a float where an int is expected);
+  `Icon` is a plain `url.URL`-shaped object: a `net/url` port (`Parse`, `ParseRequestURI`, `String`) is still needed by the
+  compiler/exporter. `Diagram.bytes()` and `hashID()` match Go byte for byte (field order, omitempty, HTML escaping).
+- **Tooling trap**: an editor tool turned `\u2028` escapes in files I wrote into the literal characters again; check with
+  `grep -lP '(*UTF8)[\x{2028}\x{2029}]' public/d2/*.js tools/d2ref/*`.

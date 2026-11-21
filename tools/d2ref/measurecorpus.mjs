@@ -37,7 +37,7 @@ const extra = [
   'שלום עולם', 'مرحبا بالعالم', 'mixed שלום and english',
   'é combining', 'สวัสดี', 'नमस्ते',
   'tab\there', 'a\tb\tc', '\tleading tab', 'cr\rlf', 'crlf\r\nline', 'line1\nline2\nline3', '\n', 'a\n\nb', 'trailing\n', '\nleading',
-  '■□▲● ◆', 'a b', 'zero​width', 'a b',
+  '■□▲● ◆', 'a b', 'zero​width', 'a\u2028b',
   'The quick brown fox jumps over the lazy dog. '.repeat(8).trim(),
   Array.from({ length: 40 }, (_, i) => `line ${i} — ${'x'.repeat(i)}`).join('\n'),
   '中文\n日本語\nEnglish\n😀',

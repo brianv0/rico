@@ -55,6 +55,18 @@ export class Node {
     this.prevSibling = null;
     this.nextSibling = null;
   }
+  removeChild(c) {
+    if (c.prevSibling) c.prevSibling.nextSibling = c.nextSibling; else this.firstChild = c.nextSibling;
+    if (c.nextSibling) c.nextSibling.prevSibling = c.prevSibling; else this.lastChild = c.prevSibling;
+    c.parent = c.prevSibling = c.nextSibling = null;
+  }
+  insertBefore(c, ref) {
+    c.parent = this;
+    c.nextSibling = ref;
+    c.prevSibling = ref.prevSibling;
+    if (ref.prevSibling) ref.prevSibling.nextSibling = c; else this.firstChild = c;
+    ref.prevSibling = c;
+  }
   appendChild(c) {
     c.parent = this;
     c.prevSibling = this.lastChild;
@@ -70,6 +82,9 @@ const P_CLOSERS = new Set('address article aside blockquote center details dialo
 const BUTTON_SCOPE = new Set(['applet', 'caption', 'html', 'table', 'td', 'th', 'marquee', 'object', 'template', 'button']);
 const TABLE_SECTIONS = new Set(['tbody', 'thead', 'tfoot']);
 const IMPLIED_END = new Set(['dd', 'dt', 'li', 'optgroup', 'option', 'p', 'rb', 'rp', 'rt', 'rtc']);
+const TABLE_STRUCT = new Set(['table', 'caption', 'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th']);
+const NO_RECON = new Set([...P_CLOSERS, 'li', 'dd', 'dt', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'caption', 'colgroup', 'col', 'param', 'source', 'track', 'option', 'optgroup', 'rb', 'rtc', 'rp', 'rt']);
+const BLOCK_END = new Set('address article aside blockquote button center details dialog dir div dl fieldset figcaption figure footer header hgroup listing main menu nav ol pre search section summary ul'.split(' '));
 const isHeading = (n) => /^h[1-6]$/.test(n);
 
 /** tokenizes and builds a tree; returns the body Node (children of the parsed fragment). */
@@ -79,11 +94,31 @@ export function parseBody(src) {
   const stack = [body];
   const cur = () => stack[stack.length - 1];
 
+  // formatting elements: the list of active formatting elements holds nodes and null markers (HTML5 spec 13.2.4.3)
+  const afl = [];
+  const FORMATTING = new Set(['a', 'b', 'big', 'code', 'em', 'font', 'i', 'nobr', 's', 'small', 'strike', 'strong', 'tt', 'u']);
+  const TABLE_CTX = new Set(['table', 'tbody', 'tfoot', 'thead', 'tr']);
+
+  const lastTable = () => { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].data === 'table') return i; return -1; };
+  /** the node a new child goes into, and the sibling to insert before (foster parenting when in table context) */
+  const insertionPoint = (target = cur()) => {
+    if (!TABLE_CTX.has(target.data)) return [target, null];
+    const ti = lastTable();
+    if (ti < 0) return [stack[0], null];
+    const table = stack[ti];
+    if (table.parent) return [table.parent, table];
+    return [stack[ti - 1] ?? stack[0], null];
+  };
+  const place = (n, target) => {
+    const [parent, before] = insertionPoint(target);
+    if (before) parent.insertBefore(n, before); else parent.appendChild(n);
+  };
   const appendText = (text) => {
     if (text === '') return;
-    const p = cur();
-    if (p.lastChild && p.lastChild.type === 'text') p.lastChild.data += text;
-    else p.appendChild(new Node('text', text));
+    const [parent, before] = insertionPoint();
+    const prev = before ? before.prevSibling : parent.lastChild;
+    if (prev && prev.type === 'text') prev.data += text;
+    else { const t = new Node('text', text); if (before) parent.insertBefore(t, before); else parent.appendChild(t); }
   };
   const hasInScope = (name, scope = BUTTON_SCOPE) => {
     for (let i = stack.length - 1; i >= 0; i--) {
@@ -100,12 +135,101 @@ export function parseBody(src) {
   };
   const closeP = () => { if (hasInScope('p')) { generateImplied('p'); popUntil('p'); } };
   const inTableScope = (name) => hasInScope(name, new Set(['html', 'table', 'template']));
-  const insert = (name) => { const n = new Node('element', name); cur().appendChild(n); stack.push(n); return n; };
+  const insert = (name, attrs = '') => {
+    const n = new Node('element', name);
+    n.attrs = attrs;
+    if (TABLE_STRUCT.has(name)) cur().appendChild(n); // table structure is never foster parented
+    else place(n);
+    stack.push(n);
+    return n;
+  };
   const clearToTableContext = (names) => { while (stack.length > 1 && !names.has(cur().data)) stack.pop(); };
 
-  const startTag = (name) => {
+  const reconstruct = () => {
+    if (afl.length === 0) return;
+    let i = afl.length - 1;
+    if (afl[i] === null || stack.includes(afl[i])) return;
+    while (i > 0) {
+      i--;
+      if (afl[i] === null || stack.includes(afl[i])) { i++; break; }
+    }
+    for (; i < afl.length; i++) {
+      const e = afl[i];
+      const n = insert(e.data, e.attrs);
+      afl[i] = n;
+    }
+  };
+  const pushFormatting = (n) => {
+    // Noah's Ark clause: at most three identical entries after the last marker
+    let count = 0, first = -1;
+    for (let i = afl.length - 1; i >= 0 && afl[i] !== null; i--) {
+      if (afl[i].data === n.data && afl[i].attrs === n.attrs) { count++; first = i; }
+    }
+    if (count >= 3) afl.splice(first, 1);
+    afl.push(n);
+  };
+  const removeFromList = (n) => { const i = afl.indexOf(n); if (i >= 0) afl.splice(i, 1); };
+  const removeFromStack = (n) => { const i = stack.indexOf(n); if (i >= 0) stack.splice(i, 1); };
+  const clearToMarker = () => { while (afl.length) { if (afl.pop() === null) break; } };
+
+  /** the adoption agency algorithm; returns false when the caller should run "any other end tag" */
+  const adopt = (subject) => {
+    if (cur().data === subject && !afl.includes(cur())) { stack.pop(); return true; }
+    for (let outer = 0; outer < 8; outer++) {
+      let fe = null;
+      for (let i = afl.length - 1; i >= 0 && afl[i] !== null; i--) if (afl[i].data === subject) { fe = afl[i]; break; }
+      if (!fe) return false;
+      const fi = stack.indexOf(fe);
+      if (fi < 0) { removeFromList(fe); return true; }
+      if (!hasInScope(subject)) return true;
+      let furthest = null;
+      for (let i = fi + 1; i < stack.length; i++) if (SPECIAL.has(stack[i].data)) { furthest = stack[i]; break; }
+      if (!furthest) {
+        while (stack.length > fi) stack.pop();
+        removeFromList(fe);
+        return true;
+      }
+      const common = stack[fi - 1];
+      let bookmark = afl.indexOf(fe);
+      let node = furthest, last = furthest;
+      let inner = 0;
+      let ni = stack.indexOf(furthest);
+      for (;;) {
+        inner++;
+        ni--;
+        node = stack[ni];
+        if (node === fe) break;
+        if (inner > 3 && afl.includes(node)) removeFromList(node);
+        if (!afl.includes(node)) { stack.splice(ni, 1); continue; }
+        const clone = new Node('element', node.data);
+        clone.attrs = node.attrs;
+        afl[afl.indexOf(node)] = clone;
+        stack[ni] = clone;
+        node = clone;
+        if (last === furthest) bookmark = afl.indexOf(node) + 1;
+        if (last.parent) last.parent.removeChild(last);
+        node.appendChild(last);
+        last = node;
+      }
+      if (last.parent) last.parent.removeChild(last);
+      place(last, common);
+      const nn = new Node('element', fe.data);
+      nn.attrs = fe.attrs;
+      while (furthest.firstChild) { const c = furthest.firstChild; furthest.removeChild(c); nn.appendChild(c); }
+      furthest.appendChild(nn);
+      const old = afl.indexOf(fe);
+      afl.splice(bookmark, 0, nn);
+      afl.splice(old < bookmark ? old : old + 1, 1);
+      removeFromStack(fe);
+      stack.splice(stack.indexOf(furthest) + 1, 0, nn);
+    }
+    return true;
+  };
+
+  const startTag = (name, attrs = '') => {
     if (name === 'html' || name === 'head' || name === 'body') return; // merged into the existing elements
-    if (P_CLOSERS.has(name)) closeP();
+    // no doctype: quirks mode, where <table> does not close an open <p>
+    if (P_CLOSERS.has(name) && name !== 'table') closeP();
     if (isHeading(name) && isHeading(cur().data)) stack.pop();
     switch (name) {
       case 'li':
@@ -122,11 +246,9 @@ export function parseBody(src) {
           if (SPECIAL.has(n) && n !== 'address' && n !== 'div' && n !== 'p') break;
         }
         break;
-      case 'a':
-        if (hasInScope('a', new Set([...BUTTON_SCOPE]))) popUntil('a');
-        break;
       case 'button':
         if (hasInScope('button')) { generateImplied(); popUntil('button'); }
+        reconstruct();
         break;
       case 'caption': case 'colgroup': case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'td': case 'th': case 'col': {
         if (!stack.some((n) => n.data === 'table')) return; // ignored outside a table
@@ -144,10 +266,31 @@ export function parseBody(src) {
         } else if (name === 'col') {
           if (cur().data === 'table') insert('colgroup');
         }
+        if (name === 'td' || name === 'th' || name === 'caption') { insert(name, attrs); afl.push(null); return; }
         break;
       }
+      default:
+        if (FORMATTING.has(name)) {
+          if (name === 'a') {
+            for (let i = afl.length - 1; i >= 0 && afl[i] !== null; i--) {
+              if (afl[i].data === 'a') {
+                const a = afl[i];
+                adopt('a');
+                removeFromList(a);
+                removeFromStack(a);
+                break;
+              }
+            }
+          }
+          if (name === 'nobr' && hasInScope('nobr')) { adopt('nobr'); }
+          reconstruct();
+          const n = insert(name, attrs);
+          pushFormatting(n);
+          return;
+        }
+        if (!NO_RECON.has(name) && !isHeading(name)) reconstruct();
     }
-    insert(name);
+    insert(name, attrs);
     if (VOID.has(name)) stack.pop();
   };
 
@@ -170,9 +313,18 @@ export function parseBody(src) {
           if (hasInScope(h)) { generateImplied(); while (stack.length > 1) { const n = stack.pop(); if (isHeading(n.data)) break; } return; }
         }
         return;
-      case 'table': case 'caption': case 'colgroup': case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'td': case 'th':
+      case 'td': case 'th': case 'caption':
+        if (inTableScope(name)) { generateImplied(); popUntil(name); clearToMarker(); }
+        return;
+      case 'table': case 'colgroup': case 'thead': case 'tbody': case 'tfoot': case 'tr':
         if (inTableScope(name)) { generateImplied(); popUntil(name); }
         return;
+    }
+    if (FORMATTING.has(name)) {
+      if (adopt(name)) return;
+    } else if (BLOCK_END.has(name)) {
+      if (hasInScope(name)) { generateImplied(); popUntil(name); }
+      return;
     }
     for (let i = stack.length - 1; i > 0; i--) {
       const n = stack[i];
@@ -193,7 +345,8 @@ export function parseBody(src) {
     if (end > textStart) {
       let t = decodeEntities(src.slice(textStart, end));
       if (pendingPreNewline) { if (t[0] === '\n') t = t.slice(1); pendingPreNewline = false; }
-      appendText(t);
+      if (TABLE_CTX.has(cur().data) && /^[\t\n\f\r ]*$/.test(t)) appendText(t);
+      else { reconstruct(); appendText(t); }
     }
   };
   while (i < n) {
@@ -218,7 +371,7 @@ export function parseBody(src) {
         i = end < 0 ? n : end + 1;
         if (!/^doctype/i.test(data)) cur().appendChild(new Node('comment', c === '?' ? '?' + data : data));
       } else if (c === '/') {
-        const m = /^<\/([A-Za-z][^\t\n\f \/>]*)[^>]*>?/.exec(src.slice(lt, lt + 2000 > n ? n : undefined));
+        const m = /^<\/([A-Za-z][^\t\n\f \/>]*)[^>]*>?/.exec(src.slice(lt));
         if (m) { endTag(m[1].toLowerCase()); i = lt + m[0].length; }
         else if (src[lt + 2] === '>') i = lt + 3;
         else if (lt + 2 >= n) { appendText('</'); i = n; }
@@ -242,7 +395,7 @@ export function parseBody(src) {
           if (ch === '>') break;
         }
         i = j + 1;
-        startTag(name);
+        startTag(name, src.slice(lt + nm[0].length, j).trim());
         if (RAW.has(name) && !VOID.has(name)) {
           const close = new RegExp('</' + name + '[\\t\\n\\f />]', 'i');
           const rest = src.slice(i);
