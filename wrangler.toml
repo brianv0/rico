@@ -12,9 +12,11 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"   # /github.com/owner/repo/7 serves the app
 run_worker_first = ["/api/*", "/auth/*"]
 
+# Keep variables set in the Cloudflare dashboard (such as GITHUB_CLIENT_ID) when deploying from here.
+keep_vars = true
+
 [vars]
-# Not secret. The OAuth app's client id (Settings > Developer settings > OAuth Apps).
-GITHUB_CLIENT_ID = ""
+# GITHUB_CLIENT_ID (not secret; the OAuth app's client id) is set in the dashboard or here, e.g. GITHUB_CLIENT_ID = "Iv1.abc..."
 # "repo" is needed to comment on private repositories; use "public_repo" to limit Rico to public ones.
 OAUTH_SCOPE = "repo"
 
