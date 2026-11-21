@@ -32,6 +32,7 @@ import (
 	"github.com/d2lang/d2/d2ir"
 	"github.com/d2lang/d2/d2layouts/d2dagrelayout"
 	"github.com/d2lang/d2/d2layouts/d2elklayout"
+	"github.com/d2lang/d2/d2layouts/d2talalayout"
 	"github.com/d2lang/d2/d2lib"
 	"github.com/d2lang/d2/d2parser"
 	"github.com/d2lang/d2/d2renderers/d2svg"
@@ -45,7 +46,8 @@ type input struct {
 	Path     string            `json:"path"`
 	Text     string            `json:"text"`
 	UTF16Pos bool              `json:"utf16"`
-	Layout   string            `json:"layout"` // dagre (default) or elk
+	Layout   string            `json:"layout"` // dagre (default), elk or tala
+	Seeds    []int64           `json:"seeds"`  // tala: seeds (default TALA's {1,2,3}; D2's e2e tests use {1})
 	FS       map[string]string `json:"fs"`     // extra files for imports
 
 	// measure mode
@@ -231,7 +233,21 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 				if engine == "elk" {
 					return d2elklayout.DefaultLayout, nil
 				}
+				if engine == "tala" {
+					if in.Seeds != nil {
+						talaOpts := d2talalayout.DefaultOptions()
+						talaOpts.Seeds = in.Seeds
+						return func(ctx context.Context, g *d2graph.Graph) error { return d2talalayout.Layout(ctx, g, &talaOpts) }, nil
+					}
+					return d2talalayout.DefaultLayout, nil
+				}
 				return d2dagrelayout.DefaultLayout, nil
+			},
+			RouterResolver: func(engine string) (d2graph.RouteEdges, error) {
+				if engine == "tala" {
+					return d2talalayout.RouteEdges, nil
+				}
+				return nil, nil
 			},
 		}
 		ro := &d2svg.RenderOpts{}
