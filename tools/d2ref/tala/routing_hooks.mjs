@@ -30,6 +30,8 @@ patch('coordinator.go', [
     '\tovg, err := buildOVGFromGraphWithGuard(g, nearbyNodes, ovgGuard)\n\txHookOVG(g, ovg, ovgGuard, err)\n'],
   ['\tflavors := []RouteGenerationFlavor{ShortestToLongest, LongestToShortest, Default}\n',
     '\txHookExisting(ovg, existingRoutes, unroutedEdges)\n\tflavors := []RouteGenerationFlavor{ShortestToLongest, LongestToShortest, Default}\n'],
+  ['\t\trouters = append(routers, router)\n',
+    '\t\trouter.considerNodeLabels = XConsiderNodeLabels\n\t\trouters = append(routers, router)\n'],
   ['\tresponses, err := generateRouteFlavorResponses(ctx, routers, true)\n',
     '\tresponses, err := generateRouteFlavorResponses(ctx, routers, true)\n\txHookResponses(ovg, routers, responses, err)\n'],
 ]);

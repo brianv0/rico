@@ -45,9 +45,10 @@ type routingInvocation struct {
 func runRouting(mode string, in input, ruler *textmeasure.Ruler) interface{} {
 	routing.XObserve = true
 	routing.XDeterministicLevels = true
+	routing.XConsiderNodeLabels = mode == "routinglabels" || mode == "froutinglabels"
 	routing.XSerialize = func(g *layoutgraph.Graph) interface{} { return ser(g) }
-	defer func() { routing.XObserve = false; routing.XCollect() }()
-	if mode == "frouting" {
+	defer func() { routing.XObserve = false; routing.XConsiderNodeLabels = false; routing.XCollect() }()
+	if mode == "frouting" || mode == "froutinglabels" {
 		return runFRouting(in)
 	}
 	var fsys fs.FS

@@ -16,6 +16,7 @@ import (
 	"sort"
 
 	"github.com/d2lang/d2/d2layouts/d2talalayout/internal/layoutgraph"
+	"github.com/d2lang/d2/lib/geo"
 )
 
 // XObserve switches the recording on. XSerialize turns a graph into its graphjson (set by the xdump program).
@@ -24,6 +25,9 @@ var (
 	// starts from the order of a map iteration, so nodes with equal X (common in horizontal hierarchies: tables in a column) are ordered
 	// randomly and the OVG differs from run to run (the routes mostly do not). The check turns this on in Go and in JS to verify the rest.
 	XDeterministicLevels bool
+	// XConsiderNodeLabels sets router.considerNodeLabels (the standalone RouteEdges setting, where node labels are already placed) in the
+	// routers of RouteGraph, to exercise that path of the search on every graph; the call record says so.
+	XConsiderNodeLabels bool
 	XObserve   bool
 	XSerialize func(*layoutgraph.Graph) interface{}
 )
@@ -100,8 +104,11 @@ type XSubgraph struct {
 
 // XCall is one call of RouteGraph.
 type XCall struct {
+	ConsiderNodeLabels bool `json:"considerNodeLabels"`
 	Graph     interface{}  `json:"graph"`
 	NodeEdges [][]int64    `json:"nodeEdges"` // per node: [node ID, edge IDs in node.Edges order] (the adjacency order is not in graphjson)
+	// per node with loop offsets (set by the loops package, not in graphjson; Node.Mirror reads them): [node ID, the offsets of the 9 orientations TopLeft..NONE]
+	LoopOffsets [][]float64 `json:"loopOffsets"`
 	Subgraphs []*XSubgraph `json:"subgraphs"`
 }
 
@@ -208,7 +215,7 @@ func xHookRouteGraph(graph *layoutgraph.Graph) {
 	if !XObserve {
 		return
 	}
-	xCall = &XCall{}
+	xCall = &XCall{ConsiderNodeLabels: XConsiderNodeLabels}
 	if XSerialize != nil {
 		xCall.Graph = XSerialize(graph)
 	}
@@ -226,6 +233,18 @@ func xHookRouteGraph(graph *layoutgraph.Graph) {
 			visit(e.To)
 		}
 		xCall.NodeEdges = append(xCall.NodeEdges, row)
+		offsets := []float64{float64(n.ID)}
+		any := false
+		for o := geo.TopLeft; o <= geo.NONE; o++ {
+			v := n.LoopOffsets[o]
+			offsets = append(offsets, v)
+			if v != 0 {
+				any = true
+			}
+		}
+		if any {
+			xCall.LoopOffsets = append(xCall.LoopOffsets, offsets)
+		}
 		for _, c := range graph.Containers[n] {
 			visit(c)
 		}
