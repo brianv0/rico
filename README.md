@@ -200,9 +200,13 @@ local server and the Worker (`src/worker.js`).
    npm install && npm run deploy
    ```
 
-**Staging.** `npm run deploy:stage` deploys a separate Worker (`rico-stage`) to `https://stage.ricorico.dev` using the
-`[env.stage]` block in `wrangler.toml`. It has its own GitHub OAuth app (callback `https://stage.ricorico.dev/auth/callback`),
+**Staging.** `https://stage.ricorico.dev` is a separate Worker (`rico-stage`, the `[env.stage]` block in `wrangler.toml`)
+with its own KV namespace (`stage-SESSIONS`), its own GitHub OAuth app (callback `https://stage.ricorico.dev/auth/callback`),
 `GITHUB_CLIENT_ID`, and secrets (`npx wrangler secret put GITHUB_CLIENT_SECRET --env stage`, same for `SESSION_SECRET`).
+The **`stage` branch** deploys it: every push to `stage` runs `.github/workflows/deploy-stage.yml` (tests, then
+`npm run deploy:stage`), using the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. To try a change
+on stage, merge or push it to `stage`; `main` stays production. By hand: `npm run deploy:stage`, or
+`npm run deploy:stage:embed` where the Workers Assets upload cannot be made.
 
 **Fallback deploy (no Workers Assets).** `npm run deploy:embed` deploys the same Worker with the static app embedded in
 the script (`scripts/build-embed.mjs`, `src/worker-embed.js`, `wrangler.embed.toml`; about 7 MB gzipped, so it needs a paid

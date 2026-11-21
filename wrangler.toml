@@ -5,15 +5,15 @@ compatibility_date = "2025-01-01"
 # Served at https://ricorico.dev (the domain must be a zone in your Cloudflare account; deploy creates the DNS record)
 routes = [{ pattern = "ricorico.dev", custom_domain = true }]
 
+# Keep variables set in the Cloudflare dashboard (such as GITHUB_CLIENT_ID) when deploying from here.
+keep_vars = true
+
 # the static app, built by `npm run build`
 [assets]
 directory = "dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"   # /github.com/owner/repo/7 serves the app
 run_worker_first = ["/api/*", "/auth/*"]
-
-# Keep variables set in the Cloudflare dashboard (such as GITHUB_CLIENT_ID) when deploying from here.
-keep_vars = true
 
 [vars]
 # GITHUB_CLIENT_ID (not secret; the OAuth app's client id) is set in the dashboard or here, e.g. GITHUB_CLIENT_ID = "Iv1.abc..."
@@ -35,11 +35,14 @@ id = "4cc5499ef6ed4dc5bc4ba5eff5c02ed3"
 # It needs its own GitHub OAuth app (callback https://stage.ricorico.dev/auth/callback) and its own secrets:
 #   npx wrangler secret put GITHUB_CLIENT_SECRET --env stage
 #   npx wrangler secret put SESSION_SECRET --env stage
-# Set GITHUB_CLIENT_ID for it below or in the dashboard. Sessions stay in the cookie unless you create a separate KV
-# namespace for stage (npx wrangler kv namespace create SESSIONS --env stage) and add a [[env.stage.kv_namespaces]] block.
+# Set GITHUB_CLIENT_ID for it in the dashboard (Workers > rico-stage > Settings > Variables) or in [env.stage.vars].
 [env.stage]
 name = "rico-stage"
 routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
 
 [env.stage.vars]
 OAUTH_SCOPE = "repo"
+
+[[env.stage.kv_namespaces]]
+binding = "SESSIONS"
+id = "752131a96ec94725bd79ceb2461921bd"   # stage-SESSIONS, separate from production

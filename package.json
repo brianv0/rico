@@ -14,7 +14,8 @@
     "deploy": "npm run build && wrangler deploy",
     "deploy:stage": "npm run build && wrangler deploy --env stage",
     "e2e": "node e2e/run.mjs",
-    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml"
+    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml",
+    "deploy:stage:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml --env stage"
   },
   "engines": {
     "node": ">=18"
