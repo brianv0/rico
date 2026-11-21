@@ -96,7 +96,7 @@ fails with `open x.d2: no such file or directory`; the JS port never reads the d
    - `int` division truncates, `%` keeps the sign of the dividend, integer overflow does not happen in
      practice here: use `Math.trunc` where Go divides ints.
    - Typed nil, zero values: a Go struct field that is a struct (not a pointer) always exists, e.g. `primary: {}`.
-5. **Don't type literal U+2028/U+2029 or other invisible characters into source**; write ` ` and check
+5. **Don't type literal U+2028/U+2029 or other invisible characters into source**; write `\u2028` and check
    with `grep -nP '[\x{2028}\x{2029}]' public/d2/*.js` (an editor tool once turned the escapes into the
    characters and broke a regex).
 
