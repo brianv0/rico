@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of Go's net/url package (Go 1.24, BSD-3-Clause, Copyright 2009 The Go Authors): the parts
+// JavaScript port of Go's net/url package (Go 1.27, BSD-3-Clause, Copyright 2009 The Go Authors): the parts
 // d2compiler and d2exporter use (Parse, ParseRequestURI, URL.String and the escaping they rely on).
 //
 // Go strings are byte sequences. Everything here runs on "binary strings" (one JS char per UTF-8 byte); the fields of
@@ -454,7 +454,7 @@ function parse_(rawURL, viaRequest) {
     authority = rest.slice(2); rest = '';
     const i = authority.indexOf('/');
     if (i >= 0) { rest = authority.slice(i); authority = authority.slice(0, i); }
-    const pa = parseAuthority(authority);
+    const pa = parseAuthority(url.Scheme, authority);
     if (pa.err) return { url: null, err: pa.err };
     url.User = pa.user;
     url.Host = dec(pa.host);
@@ -469,11 +469,11 @@ function parse_(rawURL, viaRequest) {
   return { url, err: null };
 }
 
-function parseAuthority(authority) {
+function parseAuthority(scheme, authority) {
   const i = authority.lastIndexOf('@');
   let host, err;
-  if (i < 0) [host, err] = parseHost(authority);
-  else [host, err] = parseHost(authority.slice(i + 1));
+  if (i < 0) [host, err] = parseHost(scheme, authority);
+  else [host, err] = parseHost(scheme, authority.slice(i + 1));
   if (err) return { user: null, host: '', err };
   if (i < 0) return { user: null, host, err: null };
   let userinfo = authority.slice(0, i);
@@ -495,37 +495,192 @@ function parseAuthority(authority) {
 }
 
 // parseHost parses host as an authority without user information. That is, as host[:port].
-function parseHost(host) {
-  if (host.startsWith('[')) {
+function parseHost(scheme, host) {
+  const openBracketIdx = host.lastIndexOf('[');
+  if (openBracketIdx > 0) {
+    return ['', errorsNew('invalid IP-literal')];
+  } else if (openBracketIdx === 0) {
     // Parse an IP-Literal in RFC 3986 and RFC 6874.
     // E.g., "[fe80::1]", "[fe80::1%25en0]", "[fe80::1]:80".
-    const i = host.lastIndexOf(']');
-    if (i < 0) return ['', errorsNew("missing ']' in host")];
-    const colonPort = host.slice(i + 1);
-    if (!validOptionalPort(colonPort)) return ['', errorsNew(`invalid port ${quote(dec(colonPort))} after host`)];
+    const closeBracketIdx = host.lastIndexOf(']');
+    if (closeBracketIdx < 0) return ['', errorsNew("missing ']' in host")];
 
+    const colonPort = host.slice(closeBracketIdx + 1);
+    if (!validOptionalPort(colonPort)) return ['', errorsNew(`invalid port ${quote(dec(colonPort))} after host`)];
+    const [unescapedColonPort, ecp] = unescape(colonPort, encodeHost);
+    if (ecp) return ['', ecp];
+
+    const hostname = host.slice(openBracketIdx + 1, closeBracketIdx);
+    let unescapedHostname;
     // RFC 6874 defines that %25 (%-encoded percent) introduces the zone identifier, and the zone identifier can use basically
-    // any %-encoding it likes.
-    const zone = host.slice(0, i).indexOf('%25');
-    if (zone >= 0) {
-      const [host1, e1] = unescape(host.slice(0, zone), encodeHost);
+    // any %-encoding it likes. That's different from the host, which can only %-encode non-ASCII bytes.
+    // We do impose some restrictions on the zone, to avoid stupidity like newlines.
+    const zoneIdx = hostname.indexOf('%25');
+    if (zoneIdx >= 0) {
+      const [hostPart, e1] = unescape(hostname.slice(0, zoneIdx), encodeHost);
       if (e1) return ['', e1];
-      const [host2, e2] = unescape(host.slice(zone, i), encodeZone);
+      const [zonePart, e2] = unescape(hostname.slice(zoneIdx), encodeZone);
       if (e2) return ['', e2];
-      const [host3, e3] = unescape(host.slice(i), encodeHost);
+      unescapedHostname = hostPart + zonePart;
+    } else {
+      let e3;
+      [unescapedHostname, e3] = unescape(hostname, encodeHost);
       if (e3) return ['', e3];
-      return [host1 + host2 + host3, null];
     }
+
+    // Per RFC 3986, only a host identified by a valid IPv6 address can be enclosed by square brackets. This excludes any IPv4,
+    // but notably not IPv4-mapped addresses.
+    const [is4, perr] = netipParseAddr(unescapedHostname);
+    if (perr !== null) return ['', errorsNew(`invalid host: ${perr}`)];
+    if (is4) return ['', errorsNew('invalid IP-literal')];
+    return ['[' + unescapedHostname + ']' + unescapedColonPort, null];
   } else {
-    const i = host.lastIndexOf(':');
+    let i = host.indexOf(':');
     if (i !== -1) {
+      const lastColon = host.lastIndexOf(':');
+      if (lastColon !== i) {
+        // RFC 3986 does not allow colons to appear in the host subcomponent. However, a number of databases including PostgreSQL
+        // and MongoDB permit a comma-separated list of hosts (with optional ports) in the host subcomponent. Since we
+        // historically permitted colons to appear in the host, enforce strict colons only for http and https URLs. (The
+        // GODEBUG urlstrictcolons=0 escape hatch is not modelled: the default applies.)
+        if (scheme !== 'http' && scheme !== 'https') i = lastColon;
+      }
       const colonPort = host.slice(i);
       if (!validOptionalPort(colonPort)) return ['', errorsNew(`invalid port ${quote(dec(colonPort))} after host`)];
     }
   }
+
   const [h, err] = unescape(host, encodeHost);
   if (err) return ['', err];
   return [h, null];
+}
+
+// net/netip.ParseAddr, reduced to what parseHost needs: [isIPv4, error text]. Strings are binary strings (one char per byte).
+function netipParseAddr(s) {
+  const q = (x) => quote(dec(x));
+  const perr = (inp, msg, at = '') => `ParseAddr(${q(inp)}): ${msg}` + (at !== '' ? ` (at ${q(at)})` : '');
+  for (let i = 0; i < s.length; i++) {
+    switch (s[i]) {
+      case '.': { const e = parseIPv4Fields(s, 0, s.length, perr); return [true, e]; }
+      case ':': return [false, parseIPv6(s, perr)];
+      case '%': return [false, perr(s, 'missing IPv6 address')];
+    }
+  }
+  return [false, perr(s, 'unable to parse IP')];
+}
+
+function parseIPv4Fields(inp, off, end, perr) {
+  let val = 0, pos = 0, digLen = 0;
+  const s = inp.slice(off, end);
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] >= '0' && s[i] <= '9') {
+      if (digLen === 1 && val === 0) return perr(inp, 'IPv4 field has octet with leading zero');
+      val = val * 10 + s.charCodeAt(i) - 48;
+      digLen++;
+      if (val > 255) return perr(inp, 'IPv4 field has value >255');
+    } else if (s[i] === '.') {
+      // .1.2.3
+      // 1.2.3.
+      // 1..2.3
+      if (i === 0 || i === s.length - 1 || s[i - 1] === '.') return perr(inp, 'IPv4 field must have at least one digit', s.slice(i));
+      // 1.2.3.4.5
+      if (pos === 3) return perr(inp, 'IPv4 address too long');
+      pos++;
+      val = 0;
+      digLen = 0;
+    } else {
+      return perr(inp, 'unexpected character', s.slice(i));
+    }
+  }
+  if (pos < 3) return perr(inp, 'IPv4 address too short');
+  return null;
+}
+
+// parseIPv6: the error text, or null when s is a valid address.
+function parseIPv6(inp, perr) {
+  let s = inp;
+  // Split off the zone right from the start.
+  let zone = '';
+  let i = s.indexOf('%');
+  if (i !== -1) {
+    zone = s.slice(i + 1);
+    s = s.slice(0, i);
+    if (zone === '') return perr(inp, 'zone must be a non-empty string'); // Not allowed to have an empty zone if explicitly specified.
+  }
+
+  let ellipsis = -1; // position of ellipsis in ip
+
+  // Might have leading ellipsis
+  if (s.length >= 2 && s[0] === ':' && s[1] === ':') {
+    ellipsis = 0;
+    s = s.slice(2);
+    // Might be only ellipsis
+    if (s.length === 0) return null;
+  }
+
+  // Loop, parsing hex numbers followed by colon.
+  i = 0;
+  while (i < 16) {
+    // Hex number.
+    let off = 0;
+    let acc = 0;
+    for (; off < s.length; off++) {
+      const c = s[off];
+      if (c >= '0' && c <= '9') acc = (acc << 4) + (s.charCodeAt(off) - 48);
+      else if (c >= 'a' && c <= 'f') acc = (acc << 4) + (s.charCodeAt(off) - 97 + 10);
+      else if (c >= 'A' && c <= 'F') acc = (acc << 4) + (s.charCodeAt(off) - 65 + 10);
+      else break;
+      if (off > 3) return perr(inp, 'each group must have 4 or less digits', s); // more than 4 digits in group, fail.
+      if (acc > 0xffff) return perr(inp, 'IPv6 field has value >=2^16', s); // Overflow, fail.
+    }
+    if (off === 0) return perr(inp, 'each colon-separated field must have at least one digit', s); // No digits found, fail.
+
+    // If followed by dot, might be in trailing IPv4.
+    if (off < s.length && s[off] === '.') {
+      if (ellipsis < 0 && i !== 12) return perr(inp, 'embedded IPv4 address must replace the final 2 fields of the address', s); // Not the right place.
+      if (i + 4 > 16) return perr(inp, 'too many hex fields to fit an embedded IPv4 at the end of the address', s); // Not enough room.
+
+      let end = inp.length;
+      if (zone.length > 0) end -= zone.length + 1;
+      const err = parseIPv4Fields(inp, end - s.length, end, perr);
+      if (err !== null) return err;
+      s = '';
+      i += 4;
+      break;
+    }
+
+    // Save this 16-bit chunk.
+    i += 2;
+
+    // Stop at end of string.
+    s = s.slice(off);
+    if (s.length === 0) break;
+
+    // Otherwise must be followed by colon and more.
+    if (s[0] !== ':') return perr(inp, 'unexpected character, want colon', s);
+    else if (s.length === 1) return perr(inp, 'colon must be followed by more characters', s);
+    s = s.slice(1);
+
+    // Look for ellipsis.
+    if (s[0] === ':') {
+      if (ellipsis >= 0) return perr(inp, 'multiple :: in address', s); // already have one
+      ellipsis = i;
+      s = s.slice(1);
+      if (s.length === 0) break; // can be at end
+    }
+  }
+
+  // Must have used entire string.
+  if (s.length !== 0) return perr(inp, 'trailing garbage after address', s);
+
+  // If didn't parse enough, expand ellipsis.
+  if (i < 16) {
+    if (ellipsis < 0) return perr(inp, 'address string too short');
+  } else if (ellipsis >= 0) {
+    // Ellipsis must represent at least one 0 group.
+    return perr(inp, 'the :: must expand to at least one field of zeros');
+  }
+  return null;
 }
 
 function validOptionalPort(port) {

@@ -1,7 +1,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's d2target package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.):
+// JavaScript port of D2's d2target package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.):
 // Diagram, Shape, Connection, Text, Config, ... as classes whose properties are Go's JSON tag names
 // (`shape['3d']`, `shape['double-border']`), with Go's zero values (nil slices are null, nil pointers are null) and
 // a toJSON() that reproduces json.Marshal exactly: field order and omitempty included, because Diagram.hashID hashes
@@ -19,6 +19,7 @@ import * as shape from './shape.js';
 import * as svg from './svg.js';
 import * as textmeasure from './textmeasure.js';
 import { goFixed, go2Min, go2Max, goInt } from './gomath.js';
+import { equalFold, goLower } from './ast.js';
 
 export const DEFAULT_ICON_SIZE = 32;
 export const MAX_ICON_SIZE = 64;
@@ -46,7 +47,7 @@ export const BorderOffset = geo.newVector(5, 5);
  * json.Marshal for values built from this file's classes: objects and toJSON() in insertion order, HTML-safe string
  * escaping (<, >, &, U+2028, U+2029), "-0" for negative zero. Numbers must be finite.
  */
-export function goMarshal(v) {
+export function goMarshal(v, hash = false) {
   if (v === null || v === undefined) return 'null';
   switch (typeof v) {
     case 'boolean': return v ? 'true' : 'false';
@@ -55,11 +56,22 @@ export function goMarshal(v) {
       return Object.is(v, -0) ? '-0' : JSON.stringify(v);
     case 'string': return marshalString(v);
     case 'object':
-      if (typeof v.toJSON === 'function') return goMarshal(v.toJSON());
-      if (Array.isArray(v)) return '[' + v.map(goMarshal).join(',') + ']';
-      return '{' + Object.keys(v).filter((k) => v[k] !== undefined).map((k) => marshalString(k) + ':' + goMarshal(v[k])).join(',') + '}';
+      if (typeof v.toJSON === 'function') return goMarshal(v.toJSON(), hash);
+      if (Array.isArray(v)) return '[' + v.map((x) => goMarshal(x, hash)).join(',') + ']';
+      return '{' + Object.keys(v).filter((k) => v[k] !== undefined).map((k) => marshalString(k) + ':' + (hash && k === 'icon' && v[k] !== null && typeof v[k] === 'object' ? marshalHashURL(v[k]) : goMarshal(v[k], hash))).join(',') + '}';
   }
   throw new Error(`json: unsupported type: ${typeof v}`);
+}
+
+// json.Marshal follows the declaration order of struct fields. Go 1.26 reorganized net/url.URL, which would change diagram hashes
+// (and every SVG identifier derived from them) without changing the diagram, so Diagram.Bytes keeps URL values in the order used
+// through Go 1.25 (marshalHashJSON in d2target.go). Applied only to the icon fields of Shape, Connection and Root.
+const legacyURLFieldOrder = ['Scheme', 'Opaque', 'User', 'Host', 'Path', 'RawPath', 'OmitHost', 'ForceQuery', 'RawQuery', 'Fragment', 'RawFragment'];
+function marshalHashURL(u) {
+  const o = typeof u.toJSON === 'function' ? u.toJSON() : u;
+  const keys = Object.keys(o);
+  if (keys.length !== legacyURLFieldOrder.length || !legacyURLFieldOrder.every((k) => keys.includes(k))) throw new Error(`decode icon URL for stable diagram hash: got ${keys.length} fields, want ${legacyURLFieldOrder.length}`);
+  return '{' + legacyURLFieldOrder.map((k) => marshalString(k) + ':' + goMarshal(o[k])).join(',') + '}';
 }
 
 function marshalString(s) {
@@ -234,7 +246,7 @@ export class Diagram {
   /** Go's Bytes() as a string of the same JSON text (hashID encodes it as UTF-8) */
   bytes() {
     const diagram = this;
-    let base = goMarshal(diagram.shapes) + goMarshal(diagram.connections) + goMarshal(diagram.root);
+    let base = goMarshal(diagram.shapes, true) + goMarshal(diagram.connections, true) + goMarshal(diagram.root, true);
 
     if (diagram.config != null) base += goMarshal(diagram.config);
 
@@ -302,7 +314,7 @@ export class Diagram {
 
       if (targetShape.tooltip !== '' || targetShape.link !== '') {
         if (targetShape.tooltipPosition !== '') {
-          const [tooltipMinX, tooltipMinY, tooltipMaxX, tooltipMaxY] = calculateTooltipBounds(targetShape);
+          const [tooltipMinX, tooltipMinY, tooltipMaxX, tooltipMaxY] = calculateTooltipBounds(targetShape, diagram.fontFamily, diagram.monoFontFamily);
           x1 = go2Min(x1, tooltipMinX);
           y1 = go2Min(y1, tooltipMinY);
           x2 = go2Max(x2, tooltipMaxX);
@@ -519,7 +531,7 @@ export function calculateTooltipPosition(shapeX, shapeY, shapeWidth, shapeHeight
 const utf8ByteLength = (s) => new TextEncoder().encode(s).length;
 
 /** [minX, minY, maxX, maxY] */
-function calculateTooltipBounds(targetShape) {
+function calculateTooltipBounds(targetShape, diagramFontFamily, diagramMonoFontFamily) {
   if (targetShape.tooltip === '' || targetShape.tooltipPosition === '') return [0, 0, 0, 0];
 
   let tooltipWidth, tooltipHeight;
@@ -533,10 +545,18 @@ function calculateTooltipBounds(targetShape) {
   };
   try {
     const ruler = textmeasure.newRuler();
-    let fontFamily = null;
-    if (Object.prototype.hasOwnProperty.call(d2fonts.D2_FONT_TO_FAMILY, targetShape.fontFamily)) fontFamily = d2fonts.D2_FONT_TO_FAMILY[targetShape.fontFamily];
+    let fontFamily = diagramFontFamily ?? null;
+    if (fontFamily === null) fontFamily = d2fonts.SourceSansPro;
+    let monoFontFamily = diagramMonoFontFamily ?? null;
+    if (monoFontFamily === null) monoFontFamily = d2fonts.SourceCodePro;
+    if (equalFold(targetShape.fontFamily, 'mono')) {
+      fontFamily = monoFontFamily;
+    } else if (targetShape.fontFamily !== '' && !equalFold(targetShape.fontFamily, 'default')) {
+      const lower = goLower(targetShape.fontFamily);
+      if (Object.prototype.hasOwnProperty.call(d2fonts.D2_FONT_TO_FAMILY, lower)) fontFamily = d2fonts.D2_FONT_TO_FAMILY[lower];
+    }
 
-    const [width, height] = textmeasure.measureMarkdown(targetShape.tooltip, ruler, fontFamily, null, targetShape.fontSize);
+    const [width, height] = textmeasure.measureMarkdown(targetShape.tooltip, ruler, fontFamily, monoFontFamily, d2fonts.FONT_SIZE_M);
     tooltipWidth = width + 20;
     tooltipHeight = height + 20;
   } catch {
