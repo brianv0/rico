@@ -16,7 +16,9 @@ func XEdgeLengthState(graph *layoutgraph.Graph, options EdgeLengthOptions) uint6
 }
 
 // XEdgeLengthWorkerCount is edgeLengthWorkerCount.
-func XEdgeLengthWorkerCount(nodeCount, gomaxprocs int) int { return edgeLengthWorkerCount(nodeCount, gomaxprocs) }
+func XEdgeLengthWorkerCount(nodeCount, gomaxprocs int) int {
+	return edgeLengthWorkerCount(nodeCount, gomaxprocs)
+}
 
 // XFlowContinuity is flowContinuityCost with the incident-edge replacements of an options-free preparation.
 func XFlowContinuity(ctx context.Context, node *layoutgraph.Node, options EdgeLengthOptions) (float64, error) {

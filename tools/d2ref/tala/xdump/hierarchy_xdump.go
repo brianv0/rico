@@ -53,12 +53,12 @@ func init() {
 // requirements, common uncle siblings), read and written by reflection because the fields are unexported ----
 
 type hierDeepNode struct {
-	ID          int64                           `json:"id"`
-	Margin      *[4]float64                     `json:"margin,omitempty"`  // top, bottom, left, right
-	Padding     *[4]float64                     `json:"padding,omitempty"` // top, bottom, left, right
-	LoopOffsets map[string]float64              `json:"loopOffsets,omitempty"`
-	Herd        *hierDeepHerd                   `json:"herd,omitempty"`
-	LDNR        map[string][3]int               `json:"ldnr,omitempty"` // by neighbor ID: edge count, max width, max height
+	ID          int64              `json:"id"`
+	Margin      *[4]float64        `json:"margin,omitempty"`  // top, bottom, left, right
+	Padding     *[4]float64        `json:"padding,omitempty"` // top, bottom, left, right
+	LoopOffsets map[string]float64 `json:"loopOffsets,omitempty"`
+	Herd        *hierDeepHerd      `json:"herd,omitempty"`
+	LDNR        map[string][3]int  `json:"ldnr,omitempty"` // by neighbor ID: edge count, max width, max height
 }
 
 type hierDeepHerd struct {
@@ -394,8 +394,8 @@ func runHierGen(in input, ruler *textmeasure.Ruler) interface{} {
 
 func runHierRank(in input) interface{} {
 	var args struct {
-		Nodes  []int64 `json:"nodes"`
-		Edges  []struct {
+		Nodes []int64 `json:"nodes"`
+		Edges []struct {
 			ID     int64 `json:"id"`
 			From   int64 `json:"from"`
 			To     int64 `json:"to"`
@@ -585,7 +585,7 @@ func runHierStage(in input) interface{} {
 		counts := map[int]bool{}
 		first := 0
 		var firstErr error
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 24; i++ {
 			g2, _, _ := hierLoad(in)
 			n := 0
 			err := hierRunOp(pcCtx{Context: ctx, n: &n}, g2, op, seed)

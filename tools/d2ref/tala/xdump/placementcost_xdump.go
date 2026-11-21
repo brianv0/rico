@@ -286,6 +286,28 @@ func runPCScore(in input) interface{} {
 	}
 	out["scorers"] = scorers
 
+	// common uncle siblings (set by node placement only while it runs: no stage graph carries them): three nodes at a time
+	prevUncles := g.CommonUncleSiblings
+	g.CommonUncleSiblings = map[*layoutgraph.Node]layoutgraph.Nodes{}
+	for i := 0; i+2 < len(g.Nodes) && i < 30; i += 3 {
+		g.CommonUncleSiblings[g.Nodes[i]] = layoutgraph.Nodes{g.Nodes[i], g.Nodes[i+1], g.Nodes[i+2]}
+		g.CommonUncleSiblings[g.Nodes[i+1]] = layoutgraph.Nodes{g.Nodes[i+1], g.Nodes[i+2]}
+	}
+	g.ResetPlacementCosts()
+	uncles := map[string]interface{}{}
+	for i := 0; i < 8; i++ {
+		i := i
+		uncles[pcKey(i)] = pcTry(func() (interface{}, error) { return placementcost.EdgeLength(ctx, g, pcOpts(i, nil)) })
+	}
+	var uncleNodes []interface{}
+	for i := 0; i+2 < len(g.Nodes) && i < 30; i += 3 {
+		n := g.Nodes[i]
+		uncleNodes = append(uncleNodes, pcTry(func() (interface{}, error) { return placementcost.NodeEdgeLength(ctx, n, pcOpts(5, nil)) }))
+		uncleNodes = append(uncleNodes, pcTry(func() (interface{}, error) { return placementcost.NodeEdgeLength(ctx, n, pcOpts(0, nil)) }))
+	}
+	out["uncles"] = []interface{}{uncles, uncleNodes}
+	g.CommonUncleSiblings = prevUncles
+
 	// context polls (the cancellation points): the number of ctx.Err calls of each function and the error when the context fails in the middle
 	prev := runtime.GOMAXPROCS(1)
 	defer runtime.GOMAXPROCS(prev)

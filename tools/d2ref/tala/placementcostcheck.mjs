@@ -185,6 +185,25 @@ export function pcscoreStage(c0) {
   }
   out.scorers = scorers;
 
+  // common uncle siblings (set by node placement only while it runs: no stage graph carries them): three nodes at a time
+  const prevUncles = g.commonUncleSiblings;
+  g.commonUncleSiblings = new Map();
+  for (let i = 0; i + 2 < g.nodes.length && i < 30; i += 3) {
+    g.commonUncleSiblings.set(g.nodes[i], [g.nodes[i], g.nodes[i + 1], g.nodes[i + 2]]);
+    g.commonUncleSiblings.set(g.nodes[i + 1], [g.nodes[i + 1], g.nodes[i + 2]]);
+  }
+  g.resetPlacementCosts();
+  const uncles = {};
+  for (let i = 0; i < 8; i++) uncles[pcKey(i)] = pcTry(() => pc.edgeLength(c, g, pcOpts(i, null)));
+  const uncleNodes = [];
+  for (let i = 0; i + 2 < g.nodes.length && i < 30; i += 3) {
+    const n = g.nodes[i];
+    uncleNodes.push(pcTry(() => pc.nodeEdgeLength(c, n, pcOpts(5, null))));
+    uncleNodes.push(pcTry(() => pc.nodeEdgeLength(c, n, pcOpts(0, null))));
+  }
+  out.uncles = [uncles, uncleNodes.length ? uncleNodes : null];
+  g.commonUncleSiblings = prevUncles;
+
   // context polls
   const cands = [];
   for (const n of g.nodes) if (n.edges.length > 0 && cands.length < 3) cands.push(n);
