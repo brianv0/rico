@@ -86,6 +86,40 @@ async function callback(request, env, url) {
   return new Response(null, { status: 302, headers });
 }
 
+// Preview mode: signed-out visitors can read PUBLIC pull requests (never post). Requests use the optional PREVIEW_TOKEN
+// secret (a token with no private access, only to lift GitHub's anonymous rate limit) or none, and good responses are
+// cached at the edge for a minute so many visitors share one GitHub call.
+const PREVIEW_GET = new Set(['/api/pr', '/api/file', '/api/raw']);
+const PREVIEW_HINT = ' Preview mode only reads public repositories; sign in with GitHub for private ones.';
+
+async function preview(env, request, url) {
+  if (url.pathname === '/api/me') return json(200, { hosted: true, preview: true });
+  if (request.method !== 'GET' || !PREVIEW_GET.has(url.pathname)) return json(401, { error: 'Sign in with GitHub to comment.', signin: true });
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  const key = new Request(url.toString(), { method: 'GET' });
+  if (cache) { const hit = await cache.match(key); if (hit) return hit; }
+  const github = createGithub({ apiUrl: env.GITHUB_API_URL || 'https://api.github.com', getToken: () => env.PREVIEW_TOKEN || '' });
+  const res = await github.route('GET', url, async () => ({}));
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const gate = [401, 403, 404].includes(res.status);
+    return json(res.status, { error: (body.error || 'GitHub error') + (gate ? PREVIEW_HINT : ''), signin: gate });
+  }
+  if (url.pathname === '/api/pr') {
+    const text = await res.text();
+    if (JSON.parse(text).isPrivate) return json(404, { error: 'GitHub: Not Found.' + PREVIEW_HINT, signin: true }); // never show private data without sign-in
+    const out = new Response(text, { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
+    if (cache) await cache.put(key, out.clone());
+    return out;
+  }
+  if (url.pathname === '/api/file') {
+    const out = new Response(await res.text(), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=60' } });
+    if (cache) await cache.put(key, out.clone());
+    return out;
+  }
+  return res;
+}
+
 async function api(request, env, url) {
   // cross-site requests and forged POSTs: a custom header forces a CORS preflight, and Origin must match
   if (request.method === 'POST') {
@@ -93,6 +127,7 @@ async function api(request, env, url) {
     if (request.headers.get('X-Rico') !== '1' || (origin && origin !== url.origin)) return json(403, { error: 'forbidden' });
   }
   const sess = await readSession(env, request.headers.get('Cookie'));
+  if (!sess?.t) return preview(env, request, url);
   const github = createGithub({
     apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
     getToken: () => {

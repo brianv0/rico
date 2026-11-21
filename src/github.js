@@ -43,7 +43,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
     const res = await fetch(API + apiPath, {
       method,
       headers: {
-        Authorization: `Bearer ${getToken()}`,
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}), // no token: anonymous (preview) requests
         Accept: accept || 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         'User-Agent': 'rico',
@@ -110,6 +110,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com' }) {
       repo,
       number,
       comments: comments.filter((c) => MD_RE.test(c.path || '')).map(compact),
+      isPrivate: !!pull.base?.repo?.private,
       title: pull.title,
       state: pull.state,
       url: pull.html_url,

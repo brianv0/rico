@@ -157,5 +157,12 @@ KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone c
 the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
 (30 days).
 
+**Preview mode.** Signed-out visitors can open public pull requests read-only (a "Preview · read-only" badge and a
+Sign in button show in the header); commenting, replying and posting a review need sign-in. Private repositories are
+never shown without it. GitHub allows only 60 anonymous requests an hour per IP, and a Worker shares IPs, so set a
+`PREVIEW_TOKEN` secret: a token with **no private access** (a classic token with no scopes, or a fine-grained one
+limited to public repositories) that only lifts the rate limit. Good responses are cached at the edge for a minute.
+Never give `PREVIEW_TOKEN` access to private repositories: its responses are shared between visitors.
+
 `npm run dev:cf` runs the Worker locally (`wrangler dev`, with the same variables in a `.dev.vars` file). Changing
 `SESSION_SECRET` signs everyone out. Locally, `npm start` is unchanged and uses your own token.

@@ -18,6 +18,11 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.hostname === 'api.github.com' && u.pathname === '/user') {
     return opts.headers.Authorization === 'Bearer gho_usertoken' ? Response.json({ login: 'octo', avatar_url: 'a' }) : Response.json({ message: 'Bad credentials' }, { status: 401 });
   }
+  if (u.hostname === 'api.github.com' && /^\/repos\/o\/(pub|priv)\/pulls\/1$/.test(u.pathname)) {
+    return Response.json({ title: 'T', state: 'open', head: { sha: 'abc1234', ref: 'h' }, base: { sha: 'def5678', ref: 'main', repo: { private: u.pathname.includes('priv') } }, user: { login: 'u' } });
+  }
+  if (u.hostname === 'api.github.com' && /\/pulls\/1\/(files|comments)$/.test(u.pathname)) return Response.json([]);
+  if (u.hostname === 'api.github.com' && u.pathname.startsWith('/repos/o/gone')) return Response.json({ message: 'Not Found' }, { status: 404 });
   if (u.hostname === 'api.github.com' && u.pathname === '/repos/o/r/pulls/1/reviews') return Response.json({ id: 9, html_url: 'h', state: 'COMMENTED' });
   return Response.json({ message: 'Not Found' }, { status: 404 });
 };
@@ -76,10 +81,10 @@ test('callback rejects a wrong or missing state, a bad code, and an offsite retu
   assert.equal(ok.headers.get('Location'), '/', '//evil.example is not an acceptable return path');
 });
 
-test('api: signed out is a 401 with signin:true; signed in reaches GitHub with the user token', async () => {
+test('api: signed out is preview mode; signed in reaches GitHub with the user token', async () => {
   const out = await worker.fetch(req('/api/me'), env);
-  assert.equal(out.status, 401);
-  assert.equal((await out.json()).signin, true);
+  assert.equal(out.status, 200);
+  assert.deepEqual(await out.json(), { hosted: true, preview: true });
   const { cookie } = await signIn();
   const me = await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), env);
   assert.deepEqual(await me.json(), { login: 'octo', avatar: 'a', hosted: true });
@@ -87,7 +92,7 @@ test('api: signed out is a 401 with signin:true; signed in reaches GitHub with t
 });
 
 test('api: a forged or tampered session cookie is just signed out; a revoked token asks to sign in again', async () => {
-  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=AAAA' } }), env)).status, 401);
+  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=AAAA' } }), env)).json()).preview, true);
   const revoked = await seal(env.SESSION_SECRET, { t: 'gho_revoked' }, 1e6);
   const res = await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=' + revoked } }), env);
   assert.equal(res.status, 401);
@@ -135,10 +140,10 @@ test('split sessions: cookie holds no token, KV holds only ciphertext, and eithe
   const me = await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e);
   assert.equal((await me.json()).login, 'octo');
   // the cookie without the KV entry
-  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), { ...e, SESSIONS: kv() })).status, 401);
+  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), { ...e, SESSIONS: kv() })).json()).preview, true);
   // the KV entry with a different cookie half (or a plain old-style cookie)
   const [, sid] = cookie.split('=')[1].split('.');
-  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: `rico_session=v2.${sid}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` } }), e)).status, 401);
+  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: `rico_session=v2.${sid}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` } }), e)).json()).preview, true);
   assert.equal(await open(env.SESSION_SECRET, stored), null, 'the server secret alone cannot read the KV entry');
 });
 
@@ -148,7 +153,7 @@ test('split sessions: signing out deletes the server half, so a copied cookie st
   const out = await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1', Cookie: cookie } }), e);
   assert.equal(out.status, 200);
   assert.equal(e.SESSIONS.m.size, 0);
-  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e)).status, 401, 'the replayed cookie is dead');
+  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), e)).json()).preview, true, 'the replayed cookie is dead: back to preview');
 });
 
 // ---- hardening: every response carries the CSP / framing headers; '.' and '..' are not owner/repo names
@@ -167,4 +172,28 @@ test('api: "." and ".." are rejected as owner/repo before anything reaches GitHu
     assert.equal((await worker.fetch(req(p, { headers: { Cookie: cookie } }), env)).status, 400);
   }
   assert.equal(calls.slice(before).filter((c) => c.url.includes('/repos/')).length, 0);
+});
+
+test('preview: signed-out visitors read public PRs anonymously (or with PREVIEW_TOKEN) but cannot post', async () => {
+  const pr = await worker.fetch(req('/api/pr?ref=o/pub%231'), env);
+  assert.equal(pr.status, 200);
+  assert.equal((await pr.json()).title, 'T');
+  assert.equal(calls.findLast((c) => c.url.includes('/pulls/1')).opts.headers.Authorization, undefined, 'anonymous: no token is sent');
+  await worker.fetch(req('/api/pr?ref=o/pub%231'), { ...env, PREVIEW_TOKEN: 'ghp_public' });
+  assert.equal(calls.findLast((c) => c.url.endsWith('/pulls/1')).opts.headers.Authorization, 'Bearer ghp_public');
+  const review = await worker.fetch(req('/api/review', { method: 'POST', headers: { 'X-Rico': '1', Origin: ORIGIN }, body: '{}' }), env);
+  assert.equal(review.status, 401);
+  assert.equal((await review.json()).signin, true);
+});
+
+test('preview: private or missing repositories are not shown and point to sign-in', async () => {
+  const priv = await worker.fetch(req('/api/pr?ref=o/priv%231'), env);
+  assert.equal(priv.status, 404);
+  const b = await priv.json();
+  assert.equal(b.signin, true);
+  assert.match(b.error, /public repositories/);
+  assert.ok(!JSON.stringify(b).includes('"title"'), 'no private PR data is returned');
+  const gone = await worker.fetch(req('/api/pr?ref=o/gone%231'), env);
+  assert.equal(gone.status, 404);
+  assert.equal((await gone.json()).signin, true);
 });

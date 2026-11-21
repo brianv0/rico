@@ -215,14 +215,15 @@ async function showWho() {
   try {
     const res = await fetch('/api/me');
     const me = await res.json().catch(() => ({}));
-    if (res.ok && me.hosted) {
+    if (res.ok && me.preview) { // signed out, reading public PRs
+      who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
+      const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
+      a.href = signinUrl();
+    } else if (res.ok && me.hosted) {
       who.innerHTML = `${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : ''}<span>${esc(me.login)}</span>`;
       const out = who.appendChild(el('button', 'btn', 'Sign out'));
       out.type = 'button';
       out.addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }); location.reload(); });
-    } else if (res.status === 401 && me.signin) {
-      const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
-      a.href = signinUrl();
     }
   } catch { /* offline: leave it empty */ }
 }
