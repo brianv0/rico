@@ -195,13 +195,15 @@ async function e2e(file, flags) {
   const cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   let same = 0, noGolden = 0, errSame = 0;
   const bad = [];
+  // --layout elk: the goldens are testdata/<name>/elk/board.exp.json (cases marked justDagre have none; elkFeatureError cases are expected to fail the plugin's feature check, which is not part of d2lib.Compile)
+  const engine = flags.includes('--layout') ? flags[flags.indexOf('--layout') + 1] : 'dagre';
   const tolv = Number(flags.includes('--tol') ? flags[flags.indexOf('--tol') + 1] : 0);
   for (const c of cases) {
-    const gp = path.join(src, 'e2etests/testdata', c.name, 'dagre/board.exp.json');
-    const copts = { utf16: false, layout: 'dagre', ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined };
+    const gp = path.join(src, 'e2etests/testdata', c.name, `${engine}/board.exp.json`);
+    const copts = { utf16: false, layout: engine, ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined };
     const r = d2compile(c.text, copts, c.themeID != null ? { themeID: c.themeID } : {});
     if (c.expErr) { if (r.err && r.err.message === c.expErr) errSame++; else bad.push({ name: c.name, path: '$err', got: r.err && r.err.message, want: c.expErr }); continue; }
-    if (c.dagreFeatureError || !fs.existsSync(gp)) { noGolden++; continue; }
+    if ((engine === 'dagre' ? c.dagreFeatureError : engine === 'elk' ? c.elkFeatureError || c.justDagre : false) || !fs.existsSync(gp)) { noGolden++; continue; }
     if (r.err) { bad.push({ name: c.name, path: '$err', got: r.err.message, want: 'a diagram' }); continue; }
     const want = JSON.parse(fs.readFileSync(gp, 'utf8'));
     const got = JSON.parse(JSON.stringify(r.diagram));
@@ -209,7 +211,7 @@ async function e2e(file, flags) {
     const d = firstDiff(sortKeys(got), sortKeys(want), "$", tolv); // key order is not compared (v0.9.0 goldens write url.URL fields in another order)
     if (d) bad.push({ name: c.name, ...d }); else same++;
   }
-  console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden`);
+  console.log(`e2e: ${same}/${same + bad.length} ${engine} goldens identical, ${errSame} expected errors identical, ${noGolden} without golden`);
   for (const b of bad.slice(0, Number(flags.includes('--show') ? flags[flags.indexOf('--show') + 1] : 8))) console.log(`\n${b.name}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
   process.exit(bad.length ? 1 : 0);
 }
