@@ -29,6 +29,7 @@ import { sortCheck } from './sortcheck.mjs';
 import { strconvCheck } from './strconvcheck.mjs';
 import { sprintfCheck } from './sprintfcheck.mjs';
 import { graphMethods } from './graphcheck.mjs';
+import { dimsCheck } from './dimscheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -70,6 +71,7 @@ const STAGES = {
   strconv: strconvCheck,
   sprintf: sprintfCheck,
   graphmethods: graphMethods,
+  dims: (c) => dimsCheck(c, ruler),
   // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
   // ported) is reported as deferred.
   layout: (c) => {

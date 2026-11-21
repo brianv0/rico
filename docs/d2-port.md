@@ -14,7 +14,7 @@ Source: D2 **v0.7.2** (`oss.terrastruct.com/d2`, MPL-2.0). Every ported file kee
 | parse | `d2ast`, `d2parser` | `public/d2/ast.js`, `parser.js` | 972/972 corpus cases, UTF-8 and UTF-16 |
 | ir | `d2ir` (+ `d2format.Format`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | 1025/1025 corpus cases, UTF-8 and UTF-16; 190/190 extra cases (`extra.jsonl`); about 40k fuzzed cases. Residue below |
 | graph | `d2compiler`, `d2graph` (not serde.go, not `SetDimensions`), `net/url`, `html.UnescapeString`, `encoding/xml` (the Markdown check), `sort.Slice`, `strconv`, `fmt.Sprintf` | `d2compiler.js`, `d2graph.js`, `url.js`, `gohtml.js` + `htmlentity.js`, `xml.js`, `gosort.js`, `strconv.js`, `gofmt.js` (+ `d2target` `Class`/`SQLTable`, `d2ast` label/near tables) | 1025/1025 corpus, UTF-8 and UTF-16; 347/347 `extra.jsonl`; about 30k fuzzed cases clean except the residue below. Support stages: `url` 4122, `htmlunescape` 6017, `xml` 9038, `sortslice` 3000, `strconv` 6093, `sprintf` 6501 (all identical); `graphmethods` (read-only d2graph methods) 1025 |
-| layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout`, `d2exporter`, `lib/geo`, `lib/shape`, `lib/label` | done: `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js` | `measure`: 127259/127259 (plain, code, markdown, unicode fuzz); `shape`: 297/360 exact, the other 63 within 1e-9 (libm); `label`: 381/381. Rest of the row not started. Residue: see "Leaf packages" |
+| layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout` (Go glue; D2's own `dagre.js`/`setup.js` run unmodified from `vendor/`), `d2exporter`, `d2lib` (Compile, applyConfigs/Defaults, boards), `lib/geo`, `lib/shape`, `lib/label` | `textmeasure.js` (+ `fonts.js`, `fonts/metrics.json`, `uniseg.js`, `htmlparse.js`), `geo.js`, `shape.js`, `label.js`, `gomath.js`, `d2graph.js` (`setDimensions`), `d2exporter.js`, `d2layouts.js`, `d2near.js`, `d2grid.js`, `d2sequence.js`, `d2dagrelayout.js`, `vendor/`, `d2lib.js` (`compile(text, opts)` -> `{diagram, graph, err}`) | `layout` corpus 1021/1021 (+4 deferred: latex), UTF-8 and UTF-16; `extra.jsonl` 343/343 (+2 deferred, 2 Go panics); `dims` 1021/1021; D2's e2e goldens (`e2e` stage) 296/296 dagre boards (+9 latex deferred, 7 stale golden dirs); about 10k fuzzed cases clean except the residue below. Support stages: `measure` 127259/127259, `shape` 297/360 exact (rest within 1e-9, libm), `label` 381/381 |
 | render | `d2renderers/d2svg`, `lib/svg`, `lib/color` | done: `svg.js`, `color.js` (renderer itself not started) | `color`: 2436/2438 (the two are `oklch()` last-bit libm) |
 | later | `d2elklayout`, `d2sketch`, `d2latex`, `d2animate` | | |
 
@@ -178,3 +178,51 @@ generated from it; keep the template in sync).
 - Markdown validation depends on markdown-it matching goldmark's HTML: a few pathological inputs differ (`<!iv>x</div>`, control-character entities inside link destinations); same residue as `mdhtml`.
 - `strconv.Atoi` results beyond 2^53 and hex-float subnormals are doubles/rounded; unobservable in the compared output.
 - `html.UnescapeString` and `net/url` are complete (full entity table, 11 KB gzipped: `htmlentity.js`, only needed by `validateBoardLinks` and d2ir imports).
+
+
+## Layout stage: what was learned
+
+Run: `node diff.mjs layout corpus.jsonl [--utf16]` (`{diagram, err}` of `d2lib.Compile` with the dagre layout, as the e2e tests run it),
+`node diff.mjs dims corpus.jsonl` (the state right after `SetDimensions`: sizes, label dims/positions, no layout), and
+`node diff.mjs e2e e2e.jsonl` (D2's own goldens). `e2e.jsonl` comes from `e2eenum/run.sh`: it runs `go test` on D2's `e2etests`
+with an overlay that swaps `run()` for a recorder (name, script, measured texts, themeID, expected errors), so the inputs are exactly what
+Go compiles, whatever Go code builds them; the goldens are `testdata/<name>/dagre/board.exp.json` in the module cache. Fuzz with
+`fuzz.mjs corpus.jsonl N seed > f.jsonl && node diff.mjs layout f.jsonl`.
+
+- **Everything matches without tolerance.** dagre.js only calls `Math.abs/ceil/floor/max/min`, which are exact in goja and V8, and its
+  sorts have total tie-breakers, so JS (V8) and Go (goja) give identical numbers; `--tol` is not used by any layout stage. goja's
+  `for in` order of integer-like keys did not matter either.
+- **Fresh dagre per layout, like goja.** `d2dagrelayout.js` builds the same strings Go evals (setup.js, `setGraph`, `setNode/setParent/setEdge` lines,
+  `dagre.layout(g)`, the `JSON.stringify(g.node(...))` reads) and runs them with `new Function`; dagre's module state (lodash `uniqueId`) is
+  re-created per call (the compiled factory is kept). `new Function` needs `'unsafe-eval'` in a page CSP: the render/wiring stage
+  has to either allow it for this one script or provide `setDagreFactory(fn)` with dagre loaded as a classic script instead.
+  `await loadDagre()` (or `d2lib.init()`) must run first; `compileSync` needs it done, `compile` awaits it.
+- **Go-unstable output.** `d2dagrelayout` ranges over Go maps (`shiftReachableDown`'s `seen`/`shifted`, `adjustRankSpacing`'s ancestor maps),
+  so Go itself prints different layouts on different runs for some inputs (seen on a fuzzed `dagre_spacing_right.d2`: 2 variants over
+  12 runs). The JS port uses insertion order. The `layout` stage re-runs Go 30 times on a mismatching case and counts it as identical
+  ("Go-unstable") if Go ever prints the JS answer. D2's own goldens are all stable.
+- **Go values that bit**: `geo.TruncateDecimals` is `float64(int(v*1000))/1000`, so NaN/Inf become MinInt64/1000 (`goInt`); `d2sequence`
+  `float64(label.Height/2.)` is an integer division (untyped constant `2.` becomes int) and `heightAdd` is an int; `cases.Title` (x/text)
+  is a state machine (digits do not start a word: `1st` -> `1St`, `layers.x` stays one word) - ported with Unicode property escapes for
+  its tables (`titleCase` in `d2graph.js`; exotic scripts/special casing other than final sigma, digraphs, ligatures are approximated);
+  `encoding/json` refuses NaN, so d2ref prints `{"panic": ...}` for such a case (e.g. `style.opacity: nan`) and the harness skips it.
+- **Deferred (not counted as matches)**: any board with a `latex` label (needs `d2latex`/MathJax in goja): the JS port throws
+  `LatexNotPorted` from `setDimensions`, `compile` returns it as `err.name`. ELK is not ported (`layout: 'elk'` -> `ElkNotPorted`); the Go harness
+  and the e2e tests always pass `Layout: dagre`, which overrides `d2-config`'s layout-engine, so no corpus case needs ELK; `sketch`
+  only switches the font family to HandDrawn and is covered. `d2plugin.FeatureSupportCheck` (the "dagre does not support ..." errors
+  the e2e tests expect on 5 cases) is not ported and not part of `d2lib.Compile`.
+- **API shape**: `compile(text, opts, renderOpts)` async / `compileSync`: `opts` = `{utf16, fs, inputPath, layout, layoutResolver, routerResolver, measuredTexts, ruler (null = none), fontFamily, monoFontFamily}`;
+  `renderOpts` = `{themeID, darkThemeID, sketch, pad, center, themeOverrides, darkThemeOverrides}` is filled in from `d2-config` and the defaults
+  (read it back for the render stage: `pad` default 100, `center`, theme overrides). `diagram.config` carries themeID/darkThemeID/sketch. Errors are
+  `Error` objects (`err.message` is Go's text). Register markdown-it first (`init({markdownit})`).
+- **Conventions in the layout code**: Go's `obj.TopLeft.X` is `obj.box.TopLeft.x` (Box fields stay capitalised, Point fields are `x`/`y`), `obj.Width` is
+  `obj.box.Width`, `obj.Label` is `obj.attributes.label`, `obj.Children` a Map (`size`), `LabelPosition` the string `obj.labelPosition`. `ExtractSubgraph`'s
+  `nestedGraph.Root.Attributes = container.Attributes` is a struct copy in Go: `copyAttributes` in `d2layouts.js` copies the value fields and shares pointers.
+  `slices.SortFunc`/`sort.Slice` use the pdqsort of `gosort.js`; `sort.SliceStable` uses JS's stable sort.
+
+### Notes for the render stage
+
+- Inputs are `{diagram}` as printed by Go (`diagram.toJSON()`); `compile(...)` gives `diagram.shapes/connections/root/layers/...`. `Diagram.bytes()` and
+  `hashID()` are in `target.js` (needed for multiboard IDs, `renderOpts.masterID`).
+- `shape.icon` / `connection.icon` are `url.URL` objects (`url.js`), `diagram.fontFamily` etc. are plain strings.
+- Layout output coordinates are integers for shapes and Go `float32`-rounded 3-decimal values for routes (`truncateDecimals` + `truncateFloat32` in the exporter).

@@ -144,6 +144,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return htmlUnescapeCheck(in)
 	case "xml":
 		return xmlCheck(in)
+	case "dims":
+		return dimsCheck(in, ruler)
 	case "graphmethods":
 		return graphMethods(in)
 	case "sprintf":
