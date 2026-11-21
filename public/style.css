@@ -379,3 +379,24 @@ textarea { resize: vertical; padding: 8px 12px; }
 @media (prefers-reduced-motion: no-preference) { .thread .mid { animation: none; } }
 .thread.opened .mid { display: block; } .thread.opened .more { display: none; }
 .thread.opened.clamped .text { max-height: none; -webkit-mask-image: none; mask-image: none; } .thread.opened .showmore { display: none; }
+
+/* comments column: ribbons, synced (sticky, non-linear) mode, overview ticks */
+.file-body { position: relative; }
+.rico-track { position: absolute; left: 0; right: 0; top: 0; }
+.rico-ribbons { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 1; }
+.rico-ribbons path { fill: none; stroke: color-mix(in srgb, var(--accent) 28%, transparent); stroke-width: 1.5; transition: stroke .1s; }
+.rico-ribbons path.resolved { stroke-dasharray: 3 3; stroke: color-mix(in srgb, var(--fg-muted) 40%, transparent); }
+.rico-ribbons path.on { stroke: var(--accent); stroke-width: 2.5; }
+.file-body.sync .rico-margin { position: sticky; top: calc(var(--toolbar-h) + 8px); height: calc(100vh - var(--toolbar-h) - 24px); overflow: hidden; align-self: flex-start; }
+.file-body.sync .rico-track { will-change: transform; }
+.rico-margin .cnt { position: absolute; left: 50%; transform: translateX(-50%); z-index: 9; padding: 1px 10px; font-size: 11px; color: var(--accent); background: var(--bg); border: 1px solid var(--border); border-radius: 2em; box-shadow: var(--shadow); cursor: pointer; }
+.rico-margin .cnt.up { top: 4px; } .rico-margin .cnt.down { bottom: 4px; } .rico-margin .cnt[hidden] { display: none; }
+#ticks { position: fixed; right: 0; top: 0; width: 10px; height: 100vh; z-index: 30; pointer-events: none; }
+#ticks .tick { position: absolute; right: 1px; width: 8px; height: 4px; padding: 0; background: var(--accent); border: 0; border-radius: 1px; opacity: .8; cursor: pointer; pointer-events: auto; }
+#ticks .tick.pending { background: var(--attention); } #ticks .tick.resolved { background: var(--fg-muted); opacity: .4; } #ticks .tick.mine { width: 10px; right: 0; }
+@media (max-width: 1150px) { .rico-ribbons, #ticks { display: none; } .rico-track { position: static; } }
+
+.thread .who { position: relative; }
+.thread .who .macts { position: absolute; right: 6px; top: 50%; margin-left: 0; transform: translateY(-50%); padding-left: 16px; background: linear-gradient(90deg, transparent, var(--bg-inset) 12px); }
+.rico-margin .cnt { left: 0; right: 0; transform: none; border-radius: 0; border-left: 0; border-right: 0; text-align: center; box-shadow: none; background: color-mix(in srgb, var(--bg) 92%, var(--accent)); }
+.rico-margin .cnt.up { top: 0; border-top: 0; } .rico-margin .cnt.down { bottom: 0; border-bottom: 0; }

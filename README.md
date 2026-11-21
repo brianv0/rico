@@ -75,6 +75,18 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   for removed text, text outside the diff, or a selection that spans hunks. An empty replacement suggests deleting the lines. Existing
   suggestions render in threads as a diff against the lines they replace. A suggestion is a normal comment: *Comment* posts it now,
   *Start a review* batches it.
+- **Long threads and long margins.** A thread with 3+ messages folds to its first and last message (a "N more replies" row with avatars);
+  very long messages clamp. Hovering a moment (or keyboard focus) *peeks*: the full card floats over its neighbours without moving them;
+  clicking "more replies" / "Show more" (or starting a reply) *pins* it open. Every card is tied to its words by a faint **ribbon** in
+  the gutter (solid for the hovered or active thread, dashed for resolved), and a strip of **ticks** by the scrollbar marks every thread
+  in the page (accent = open, amber = pending, grey = resolved, wide = yours); click one to jump there.
+  When the comments would make the margin much longer than the document (`auto` mode: > 1.25 × the document and > 1.5 × the window),
+  the margin becomes **synced**: a sticky, window-high column with the cards stacked, and *non-linear scrolling*. A focus line sits
+  about a third down the window; the margin slides so the thread at the focus line is level with its text, moving fast through a long
+  discussion and barely at all through plain text (piecewise linear through the text-position / card-position pairs, `mapPosition` in
+  `lib.js`). The wheel over the margin scrolls at the margin's own speed (the page follows through the inverse mapping), "▲ 3 above /
+  ▼ 8 below" jump to what is out of view. The header button *Comments: auto / aligned / synced* chooses (remembered in this browser);
+  narrow windows stack the comments under the text as before.
 - Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
   markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 

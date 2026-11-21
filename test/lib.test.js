@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -466,4 +466,18 @@ test('clamped comments carry the actual selected lines in a collapsed block; lon
   assert.match(many, /l19\n… 60 more lines …\nl80\n/);
   assert.match(rangeDetails({ ...base, side: 'LEFT' }), /at abc1234 \(old file\)/);
   assert.match(rangeDetails({ ...base, lines: ['```js'] }), /````\n```js\n````/, 'fences cannot be broken out of');
+});
+
+test('mapPosition: linear between threads, 1:1 outside, monotonic, never stalls the wheel', () => {
+  const pts = [{ d: 100, m: 0 }, { d: 200, m: 300 }, { d: 200, m: 600 }, { d: 500, m: 700 }];
+  assert.equal(mapPosition(pts, 100), 0);
+  assert.equal(mapPosition(pts, 150), 150); // 100 text px are worth 300 margin px here: fast through a discussion
+  assert.equal(mapPosition(pts, 50), -50); // before the first thread the margin moves with the text
+  assert.equal(mapPosition(pts, 350), 650); // between 200 and 500 it barely moves
+  assert.equal(mapPosition(pts, 600), 800); // after the last, 1:1
+  let last = -Infinity;
+  for (let d = -50; d < 800; d += 7) { const m = mapPosition(pts, d); assert.ok(m >= last); last = m; }
+  assert.equal(positionSlope(pts, 150), 3);
+  assert.ok(positionSlope([{ d: 0, m: 5 }, { d: 100, m: 5 }], 50) > 0, 'a flat stretch still lets the wheel move');
+  assert.equal(mapPosition([], 42), 42);
 });

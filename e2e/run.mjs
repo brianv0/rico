@@ -25,9 +25,10 @@ page.on('pageerror', (e) => errors.push(e.message));
 const cspBlocked = [];
 let expectHttp = false; // while a step provokes GitHub errors on purpose, the browser's own "Failed to load resource" line is expected
 page.on('console', (m) => { if (m.type() !== 'error') return; if (expectHttp && /Failed to load resource: the server responded with a status of (401|403|422)/.test(m.text())) return; if (/violates the following Content Security Policy/.test(m.text())) cspBlocked.push(m.text()); else errors.push(m.text()); });
+await page.addInitScript(() => { try { localStorage.setItem('rico:margin', 'aligned'); } catch { /* ignore */ } }); // the existing checks are about the aligned layout; synced mode has its own
 let failed = false;
 let nfail = 0;
-const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ')); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
+const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ') + '\n     at ' + (String(e.stack).split('\n').find((l) => l.includes('e2e/run.mjs')) || '').trim()); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
 
 // Where is `t` on screen right now? Searches the active document's text across element boundaries
 // (syntax highlighting splits code into many spans). Optionally scrolls it to the middle first.
@@ -1037,6 +1038,65 @@ await step('long threads fold to first + last message; hover peeks the rest, cli
   assert.ok((await long.locator('.text').evaluate((e) => e.getBoundingClientRect().height)) < 170, 'clamped');
   await long.getByRole('button', { name: 'Show more' }).click();
   assert.equal(await page.locator('#margin .thread.clamped', { hasText: 'Long thought' }).count(), 0);
+});
+
+await step('synced margin: sticky column, non-linear scroll keeps the thread at the focus line level with its text', async () => {
+  await page.locator('#files button[data-path="docs/complex.md"]').click();
+  await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/complex.md' && document.querySelector('#doc h1'));
+  const n = await page.evaluate(() => window.__rico.state.lines.length);
+  const anchors = [3, 8, 8, 12, 20, 21, 30, 38, 44, 52, 60, 70].filter((l) => l < n);
+  let rootId = 0;
+  for (const [i, l] of anchors.entries()) {
+    const id = fake.addComment({ path: 'docs/complex.md', user: { login: 'rev' + i }, line: l, original_line: l, body: `Thread ${i}: ` + 'a fairly long comment that wraps over several lines in the margin. '.repeat(3) });
+    if (i === 3) rootId = id;
+  }
+  for (let r = 0; r < 4; r++) fake.addComment({ path: 'docs/complex.md', user: { login: 'chatty' + r }, line: 12, original_line: 12, in_reply_to_id: rootId, body: 'Reply ' + r + ' with some more words to take up room in the thread.' });
+  await page.evaluate(() => window.__rico.refreshComments(true));
+  await page.waitForFunction((k) => document.querySelectorAll('#margin .thread').length >= k, anchors.length - 1);
+  assert.equal(await page.locator('#cards .file-body.sync').count(), 0, 'aligned mode (forced for the other checks) is not synced');
+  assert.ok(await page.locator('.rico-ribbons path:visible').count() >= 1, 'ribbons tie cards to their text in aligned mode too');
+  await page.evaluate(() => window.__rico.setMarginMode('sync'));
+  await page.waitForSelector('.file-card:not(.collapsed) .file-body.sync');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('margin')).position), 'sticky');
+  const F = await page.evaluate(() => { const T = 49; return T + (innerHeight - T) * 0.35; });
+  const cards = () => page.evaluate(() => window.__rico.views.get('docs/complex.md').marginItems.map((it) => ({ id: it.id, a: it.blocks[0].getBoundingClientRect().top, c: it.card.getBoundingClientRect().top })));
+  // bring each of several threads' text to the focus line: its card must be level with it
+  for (const k of [0, 3, 5, 9]) {
+    const list = await cards();
+    await page.evaluate(([y]) => window.scrollBy(0, y), [list[k].a - F]);
+    await page.waitForTimeout(150);
+    const now = (await cards())[k];
+    assert.ok(Math.abs(now.c - F) < 6 && Math.abs(now.a - F) < 6, `thread ${k}: text at ${now.a}, card at ${now.c}, focus ${F}`);
+  }
+  // non-linear: between two threads the margin moves at its own speed (not the page's)
+  const list = await cards();
+  await page.evaluate(([y]) => window.scrollBy(0, y), [list[1].a - F]);
+  await page.waitForTimeout(150);
+  const t0 = await page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector('#margin .rico-track')).transform).m42);
+  const yb = await page.evaluate(() => scrollY);
+  await page.evaluate(() => window.scrollBy(0, 60));
+  await page.waitForTimeout(150);
+  const moved = (await page.evaluate(() => scrollY)) - yb;
+  const t1 = await page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector('#margin .rico-track')).transform).m42);
+  assert.ok(moved >= 50 && Math.abs(t1 - t0) > 5 && Math.abs(Math.abs(t1 - t0) - moved) > 10, `margin moved ${t1 - t0} for ${moved}px of page`);
+  // the wheel over the margin drives the page through the same mapping
+  const y0 = await page.evaluate(() => scrollY);
+  const box = await page.locator('#margin').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 200);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(200);
+  assert.notEqual(await page.evaluate(() => scrollY), y0, 'wheel over the margin scrolls');
+  // counts of what is out of view, overview ticks, one ribbon per visible card
+  assert.match(await page.locator('#margin .cnt:visible').first().innerText(), /▲|▼/);
+  assert.equal(await page.locator('#ticks .tick').count(), await page.evaluate(() => [...window.__rico.views.values()].reduce((a, v) => a + (v.loaded && v.mode === 'rendered' && !v.card.classList.contains('collapsed') ? v.marginItems.length : 0), 0)));
+  assert.ok(await page.locator('.rico-ribbons path:visible').count() >= 1);
+  await page.screenshot({ path: path.join(root, 'e2e', 'sync.png') });
+  // jumping from the count works, and a pinned long thread folds first/last by default
+  const folded = page.locator('#margin .thread.folded');
+  assert.ok(await folded.count() >= 1, 'the chatty thread is folded');
+  await page.evaluate(() => window.__rico.setMarginMode('aligned'));
+  assert.equal(await page.locator('.file-body.sync').count(), 0);
+  assert.equal(await page.evaluate(() => document.getElementById('mmode').textContent), 'Comments: aligned');
 });
 
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));

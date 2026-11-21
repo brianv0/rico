@@ -648,3 +648,26 @@ export function oldToNewMap(rows) {
   for (const r of rows) if (r.type === 'ctx') m.set(r.old, r.new);
   return m;
 }
+
+// ---------- synced margin: text position -> margin position ----------
+
+/**
+ * Margin offset for a text position d. pts = [{d, m}] sorted by d (text position of a thread's anchor, margin position of
+ * its card): linear between neighbours, 1:1 before the first and after the last. Never decreases, so it can be inverted.
+ */
+export function mapPosition(pts, d) {
+  if (!pts.length) return d;
+  if (d <= pts[0].d) return pts[0].m + (d - pts[0].d);
+  for (let i = 1; i < pts.length; i++) {
+    if (d <= pts[i].d) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      return b.d === a.d ? b.m : a.m + ((d - a.d) * (b.m - a.m)) / (b.d - a.d);
+    }
+  }
+  const z = pts[pts.length - 1];
+  return z.m + (d - z.d);
+}
+
+/** How many margin pixels one pixel of text is worth at d (never 0, so the wheel can always move). */
+export const positionSlope = (pts, d) => Math.max(0.05, mapPosition(pts, d + 1) - mapPosition(pts, d));

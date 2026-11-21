@@ -1,5 +1,5 @@
 import {
-  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion,
+  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -470,8 +470,16 @@ function makeView(f) {
     file: f, card, lines: [], diff: { hunks: [], added: new Set() }, rows: [], loaded: false, loading: null, mode: 'rendered', marginItems: [],
     doc: el('div', 'rico-doc markdown-body'), margin: el('div', 'rico-margin'), src: el('div', 'rico-src'),
   };
+  v.track = el('div', 'rico-track'); // the cards; in synced mode this slides inside the sticky margin
+  v.margin.append(v.track);
+  v.up = el('button', 'cnt up'); v.down = el('button', 'cnt down'); // "▲ 3 above" / "▼ 8 below": threads outside the visible margin
+  for (const b of [v.up, v.down]) { b.type = 'button'; b.hidden = true; }
+  v.margin.append(v.up, v.down);
+  v.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); // ribbons tying each card to its text
+  v.svg.setAttribute('class', 'rico-ribbons');
+  v.svg.setAttribute('aria-hidden', 'true');
   const body = el('div', 'file-body');
-  body.append(v.doc, v.margin);
+  body.append(v.doc, v.margin, v.svg);
   const more = el('button', 'btn load-more', 'Load file');
   more.type = 'button';
   more.addEventListener('click', () => openFile(f.filename));
@@ -1176,7 +1184,8 @@ function renderGeneral() {
 }
 function renderMargin() {
   if (!cur || !margin) return;
-  margin.textContent = '';
+  cur.track.textContent = '';
+  cur.svg.textContent = '';
   marginItems = cur.marginItems = [];
   if (!state.file) return;
   const path = state.file.filename;
@@ -1219,27 +1228,47 @@ function renderMargin() {
     it.ranges = q && it.exact !== false ? quoteRanges(blocks, q) : [];
     it.card.addEventListener('mouseenter', () => { if (it.ranges.length) hoverRanges(it.ranges); else it.blocks.forEach((b) => b.classList.add('hl')); });
     it.card.addEventListener('mouseleave', () => { hoverRanges(null); it.blocks.forEach((b) => b.classList.remove('hl')); });
-    margin.append(it.card);
+    cur.track.append(it.card);
+    it.ribbon = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    cur.svg.append(it.ribbon);
+    it.card.addEventListener('mouseenter', () => { it.hot = true; scheduleSync(); });
+    it.card.addEventListener('mouseleave', () => { it.hot = false; scheduleSync(); });
     marginItems.push(it);
   }
   if (unplaced) { // the old file was unavailable, or the line is not part of what is shown
     const n = el('div', 'note', `${unplaced} thread${unplaced > 1 ? 's' : ''} on removed lines not shown here (see Source diff).`);
     n.dataset.note = '1';
-    margin.append(n);
+    cur.track.append(n);
   }
   renderGeneral();
   paintQuoteHighlights();
   layoutMargin();
+  scheduleTicks();
 }
+
+// ---------- margin layout: aligned beside the text, or synced (sticky, non-linear scroll) when comments outgrow the doc ----------
+// Aligned: each card sits level with its text, pushed down by the cards above it. When that makes the margin much longer than
+// the document, SYNCED takes over: the margin is a sticky, window-high column; the cards are stacked with no gaps, and as you
+// scroll the margin slides so the thread at the focus line is level with its text. Between two threads the margin moves at the
+// speed that brings the next card level exactly when its text arrives: fast through a long discussion, barely through plain text.
+// Ribbons (SVG) tie every card to its words either way.
+let marginMode = (() => { try { const m = localStorage.getItem('rico:margin'); return ['auto', 'aligned', 'sync'].includes(m) ? m : 'auto'; } catch { return 'auto'; } })();
+const FOCUS = 0.35; // where in the window the "current" text is
+const toolbarH = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-h')) || 49;
 
 function layoutMargin() {
   if (!margin) return;
+  const v = cur;
   const wide = !matchMedia('(max-width: 1150px)').matches;
   const note = margin.querySelector('[data-note]');
-  if (!wide) { margin.style.height = ''; for (const it of marginItems) it.card.style.top = ''; if (note) note.style.top = ''; return; }
-  const base = margin.getBoundingClientRect().top;
+  const body = margin.parentElement;
+  v.pts = null;
+  body.classList.remove('sync');
+  v.track.style.transform = '';
+  if (!wide) { margin.style.height = ''; for (const it of marginItems) it.card.style.top = ''; if (note) note.style.top = ''; v.up.hidden = v.down.hidden = true; return; }
+  const docTop = doc.getBoundingClientRect().top;
   const placed = marginItems
-    .map((it) => ({ it, want: it.blocks.length ? it.blocks[0].getBoundingClientRect().top - base : 0 }))
+    .map((it) => ({ it, want: it.blocks.length ? it.blocks[0].getBoundingClientRect().top - docTop : 0 }))
     .sort((a, b) => a.want - b.want);
   let y = 0;
   for (const { it, want } of placed) {
@@ -1248,8 +1277,126 @@ function layoutMargin() {
     y = top + it.card.offsetHeight + 8;
   }
   if (note) { note.style.top = y + 'px'; y += note.offsetHeight + 8; }
-  margin.style.height = Math.max(y, doc.offsetHeight) + 'px';
+  const docH = doc.offsetHeight;
+  const sync = marginMode === 'sync' ? marginItems.length > 0 : marginMode === 'auto' && y > docH * 1.25 && y > innerHeight * 1.5;
+  if (!sync) { margin.style.height = Math.max(y, docH) + 'px'; v.up.hidden = v.down.hidden = true; scheduleSync(); return; }
+  // synced: stack with no gaps, remember (text position -> card position) pairs
+  margin.style.height = '';
+  body.classList.add('sync');
+  const pts = [];
+  let m = 0;
+  for (const { it, want } of placed) {
+    it.card.style.top = m + 'px';
+    pts.push({ d: want, m });
+    m += it.card.offsetHeight + 8;
+  }
+  if (note) { note.style.top = m + 'px'; m += note.offsetHeight + 8; }
+  const viewH = innerHeight - toolbarH() - 24;
+  pts.push({ d: Math.max(docH, pts[pts.length - 1].d + 1), m: Math.max(pts[pts.length - 1].m, m - viewH * (1 - FOCUS)) }); // the last cards stay reachable at the end of the file
+  v.pts = pts;
+  v.trackH = m;
+  scheduleSync();
 }
+
+const mapD = mapPosition;
+const slopeAt = positionSlope;
+
+let syncRaf = 0;
+function scheduleSync() { if (!syncRaf) syncRaf = requestAnimationFrame(syncFrame); }
+function syncFrame() {
+  syncRaf = 0;
+  const T = toolbarH();
+  const F = T + (innerHeight - T) * FOCUS;
+  for (const v of views.values()) {
+    if (!v.loaded || v.mode !== 'rendered' || v.card.classList.contains('collapsed')) continue;
+    const body = v.margin.parentElement;
+    const br = body.getBoundingClientRect();
+    if (br.bottom < -200 || br.top > innerHeight + 200) continue;
+    const mr0 = v.margin.getBoundingClientRect();
+    if (v.pts) { // slide the margin so the thread at the focus line is level with its text
+      const d = F - v.doc.getBoundingClientRect().top;
+      v.focusD = d;
+      v.track.style.transform = `translateY(${F - mr0.top - mapD(v.pts, d)}px)`;
+    }
+    drawRibbons(v, br);
+    drawCounts(v, F);
+  }
+}
+
+function drawRibbons(v, br) {
+  const dr = v.doc.getBoundingClientRect();
+  const mr = v.margin.getBoundingClientRect();
+  const x1 = dr.right - br.left - 4;
+  const x2 = mr.left - br.left;
+  const clip = v.pts ? mr : null; // synced: cards outside the sticky window are not visible, so neither are their ribbons
+  for (const it of v.marginItems || []) {
+    if (!it.ribbon || !it.blocks?.length) continue;
+    const ay = it.blocks[0].getBoundingClientRect().top + 12;
+    const cy = it.card.getBoundingClientRect().top + 16;
+    const hidden = (clip && (cy < clip.top || cy > clip.bottom)) || (ay < -40 && cy < -40) || (ay > innerHeight + 40 && cy > innerHeight + 40);
+    it.ribbon.style.display = hidden ? 'none' : '';
+    if (hidden) continue;
+    const a = ay - br.top;
+    const c = cy - br.top;
+    const mx = (x1 + x2) / 2;
+    it.ribbon.setAttribute('d', `M${x1} ${a} C${mx} ${a} ${mx} ${c} ${x2} ${c}`);
+    it.ribbon.classList.toggle('on', !!it.hot || it.card.classList.contains('active') || it.card.classList.contains('peek'));
+    it.ribbon.classList.toggle('resolved', !!it.th.info?.resolved);
+  }
+}
+
+function drawCounts(v, F) {
+  if (!v.pts) { v.up.hidden = v.down.hidden = true; return; }
+  const mr = v.margin.getBoundingClientRect();
+  const above = [];
+  const below = [];
+  for (const it of v.marginItems) {
+    const r = it.card.getBoundingClientRect();
+    if (r.bottom < mr.top + 4) above.push(it); else if (r.top > mr.bottom - 4) below.push(it);
+  }
+  const jump = (list, last) => () => { const it = last ? list[0] : list[list.length - 1]; if (it) window.scrollBy({ top: it.blocks[0].getBoundingClientRect().top - F, behavior: 'smooth' }); };
+  v.up.hidden = !above.length;
+  v.down.hidden = !below.length;
+  v.up.textContent = `▲ ${above.length} above`;
+  v.down.textContent = `▼ ${below.length} below`;
+  v.up.onclick = jump(above, false);
+  v.down.onclick = jump(below, true);
+}
+
+// the wheel over a synced margin scrolls the margin at its own speed (the page follows through the same mapping)
+$('#cards').addEventListener('wheel', (e) => {
+  const col = e.target.closest && e.target.closest('.rico-margin');
+  if (!col || e.ctrlKey) return;
+  const v = [...views.values()].find((x) => x.margin === col);
+  if (!v?.pts || v.focusD == null) return;
+  e.preventDefault();
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  window.scrollBy(0, dy / slopeAt(v.pts, v.focusD));
+}, { passive: false });
+window.addEventListener('scroll', scheduleSync, { passive: true });
+
+// a scrollbar-side overview: one tick per thread in the whole page, coloured by state; click to jump
+function drawTicks() {
+  let box = $('#ticks');
+  if (!box) { box = el('div'); box.id = 'ticks'; box.setAttribute('aria-hidden', 'true'); document.body.append(box); }
+  box.textContent = '';
+  const total = document.documentElement.scrollHeight;
+  for (const v of views.values()) {
+    if (!v.loaded || v.mode !== 'rendered' || v.card.classList.contains('collapsed')) continue;
+    for (const it of v.marginItems || []) {
+      if (!it.blocks?.length) continue;
+      const y = it.blocks[0].getBoundingClientRect().top + scrollY;
+      const t = el('button', 'tick' + (it.th.info?.resolved ? ' resolved' : it.th.pending ? ' pending' : '') + (it.th.msgs.some((m) => m.user === state.me) ? ' mine' : ''));
+      t.type = 'button';
+      t.style.top = (y / total) * 100 + '%';
+      t.title = `${it.th.msgs[0].user}: ${it.th.msgs[0].body.replace(/\s+/g, ' ').slice(0, 60)}`;
+      t.addEventListener('click', () => window.scrollTo({ top: y - innerHeight * 0.3, behavior: 'smooth' }));
+      box.append(t);
+    }
+  }
+}
+let ticksTimer = 0;
+const scheduleTicks = () => { clearTimeout(ticksTimer); ticksTimer = setTimeout(drawTicks, 120); };
 
 function activateAt(block) {
   const it = marginItems.find((m) => m.blocks.includes(block));
@@ -1851,7 +1998,7 @@ for (const box of [$('#c-body'), $('#c-sugtext')]) box.addEventListener('keydown
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitComposer(e.shiftKey ? 'review' : 'single'); }
   if (e.key === 'Escape') { draftSet('composer', null); hideComposer(); window.getSelection().removeAllRanges(); }
 });
-const layoutAll = () => { for (const v of views.values()) if (v.loaded) withView(v, layoutMargin); };
+const layoutAll = () => { for (const v of views.values()) if (v.loaded) withView(v, layoutMargin); scheduleTicks(); };
 window.addEventListener('resize', () => { layoutAll(); if (state.pending) placeComposer(state.pending.range, state.pending.rect); });
 document.fonts?.ready.then(layoutAll);
 
@@ -2072,6 +2219,11 @@ function setupTheme() {
   applyThemeSheets();
 }
 setupTheme();
+const MM = { auto: 'Comments: auto', aligned: 'Comments: aligned', sync: 'Comments: synced' };
+const labelMargin = () => { $('#mmode').textContent = MM[marginMode]; };
+$('#mmode').title = 'Comments column: auto switches to a synced, sticky column when the comments outgrow the document; aligned keeps each next to its text';
+$('#mmode').addEventListener('click', () => { const order = ['auto', 'aligned', 'sync']; window.__rico.setMarginMode(order[(order.indexOf(marginMode) + 1) % 3]); });
+labelMargin();
 
 // ---------- boot ----------
 $('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value); });
@@ -2087,4 +2239,4 @@ renderPanel();
 showWho();
 
 // test hook
-window.__rico = { setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
+window.__rico = { setMarginMode: (m) => { marginMode = m; try { localStorage.setItem('rico:margin', m); } catch { /* ignore */ } layoutAll(); labelMargin(); }, setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
