@@ -68,6 +68,12 @@ type input struct {
 	// svgfromdiagram mode
 	Ropts *ropts `json:"ropts"`
 
+	// zlib / woff / fontsubset modes
+	Data   string `json:"data"`
+	Corpus string `json:"corpus"`
+	Family string `json:"family"`
+	Style  string `json:"style"`
+
 	// label mode
 	Route  [][]float64 `json:"route"`
 	Stroke float64     `json:"stroke"`
@@ -180,6 +186,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 	case "graph":
 		g, config, err := d2compiler.Compile(in.Path, strings.NewReader(in.Text), &d2compiler.CompileOptions{UTF16Pos: in.UTF16Pos, FS: fsys})
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
+	case "zlib":
+		return zlibCheck(in)
 	case "svgfromdiagram":
 		return svgFromDiagram(in, ruler, fsys)
 	case "layout", "render":

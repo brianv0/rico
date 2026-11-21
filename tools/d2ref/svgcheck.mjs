@@ -5,7 +5,7 @@ import markdownit from 'markdown-it';
 import { diagramFromJSON } from '../../public/d2/target.js';
 import { setMarkdownIt, loadMetrics } from '../../public/d2/textmeasure.js';
 import { URL as GoURL } from '../../public/d2/url.js';
-import { render, renderMultiboard, hooks, Deferred } from '../../public/d2/d2svg.js';
+import { render, renderMultiboard, hooks, Deferred, NeedAsset } from '../../public/d2/d2svg.js';
 
 const FONT_URL = /url\("data:application\/font-woff;base64,[^"]*"\)/g;
 const blank = (s) => s.replace(FONT_URL, 'url("FONT")');
@@ -27,8 +27,9 @@ export async function svgPrepare(nofonts) {
   await loadMetrics();
   if (nofonts) hooks.fonts = { getEncodedSubset: () => 'data:application/font-woff;base64,FONT' };
   else {
-    const { loadFontsNode } = await import('../../public/d2/d2svgfonts.js');
-    hooks.fonts = await loadFontsNode();
+    const m = await import('../../public/d2/d2svgfonts.js');
+    await m.loadAllFonts();
+    hooks.fonts = m;
   }
   try { hooks.markdown = await import('../../public/d2/mdlayout.js'); } catch (e) { /* not ported yet */ }
   try { hooks.highlight = await import('../../public/d2/highlight.js'); } catch (e) { /* not ported yet */ }
@@ -46,6 +47,7 @@ export function svgCheck(c, want, { nofonts }) {
     if (c.ropts && c.ropts.multiboard) svg = renderMultiboard(diagram, opts);
     else svg = render(diagram, opts);
   } catch (e) {
+    if (e instanceof NeedAsset) return { deferred: `unported-${e.kind}` };
     if (e instanceof Deferred) return { deferred: e.reason.replace(/ \(.*$/, '').replace(/^code language .*/, 'code-language') };
     err = e.message;
   }

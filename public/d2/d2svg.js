@@ -49,9 +49,17 @@ export class Deferred extends Error {
   constructor(reason) { super(`not ported: ${reason}`); this.name = 'Deferred'; this.reason = reason; }
 }
 
-/** Pluggable parts, filled by `prepare` (or by the caller). */
+/**
+ * Thrown by `render` when it needs something that is loaded lazily (and has not been loaded yet): `renderAsync` loads it and
+ * retries. kind is 'metrics' | 'fonts' (the d2svgfonts.js module) | 'font' (name is the file under fonts/) | 'markdown' | 'highlight' | 'patterns'.
+ */
+export class NeedAsset extends Error {
+  constructor(kind, name = '') { super(`d2svg: ${kind} ${name} is not loaded (use renderAsync, or load it first)`); this.name = 'NeedAsset'; this.kind = kind; this.assetName = name; }
+}
+
+/** Pluggable parts, filled by `renderAsync` (or by the caller). */
 export const hooks = {
-  /** (family, style) -> TTF/WOFF subsetter: {getEncodedSubset(family, style, corpus)} (d2svgfonts.js) */
+  /** d2svgfonts.js: {getEncodedSubset(family, style, corpus), loadFont(file)} */
   fonts: null,
   /** {layoutMarkdown(markdown, ruler, fontFamily, monoFontFamily, fontSize) -> MarkdownLayout} (mdlayout.js) */
   markdown: null,
@@ -64,7 +72,9 @@ export const hooks = {
 };
 
 function getRuler() {
-  if (hooks.ruler == null) hooks.ruler = textmeasure.newRuler();
+  if (hooks.ruler == null) {
+    try { hooks.ruler = textmeasure.newRuler(); } catch (e) { throw new NeedAsset('metrics'); }
+  }
   return hooks.ruler;
 }
 
@@ -767,7 +777,7 @@ const svgEscaper = (s) => s.replace(/[&<>" \t]/g, (c) => (c === '&' ? '&amp;' : 
  * [{svgStyles: {tokenType: attrString}, background: '#rrggbb', lines: [[{type, value}...]...]} x 2]
  */
 function highlightCode(language, text) {
-  if (hooks.highlight == null) throw new Deferred(`code language ${language} (no highlighter loaded)`);
+  if (hooks.highlight == null) throw new NeedAsset('highlight');
   const out = hooks.highlight.highlight(language, text);
   if (out == null) throw new Deferred(`code language ${language}`);
   return out;
@@ -2027,7 +2037,7 @@ class MarkdownRenderer {
   }
 
   layoutWithFont(markdown, fontFamily, monoFontFamily, fontSize) {
-    if (hooks.markdown == null) throw new Deferred('markdown (layout not loaded)');
+    if (hooks.markdown == null) throw new NeedAsset('markdown');
     const layout = hooks.markdown.layoutMarkdown(markdown, getRuler(), fontFamily, monoFontFamily, fontSize);
     this.corpus += layout.Corpus;
     return layout;
@@ -2083,6 +2093,22 @@ export const newMarkdownRenderer = (fontFamily, monoFontFamily, inlineTheme) => 
 
 // ---- font embedding ----
 
+/**
+ * fonts: 'external' (instead of Go's base64 WOFF subsets): the @font-face rules point at the font files under public/d2/fonts/
+ * (the whole stripped TrueType file of the family and style), resolved against opts.fontBaseURL (default: the fonts/ directory next
+ * to this module). The browser fetches and caches them once per origin instead of every SVG carrying its own subset.
+ */
+const FONT_FILES = d2fonts.FONT_FILES;
+export function externalFontURL(family, style, base) {
+  const file = FONT_FILES[`${family}-${style}`];
+  if (file === undefined) throw new Error(`d2svg: no bundled font file for ${family} ${style}`);
+  base = base ?? new URL('./fonts/', import.meta.url).href;
+  return base.endsWith('/') ? base + file : `${base}/${file}`;
+}
+
+/** the file name behind (family, style): what hooks.fonts keys its faces by */
+export const fontFileFor = (family, style) => FONT_FILES[`${family}-${style}`];
+
 const nativeMarkdownTextPattern = /<text\b[^>]*\bclass="[^"]*\bmd-text\b[^"]*"[^>]*>([^<]*)<\/text>/g;
 
 /** html.UnescapeString for the entities the Markdown painter can emit */
@@ -2131,7 +2157,7 @@ function fontFaceCSS(diagramHash, cls, key, subset) {
 }
 
 /** Go's EmbedFonts. `fontsEmbed` is 'embed' or 'external' (see hooks.fonts). */
-export function embedFonts(buf, diagramHash, source, fontFamily, monoFontFamily, corpus, corpora, fontsMode = 'embed') {
+export function embedFonts(buf, diagramHash, source, fontFamily, monoFontFamily, corpus, corpora, fontsMode = 'embed', fontBaseURL = null) {
   // Markdown generates text that may not exist literally in the D2 source,
   // such as list markers and decoded entities. Include those rendered runs in
   // every font subset, including multi-board animations where render-local
@@ -2142,7 +2168,11 @@ export function embedFonts(buf, diagramHash, source, fontFamily, monoFontFamily,
 
   const ff = fontFamily ?? d2fonts.SourceSansPro;
   const mf = monoFontFamily ?? d2fonts.SourceCodePro;
-  const subset = (family, style, c) => hooks.fonts.getEncodedSubset(family, style, c, fontsMode);
+  const subset = (family, style, c) => {
+    if (fontsMode === 'external') return externalFontURL(family, style, fontBaseURL);
+    if (hooks.fonts == null) throw new NeedAsset('fonts');
+    return hooks.fonts.getEncodedSubset(family, style, c);
+  };
   const face = (cls, key, family, style) => (c) => fontFaceCSS(diagramHash, cls, key, subset(family, style, c));
 
   appendFontOnTrigger(buf, source, ['class="text"', 'class="text ', 'class="md"', 'class="md '], corpora, 'text', corpus, face('text', 'regular', ff, d2fonts.FONT_STYLE_REGULAR));
@@ -2421,7 +2451,7 @@ export function render(diagram, opts) {
       }
     }
     // Must precede DefineFillPatterns, after all text is rendered.
-    embedFonts(upperBuf, diagramHash, buf.s, diagram.fontFamily, diagram.monoFontFamily, diagram.getCorpus() + markdown.generatedCorpus(), corpora, fontsMode);
+    embedFonts(upperBuf, diagramHash, buf.s, diagram.fontFamily, diagram.monoFontFamily, diagram.getCorpus() + markdown.generatedCorpus(), corpora, fontsMode, opts.fontBaseURL ?? null);
 
     if (classes == null) themeStylesheet = pruneThemeCSS(themeStylesheet, buf.s, backgroundStr, doubleBorderElStr);
     else themeStylesheet = pruneThemeCSSWithClasses(themeStylesheet, classes, backgroundStr, doubleBorderElStr);
@@ -2480,7 +2510,7 @@ export function render(diagram, opts) {
 }
 
 function patternAsset(name) {
-  if (hooks.patterns == null) throw new Deferred(`pattern assets (${name}) not loaded`);
+  if (hooks.patterns == null) throw new NeedAsset('patterns');
   return hooks.patterns[name]();
 }
 
@@ -2579,6 +2609,30 @@ function sortObjects(allObjects) {
   };
   allObjects.sort((a, b) => (less(a, b) ? -1 : less(b, a) ? 1 : 0));
 }
+
+const loaders = {
+  async metrics() { await textmeasure.loadMetrics(); },
+  async fonts() { hooks.fonts = await import('./d2svgfonts.js'); },
+  async font(name) { await hooks.fonts.loadFont(name); },
+  async markdown() { hooks.markdown = await import('./mdlayout.js'); },
+  async highlight() { hooks.highlight = await import('./highlight.js'); },
+  async patterns() { hooks.patterns = await import('./d2svgpatterns.js'); },
+};
+
+async function withAssets(fn) {
+  for (;;) {
+    try {
+      return fn();
+    } catch (e) {
+      if (!(e instanceof NeedAsset)) throw e;
+      await loaders[e.kind](e.assetName);
+    }
+  }
+}
+
+/** render, loading what it needs on demand (font files, the Markdown layout, the highlighter) and retrying. */
+export const renderAsync = (diagram, opts) => withAssets(() => render(diagram, opts));
+export const renderMultiboardAsync = (diagram, opts) => withAssets(() => renderMultiboard(diagram, opts));
 
 export function renderMultiboard(diagram, opts) {
   let boards = [];
