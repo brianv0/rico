@@ -345,3 +345,46 @@
 {"from":"extra:g-unicode-lower","path":"x.d2","text":"İ: x\nı: y\nK: z\nk: w\nſ: v\ns: u"}
 {"from":"extra:g-unicode-ida","path":"x.d2","text":"\"é́\": 1\n\"日本\": 2\n\"🙂\": 3\n\"\\u0000\": 4"}
 {"from":"extra:g-spaces-keys","path":"x.d2","text":"\" a\": 1\n\"a \": 2\n\"  \": 3"}
+{"from":"extra:v9-glob-lazy-dedupe","path":"index.d2","text":"*.style.fill: red\nx\ny.z\nx.w"}
+{"from":"extra:v9-glob-lazy-dedupe2","path":"index.d2","text":"**.style.opacity: 0.5\na: {b: {c}}\nd\na.b.e"}
+{"from":"extra:v9-glob-edge-lazy","path":"index.d2","text":"* -> *\na\nb\nc"}
+{"from":"extra:v9-glob-edge-lazy2","path":"index.d2","text":"x.* -> y.*\nx.a\ny.b\nx.c\ny.d"}
+{"from":"extra:v9-glob-triple-boards","path":"index.d2","text":"***.style.fill: blue\na\nlayers: { l1: { b; c } }\nscenarios: { s1: { d } }"}
+{"from":"extra:v9-glob-double-skips-classes","path":"index.d2","text":"classes: { k: { style.fill: red } }\nvars: { v: 1 }\n**.style.opacity: 0.4\nx.class: k"}
+{"from":"extra:v9-glob-double-skips-vars","path":"index.d2","text":"vars: { a: { b: c } }\n**: { label: hi }\nq"}
+{"from":"extra:v9-glob-suffix-only","path":"index.d2","text":"*b: x\nab\nabc\nb\ncab\nbab"}
+{"from":"extra:v9-glob-suffix-multi","path":"index.d2","text":"a*b*c: x\nab1c\nabc\nxabc\naXbYc\naXbYcZ"}
+{"from":"extra:v9-glob-suffix-unicode","path":"index.d2","text":"*İ: x\nİ\naİ\naı\nİa"}
+{"from":"extra:v9-glob-prefix-pattern","path":"index.d2","text":"a*: {label: p}\nabc\nxa\nA\nab"}
+{"from":"extra:v9-glob-nested-created","path":"index.d2","text":"*.*: {style.fill: red}\na.b\nc.d.e\nf"}
+{"from":"extra:v9-glob-filter-amp","path":"index.d2","text":"*: { &shape: circle; style.fill: red }\na: { shape: circle }\nb\nc: { shape: square }"}
+{"from":"extra:v9-glob-filter-late","path":"index.d2","text":"*: { &style.fill: red; label: red }\na\na.style.fill: red\nb"}
+{"from":"extra:v9-edge-reverse-index","path":"index.d2","text":"a -> b\nb <- a\n(a -> b)[1].style.stroke: red\n(b <- a)[0].style.stroke: blue"}
+{"from":"extra:v9-edge-reverse-index2","path":"index.d2","text":"a -> b\nb -> a\n(b -> a)[0]: l0\n(a -> b)[1]: l1\n(a -> b)[0]: l2"}
+{"from":"extra:v9-edge-reverse-index3","path":"index.d2","text":"a <-> b\nb <-> a\n(a <-> b)[1].style.opacity: 0.2"}
+{"from":"extra:v9-edge-reverse-index-glob","path":"index.d2","text":"a -> b\nb <- a\n(* -> *)[*].style.stroke-width: 4"}
+{"from":"extra:v9-edge-index-nested","path":"index.d2","text":"x: { a -> b; b <- a }\n(x.a -> x.b)[1]: hi"}
+{"from":"extra:v9-edge-link-label","path":"index.d2","text":"a -> b: { link: https://example.com/x }\nb -> c: { label: set; link: https://example.org }\nc -> d: { link: layers.l1 }\nlayers: { l1: { z } }"}
+{"from":"extra:v9-edge-link-class","path":"index.d2","text":"classes: { lk: { link: https://class.example } }\na -> b: { class: lk }"}
+{"from":"extra:v9-class-cycle","path":"index.d2","text":"classes: { a: { class: b }; b: { class: a } }\nx.class: a"}
+{"from":"extra:v9-class-cycle-self","path":"index.d2","text":"classes: { a: { class: a } }\nx.class: a\ny -> z: { class: a }"}
+{"from":"extra:v9-class-cycle-edge","path":"index.d2","text":"classes: { a: { class: b }; b: { class: a } }\nx -> y: { class: a }"}
+{"from":"extra:v9-class-chain","path":"index.d2","text":"classes: { a: { class: b }; b: { style.fill: red } }\nx.class: a\nx -> y: { class: [a; b] }"}
+{"from":"extra:v9-opacity-inf","path":"index.d2","text":"a.style.opacity: inf\nb.style.opacity: -Inf\nc.style.opacity: nan\nd.style.opacity: 1e999\ne.style.opacity: 0.5"}
+{"from":"extra:v9-opacity-edge","path":"index.d2","text":"a -> b: { style.opacity: nan }"}
+{"from":"extra:v9-import-twice-key","path":"index.d2","text":"x: @lib.a\ny: @lib.a\nz: @lib","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-twice-plain","path":"index.d2","text":"x: @lib\ny: @lib\n...@lib","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-key-array","path":"index.d2","text":"x: @lib.arr\ny: @lib.arr","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-empty-string","path":"index.d2","text":"x: @lib2\n","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-globs","path":"index.d2","text":"*.style.fill: red\nx: @lib\ny: @lib.a","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-boards","path":"index.d2","text":"layers: { l1: @lib\n l2: @lib }\nscenarios: { s1: @lib }","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-vars","path":"index.d2","text":"vars: { v: @lib.a }\nx: ${v}\ny: @lib.a.b","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-edge-ids","path":"index.d2","text":"a -> b\nx: @lib3\nb <- a","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-board-copy-base","path":"index.d2","text":"a -> b\nlayers: { l1: { c -> d } }\nscenarios: { s1: { b -> a } }\nsteps: { s1: { e } }"}
+{"from":"extra:v9-board-copy-edges","path":"index.d2","text":"x -> y\nlayers: { l: { z } }\n(x -> y)[0].style.stroke: red\nscenarios: { s: { (x -> y)[0].style.stroke: blue } }"}
+{"from":"extra:v9-board-folder","path":"index.d2","text":"layers: { a: { x }; b: { y } }"}
+{"from":"extra:v9-board-folder2","path":"index.d2","text":"x\nlayers: { a: { x } }"}
+{"from":"extra:v9-board-folder3","path":"index.d2","text":"layers: { a: { layers: { b: { z } } } }"}
+{"from":"extra:v9-empty-string-clone","path":"index.d2","text":"a: \"\"\nb: \"${a}\"\nclasses: { k: { label: \"\" } }\nc.class: k\nd: |md |md"}
+{"from":"extra:v9-ampersand-ref","path":"index.d2","text":"*: { &label: x; style.fill: red }\na: { label: x }\nb: { label: y }"}
+{"from":"extra:v9-suspend-glob","path":"index.d2","text":"*: suspend\na\nb\n*: unsuspend"}
