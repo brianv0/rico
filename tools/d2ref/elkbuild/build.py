@@ -58,10 +58,12 @@ if compat in ('all', 'origin'):
 if compat == 'all':
     # 6: the import order of the edges, the first edge to cross each compound node, and the constraints the dummy creation sees
     rep("p=new GWb;mNb(p,b);rNb(p,(Wrc(),urc),b);", "p=new GWb;p.elkgoOrd=++elkgoOrd;mNb(p,b);rNb(p,(Wrc(),urc),b);")
-    rep("c.Tg('Compound graph preprocessor',1);a.a=new Np;hWb(a,b,null);bWb(a,b);gWb(a);", "c.Tg('Compound graph preprocessor',1);a.a=new Np;elkgoPrepare(b);hWb(a,b,null);bWb(a,b);gWb(a);elkgoReorder(b);")
+    rep("c.Tg('Compound graph preprocessor',1);a.a=new Np;hWb(a,b,null);bWb(a,b);gWb(a);", "c.Tg('Compound graph preprocessor',1);a.a=new Np;elkgoPrepare(b);hWb(a,b,null);bWb(a,b);gWb(a);elkgoPorts(b);elkgoReorder(b);")
     rep("function YVb(a){var b;b=new GWb;mNb(b,a);rNb(b,(nyc(),Bwc),null);return b}", "function YVb(a){var b;b=new GWb;mNb(b,a);b.elkgoOrd=a.elkgoOrd;rNb(b,(nyc(),Bwc),null);return b}")
     rep("g=MXb(j,JD(oNb(c,(nyc(),qxc)),102),e,VVb(j),null,j.n,j.o,i,b);", "g=MXb(j,elkgoConstraints(c,f),e,VVb(j),null,j.n,j.o,i,b);")
     rep("JD(oNb(c,qxc),102),e,d==nAc?-1:1,null,new jgd,new lgd(0,0),i,b);", "elkgoConstraints(c,f),e,d==nAc?-1:1,null,new jgd,new lgd(0,0),i,b);")
+    # 8: the ports a compound node gets for its cross-hierarchy edges are appended in the order of the edges (elk-go), not of the node-by-node walk
+    rep("null,new jgd,new lgd(0,0),i,b);h=$Vb(g,c,d);", "null,new jgd,new lgd(0,0),i,b);h=$Vb(g,c,d);h.elkgoOrd=f.elkgoOrd;")
     # 7
     rep("Old(JD(oNb(c,qxc),102))&&(k=f==nAc?Amd:gmd);", "Old(elkgoConstraints(c,d))&&(k=f==nAc?Dmd(Gmd(PXb(DYb(c)))):Gmd(PXb(DYb(c))));")
     src += '''
@@ -76,6 +78,9 @@ for(var g=tg;g&&g!=lca;g=up(g)){if(g.e&&e.elkgoOrd<g.e.elkgoMin){g.e.elkgoMin=e.
 function elkgoConstraints(parent,edge){return edge.elkgoOrd>parent.elkgoMin?(Mld(),Jld):JD(oNb(parent,(nyc(),qxc)),102)}
 // elk-go's reorderCompoundPortDummies: the external-port dummies of every nested graph come after its other nodes, connected ones first, ordered by the
 // path to the node they lead to (the index of each node on the way down, a descendant before its ancestor), the port index, the import order of the edge
+// the ports created for the cross-hierarchy edges of a compound node come after its other ports, in the import order of the edges
+function elkgoPorts(g){for(var i=0;i<g.a.c.length;i++){var n=g.a.c[i];if(n.e){var old=[],added=[],k;for(k=0;k<n.j.c.length;k++){var p=n.j.c[k];if(p.elkgoOrd===undefined){old.push(p)}else{added.push(p)}}
+if(added.length>1){added.sort(function(x,y){return x.elkgoOrd-y.elkgoOrd});var all=old.concat(added);for(k=0;k<all.length;k++){n.j.c[k]=all[k]}}elkgoPorts(n.e)}}}
 function elkgoInside(d){for(var i=0;i<d.j.c.length;i++){var p=d.j.c[i],k;for(k=0;k<p.g.c.length;k++){if(p.g.c[k].d){return{port:p.g.c[k].d,edge:p.g.c[k]}}}for(k=0;k<p.e.c.length;k++){if(p.e.c[k].c){return{port:p.e.c[k].c,edge:p.e.c[k]}}}}return null}
 function elkgoIndex(list,x){for(var i=0;i<list.c.length;i++){if(list.c[i]==x){return i}}return Infinity}
 function elkgoGraphIndex(g,n){var idx=0;for(var i=0;i<g.a.c.length;i++){var m=g.a.c[i];if(m.k==($Yb(),TYb)){continue}if(m==n){return idx}idx++}return Infinity}

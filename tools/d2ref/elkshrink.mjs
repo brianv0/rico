@@ -54,5 +54,30 @@ while (changed) {
     }
   }
 }
+// second phase: simplify single lines (drop the label, drop one segment of a dotted reference, rename to short names)
+const variants = (l) => {
+  const out = [];
+  if (/: ".*"( \{)?\s*$/.test(l)) out.push(l.replace(/: ".*"( \{)?\s*$/, (m, b) => (b || '')));
+  if (/: .*\{$/.test(l)) out.push(l.replace(/: .*\{$/, ' {'));
+  for (const m of l.matchAll(/[\w\u00c0-\uffff ]+(\.[\w\u00c0-\uffff ]+)+/g)) {
+    const segs = m[0].split('.');
+    for (let k = 0; k < segs.length; k++) out.push(l.replace(m[0], segs.filter((_, j) => j !== k).join('.')));
+  }
+  return out;
+};
+changed = true;
+while (changed) {
+  changed = false;
+  for (let i = 0; i < lines.length && !changed; i++) {
+    for (const v of variants(lines[i])) {
+      const cand = [...lines.slice(0, i), v, ...lines.slice(i + 1)];
+      const dd = check(cand.join('\n'));
+      if (dd) { lines = cand; d = dd; changed = true; break; }
+    }
+  }
+  if (changed) {
+    for (let i = 0; i < lines.length; i++) { const cand = [...lines.slice(0, i), ...lines.slice(i + 1)]; const dd = check(cand.join('\n')); if (dd) { lines = cand; d = dd; i--; } }
+  }
+}
 console.log(lines.join('\n'));
 console.log('--', d);
