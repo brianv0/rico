@@ -51,6 +51,19 @@ type input struct {
 	Seeds          []int64           `json:"seeds"`
 	MaxConcurrency int               `json:"maxConcurrency"`
 
+	// rand mode
+	Seed int64    `json:"seed"`
+
+	// nodeshape mode
+	Shape      string  `json:"shape"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	Width      float64 `json:"width"`
+	Height     float64 `json:"height"`
+	NumColumns int     `json:"numColumns"`
+
+	Ops  []randOp `json:"ops"`
+
 	// fixture modes
 	Graph json.RawMessage `json:"graph"`
 	Op    string          `json:"op"`
@@ -91,6 +104,12 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 	switch mode {
 	case "adapter", "scores", "stages", "layout", "times", "svg":
 		return runD2(mode, in, ruler)
+	case "rand":
+		return runRand(in)
+	case "nodeshape":
+		return runNodeshape(in)
+	case "lgops":
+		return runOps(in)
 	}
 	return runFixture(mode, in)
 }
@@ -212,7 +231,13 @@ func runD2(mode string, in input, ruler *textmeasure.Ruler) interface{} {
 	copts := &d2lib.CompileOptions{
 		UTF16Pos: in.UTF16Pos, FS: fsys, Ruler: ruler, InputPath: in.Path, Layout: go2.Pointer("tala"),
 		LayoutResolver: func(engine string) (d2graph.LayoutGraph, error) { return layoutFn, nil },
-		RouterResolver: func(engine string) (d2graph.RouteEdges, error) { return d2talalayout.RouteEdges, nil },
+		RouterResolver: func(engine string) (d2graph.RouteEdges, error) {
+			if mode == "adapter" {
+				// the placeholder placement of the adapter mode is no input for any router: do not route
+				return func(ctx context.Context, g *d2graph.Graph, edges []*d2graph.Edge) error { return nil }, nil
+			}
+			return d2talalayout.RouteEdges, nil
+		},
 	}
 	ro := &d2svg.RenderOpts{}
 	start := time.Now()
