@@ -1773,7 +1773,11 @@ function showSelbar(sel, pt) {
   selbar.hidden = false;
   const w = selbar.offsetWidth;
   selbar.style.top = (pt.y - wrap.top + 12) + 'px';
-  selbar.style.left = Math.max(8, Math.min(pt.x - wrap.left - w / 2, wrap.width - w - 8)) + 'px';
+  // centred on the release point, but kept over the text column: never out over the comment cards
+  const dr = (cur && cur.doc ? cur.doc : docwrap).getBoundingClientRect();
+  const lo = Math.max(8, dr.left - wrap.left);
+  const hi = Math.max(lo, Math.min(dr.right - wrap.left, wrap.width) - w - 8);
+  selbar.style.left = Math.max(lo, Math.min(pt.x - wrap.left - w / 2, hi)) + 'px';
 }
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 
@@ -1936,7 +1940,11 @@ function onSelect(pt) {
   if (sel) showSelbar(sel, pt); else hideSelbar();
 }
 
-$('#cards').addEventListener('mouseup', (e) => { const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
+// Only a gesture that STARTED in the document text can make a selection pill. A click on a comment card, "▼ 1 below",
+// a button, etc. must not re-show it at the click point just because an old selection is still active.
+let downInDoc = false;
+$('#cards').addEventListener('mousedown', (e) => { downInDoc = !!(e.target.closest && e.target.closest('.rico-doc')); }, true);
+$('#cards').addEventListener('mouseup', (e) => { if (!downInDoc) return; const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
 $('#cards').addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') setTimeout(onSelect, 0); });
 
 // Unsent text in the comment box survives a reload (or a sign-in round trip): everything but the live Range is saved.

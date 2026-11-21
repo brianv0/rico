@@ -225,6 +225,33 @@ await step('quote option: code selections quote their source lines as a fenced b
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((t) => /edited quote/.test(t.innerText) && !t.classList.contains('local')));
   await deleteMine(page.locator('#margin .thread', { hasText: 'edited quote' })); // leave no trace
 });
+await step('the selection pill is not re-shown by clicks in the comment column, and stays over the text column', async () => {
+  await dragRaw('First', 'First paragraph');
+  await page.waitForSelector('#selbar:not([hidden])');
+  const pos = () => page.evaluate(() => { const r = document.getElementById('selbar').getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), hidden: document.getElementById('selbar').hidden }; });
+  const before = await pos();
+  const btn = page.locator('#margin .thread button', { hasText: 'Reply' }).first();
+  const bb = await btn.boundingBox();
+  await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2); // an unrelated click out in the comments
+  await page.waitForTimeout(300);
+  const after = await pos();
+  assert.ok(after.hidden || (after.l === before.l && after.t === before.t), `pill must not jump to the click: ${JSON.stringify({ before, after })}`);
+  await page.keyboard.press('Escape'); await page.mouse.click(5, 5);
+  await page.waitForSelector('#selbar', { state: 'hidden' });
+  const cancel = page.locator('#margin .reply button', { hasText: 'Cancel' });
+  if (await cancel.count()) await cancel.first().click(); // close the reply box the click opened
+  // releasing the drag at the far right edge of the text column keeps the whole pill over the text column
+  const A = await textBox('First', true);
+  const m = await page.evaluate(() => document.getElementById('doc').getBoundingClientRect().right - 3);
+  await page.mouse.move(A.l + 1, A.y); await page.mouse.down();
+  await page.mouse.move(m, A.y + 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForSelector('#selbar:not([hidden])');
+  const g = await page.evaluate(() => ({ bar: document.getElementById('selbar').getBoundingClientRect().right, doc: document.getElementById('doc').getBoundingClientRect().right }));
+  assert.ok(g.bar <= g.doc + 1, `pill right edge ${g.bar} stays within the text column (${g.doc})`);
+  await page.mouse.click(5, 5);
+  await page.waitForSelector('#selbar', { state: 'hidden' });
+});
 await step('a selection offers Comment and Suggest icons; the composer opens beside the text, not over it; clearing the selection hides them', async () => {
   await dragRaw('First', 'First paragraph');
   await page.waitForSelector('#selbar:not([hidden])');
