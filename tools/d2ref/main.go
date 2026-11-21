@@ -188,6 +188,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
 	case "zlib":
 		return zlibCheck(in)
+	case "linebreak":
+		return linebreakCheck(in)
 	case "svgfromdiagram":
 		return svgFromDiagram(in, ruler, fsys)
 	case "layout", "render":

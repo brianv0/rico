@@ -11,8 +11,10 @@ const FONT_URL = /url\("data:application\/font-woff;base64,[^"]*"\)/g;
 const blank = (s) => s.replace(FONT_URL, 'url("FONT")');
 
 // diagramFromJSON keeps icons as plain objects in the key order of Go's JSON; the diagram hash needs url.URL's own field order
+let sawUserinfo = false;
 function fixIcons(d) {
-  const fix = (o) => { if (o.icon != null) o.icon = Object.assign(new GoURL(), o.icon); };
+  // a url.Userinfo marshals as {} (its fields are unexported), so a diagram read back from JSON cannot carry one
+  const fix = (o) => { if (o.icon != null) { if (o.icon.User != null) sawUserinfo = true; o.icon = Object.assign(new GoURL(), o.icon); } };
   (d.shapes ?? []).forEach(fix);
   (d.connections ?? []).forEach(fix);
   fix(d.root);
@@ -42,7 +44,9 @@ export function svgCheck(c, want, { nofonts }) {
   if (want.ro == null || want.diagram == null) return { deferred: 'compile-error' };
   const ro = want.ro;
   if (ro.sketch) return { deferred: 'sketch' };
+  sawUserinfo = false;
   const diagram = fixIcons(diagramFromJSON(JSON.parse(JSON.stringify(want.diagram))));
+  if (sawUserinfo) return { deferred: 'icon-userinfo' };
   const opts = { ...ro, fonts: 'embed' };
   let svg = null, err = null;
   try {
@@ -58,5 +62,5 @@ export function svgCheck(c, want, { nofonts }) {
     if (Array.isArray(want.svg)) want.svg = want.svg.map(blank);
     else if (typeof want.svg === 'string') want.svg = blank(want.svg);
   }
-  return { diagram: want.diagram, ro: want.ro, svg: svg ?? '', err };
+  return { diagram: want.diagram, ro: want.ro, svg: svg ?? (c.ropts && c.ropts.multiboard ? [] : ''), err };
 }
