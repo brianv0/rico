@@ -1248,6 +1248,7 @@ function renderMargin() {
 
 // Change bars: one fixed gutter column at the document's left edge, whatever the nesting, so they read as a clean
 // line of marks like GitHub's rich diff. Each bar spans the element's text (not its heading padding or underline).
+const COALESCE_GAP = 8; // px: tighter than a paragraph break (16px), looser than list items or table rows
 function layoutBars(root) {
   let layer = root.querySelector(':scope > .rico-bars');
   if (!layer) {
@@ -1256,19 +1257,30 @@ function layoutBars(root) {
     root.prepend(layer);
   }
   const base = root.getBoundingClientRect().top;
-  const bars = [];
+  const runs = [];
   for (const e of root.querySelectorAll('[data-l].chg, [data-l].ctx, [data-l].out')) {
     if (e.closest('.rm')) continue; // removed blocks draw their own red edge
     const r = e.getBoundingClientRect();
     if (!r.height) continue; // collapsed (a closed <details>) or hidden
     const cs = getComputedStyle(e);
     const bottom = r.bottom - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderBottomWidth) || 0);
-    const bar = document.createElement('i');
-    bar.className = e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
-    bar.style.top = (r.top - base + 2) + 'px';
-    bar.style.height = Math.max(4, bottom - r.top - 4) + 'px';
-    bars.push(bar);
+    const kind = e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
+    const heading = /^H[1-6]$/.test(e.tagName);
+    // Neighbouring blocks of the same kind share one bar when they sit tight together (list items, table rows);
+    // paragraph breaks and headings always start a new bar.
+    const last = runs[runs.length - 1];
+    if (last && !heading && !last.heading && last.kind === kind && r.top - last.rawBottom <= COALESCE_GAP) {
+      last.bottom = Math.max(last.bottom, bottom);
+      last.rawBottom = Math.max(last.rawBottom, r.bottom);
+    } else runs.push({ kind, heading, top: r.top, bottom, rawBottom: r.bottom });
   }
+  const bars = runs.map((x) => {
+    const bar = document.createElement('i');
+    bar.className = x.kind;
+    bar.style.top = (x.top - base + 2) + 'px';
+    bar.style.height = Math.max(4, x.bottom - x.top - 4) + 'px';
+    return bar;
+  });
   layer.replaceChildren(...bars);
 }
 

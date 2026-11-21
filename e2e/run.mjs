@@ -675,6 +675,17 @@ await step('change bars: one gutter column for every block (nested lists, quotes
   assert.ok(res.kinds.list && res.kinds.nested && res.kinds.table, 'the document has lists, nested lists and tables: ' + JSON.stringify(res.kinds));
   assert.ok(Math.abs(res.headingBarEnd - (res.headingTextEnd - 2)) < 1.5, `heading bar ends at its text (${res.headingBarEnd} vs ${res.headingTextEnd})`);
   assert.equal(res.pseudo, false, 'no leftover per-element ::before bars');
+  const co = await p5.evaluate(() => {
+    const bars = [...document.querySelectorAll('#doc .rico-bars i')].map((b) => ({ el: b, r: b.getBoundingClientRect() }));
+    const barAt = (el) => { const r = el.getBoundingClientRect(); const y = r.top + r.height / 2; return bars.find((b) => y >= b.r.top && y <= b.r.bottom)?.el || null; };
+    const lis = [...document.querySelectorAll('#doc > ol > li[data-l]')];
+    const ps = [...document.querySelectorAll('#doc > p[data-l]')];
+    const h1 = document.querySelector('#doc h1[data-l]');
+    const tight = lis.length >= 2 && lis.every((l) => barAt(l) && barAt(l) === barAt(lis[0]));
+    return { tight, lis: lis.length, ps: ps.length, paraApart: ps.length >= 2 && barAt(ps[0]) !== barAt(ps[1]), headingOwn: barAt(h1) !== barAt(ps[0]) };
+  });
+  assert.ok(co.tight, 'consecutive list items share one bar: ' + JSON.stringify(co));
+  assert.ok(co.paraApart && co.headingOwn, 'paragraphs and headings keep their own bars: ' + JSON.stringify(co));
   await p5.screenshot({ path: path.join(root, 'e2e', 'bars.png'), clip: { x: 280, y: 150, width: 900, height: 800 } });
   await p5.close();
 });
