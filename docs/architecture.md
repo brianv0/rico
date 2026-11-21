@@ -103,5 +103,5 @@ The server binds to `127.0.0.1` only. A request must carry a loopback `Host` hea
 DNS rebinding, and every `POST` must send `X-Rico: 1`, which a cross-site page cannot do without
 a preflight that the server never answers.
 
-See the [glossary](glossary.md) for terms used here, and [getting started](guide/getting-started.md)
+See the [glossary](reference/glossary.md) for terms used here, and [getting started](guide/quickstart.md)
 for a walkthrough.
