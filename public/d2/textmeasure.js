@@ -15,7 +15,7 @@ import * as d2fonts from './fonts.js';
 import { Graphemes, graphemeClusterCount } from './uniseg.js';
 import { utf8Len, isSpace } from './ast.js';
 import { parseBody } from './htmlparse.js';
-import { inTable, Cf, ODICP, VS, PCM } from './uniprops.js';
+import { inTable, Cf, ODICP, VS, PCM, isPunct, isSymbol } from './uniprops.js';
 
 export const TAB_SIZE = 4;
 export const SIZELESS_FONT_SIZE = 0;
@@ -742,6 +742,62 @@ export function setMarkdownIt(markdownit) {
     if (/^<\/pre\s*>\s*$/i.test(state.src.slice(pos, state.eMarks[startLine]))) return false;
     return htmlBlock(state, startLine, endLine, silent);
   }, { alt: ['paragraph', 'reference', 'blockquote'] });
+  // goldmark's flanking rules (parser/delimiter.go ScanDelimiter) classify characters with util.IsSpaceRune (Go's unicode.IsSpace: also
+  // U+0085, U+2028, U+2029) and util.IsPunctRune (Unicode P and S of Go's tables); markdown-it's tables are older. The subclass keeps the
+  // change to this instance (the constructor may be shared with other users of markdown-it).
+  const goSpace = (c) => c === 0x20 || (c >= 9 && c <= 13) || c === 0x85 || c === 0xa0 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000;
+  const goPunct = (c) => isPunct(c) || isSymbol(c);
+  md.inline.State = class extends md.inline.State {
+    scanDelims(start, canSplitWord) {
+      const src = this.src, max = this.posMax, marker = src.charCodeAt(start);
+      let lastChar = 0x20; // the beginning of the line counts as a whitespace
+      if (start > 0) {
+        lastChar = src.charCodeAt(start - 1);
+        if ((lastChar & 0xfc00) === 0xdc00) {
+          const high = start > 1 ? src.charCodeAt(start - 2) : 0;
+          lastChar = (high & 0xfc00) === 0xd800 ? 0x10000 + ((high - 0xd800) << 10) + (lastChar - 0xdc00) : 0xfffd;
+        } else if ((lastChar & 0xfc00) === 0xd800) lastChar = 0xfffd;
+      }
+      let pos = start;
+      while (pos < max && src.charCodeAt(pos) === marker) pos++;
+      const count = pos - start;
+      let nextChar = pos < max ? src.charCodeAt(pos) : 0x20; // so does the end
+      if ((nextChar & 0xfc00) === 0xd800) {
+        const low = src.charCodeAt(pos + 1);
+        nextChar = (low & 0xfc00) === 0xdc00 ? 0x10000 + ((nextChar - 0xd800) << 10) + (low - 0xdc00) : 0xfffd;
+      } else if ((nextChar & 0xfc00) === 0xdc00) nextChar = 0xfffd;
+      const isLastPunctChar = goPunct(lastChar), isNextPunctChar = goPunct(nextChar);
+      const isLastWhiteSpace = goSpace(lastChar), isNextWhiteSpace = goSpace(nextChar);
+      const left = !isNextWhiteSpace && (!isNextPunctChar || isLastWhiteSpace || isLastPunctChar);
+      const right = !isLastWhiteSpace && (!isLastPunctChar || isNextWhiteSpace || isNextPunctChar);
+      return { can_open: left && (canSplitWord || !right || isLastPunctChar), can_close: right && (canSplitWord || !left || isNextPunctChar), length: count };
+    }
+  };
+  // goldmark's table extension trims cells (and detects rows) with util.TrimLeftSpace/TrimRightSpace, which only know ASCII white space;
+  // markdown-it's String.trim() also strips NBSP, U+2000..U+200A, U+3000 and friends. Those characters are hidden behind unused private-use
+  // ones while the table rule runs (all of them are one UTF-16 unit, so no offset changes) and restored in the cells' content.
+  const JS_ONLY_SPACE = /[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g;
+  const { fn: tableFn, alt: tableAlt } = md.block.ruler.__rules__.find((r) => r.name === 'table');
+  md.block.ruler.at('table', (state, startLine, endLine, silent) => {
+    const src = state.src;
+    JS_ONLY_SPACE.lastIndex = 0;
+    if (!JS_ONLY_SPACE.test(src)) return tableFn(state, startLine, endLine, silent);
+    const hidden = new Map();
+    const used = new Set(src.match(/[\ue000-\uf8ff]/g) ?? []);
+    let next = 0xe000;
+    state.src = src.replace(JS_ONLY_SPACE, (ch) => {
+      if (!hidden.has(ch)) { while (used.has(String.fromCharCode(next))) next++; hidden.set(ch, String.fromCharCode(next++)); }
+      return hidden.get(ch);
+    });
+    const before = state.tokens.length;
+    let ok;
+    try { ok = tableFn(state, startLine, endLine, silent); } finally { state.src = src; }
+    for (let i = before; i < state.tokens.length; i++) {
+      for (const [ch, sentinel] of hidden) state.tokens[i].content = state.tokens[i].content.replaceAll(sentinel, ch);
+    }
+    return ok;
+  }, { alt: tableAlt });
   markdownRenderer = md;
 }
 

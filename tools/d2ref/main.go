@@ -97,6 +97,14 @@ func main() {
 		themesdump()
 		return
 	}
+	if os.Args[1] == "unicodeprobe" {
+		unicodeprobe()
+		return
+	}
+	if os.Args[1] == "uniprops" {
+		uniprops()
+		return
+	}
 	if os.Args[1] == "fontmetrics" {
 		fontmetrics()
 		return
