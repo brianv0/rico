@@ -131,7 +131,7 @@ function firstDiff(a, b, p = '$', t = 0) {
   return { path: p, got: JSON.stringify(a)?.slice(0, 200), want: JSON.stringify(b)?.slice(0, 200) };
 }
 
-let same = 0, panics = 0, withinTol = 0, deferred = 0;
+let same = 0, panics = 0, withinTol = 0, deferred = 0, unstable = 0;
 const bad = [];
 const t0 = performance.now();
 cases.forEach((c, i) => {
@@ -140,10 +140,16 @@ cases.forEach((c, i) => {
   let got;
   try { got = canon(JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
   if (got.deferred) { deferred++; return; }
-  const d = firstDiff(got, canon(want));
+  let d = firstDiff(got, canon(want));
+  if (d && mode === 'layout') {
+    // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
+    // between runs. If Go gives the JS answer in some of 30 more runs, the case is Go-unstable, not a mismatch.
+    const again = runRef(Array(30).fill(c)).map((l) => canon(JSON.parse(l)));
+    if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
+  }
   if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt }); else withinTol++; } else same++;
 });
-console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
+console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
 process.exitCode = bad.length ? 1 : 0;
 

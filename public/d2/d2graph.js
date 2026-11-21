@@ -791,15 +791,54 @@ function goUpper(s) {
   return o;
 }
 
-// golang.org/x/text/cases Title(language.Und).String: the first letter of each word upper-cased (title case), the
-// rest lower-cased. Approximation: words are runs of letters, marks, digits and apostrophes; x/text's word
-// segmentation and its special cases (e.g. Dutch "ij") are not modelled. Only reached through
-// `text-transform: capitalize` in Texts/SetDimensions.
+// golang.org/x/text/cases Title(language.Und).String: map.go's titleCaser.Transform, a small state machine over the runes.
+// A cased rune that starts a word (isMidWord false) is title-cased, later cased runes are lower-cased; "mid" runes
+// (Word_Break MidLetter, MidNumLet, Single_Quote: : . ' and friends) keep the word going, and so does every other letter, digit,
+// mark, format or connector rune; any other rune (space, other punctuation, ideographs, Katakana) ends it. Digits do not start
+// a word, so "1st" becomes "1St", as in Go. The x/text tables are approximated with Unicode property escapes: Cased minus
+// Case_Ignorable for "cased", and ALetter/Numeric/Extend/Format/ExtendNumLet/ZWJ for "not a break". Context-dependent special
+// casing is limited to the final sigma and the titlecase digraphs and ligatures.
+const MID_RUNES = new Set([0x3a, 0xb7, 0x387, 0x55f, 0x5f4, 0x2027, 0xfe13, 0xfe55, 0xff1a, 0x2e, 0x2018, 0x2019, 0x2024, 0xfe52, 0xff07, 0xff0e, 0x27]);
+const reCased = /^(?!\p{Case_Ignorable})\p{Cased}$/u;
+const reCaseIgnorable = /^\p{Case_Ignorable}$/u;
+const reNotBreak = /^(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[\p{L}\p{Nl}\p{Nd}\p{M}\p{Pc}\p{Cf}]$/u;
+const TITLE_SPECIAL = new Map([
+  ['ß', 'Ss'], ['ǆ', 'ǅ'], ['Ǆ', 'ǅ'], ['ǉ', 'ǈ'], ['Ǉ', 'ǈ'], ['ǌ', 'ǋ'], ['Ǌ', 'ǋ'], ['ǳ', 'ǲ'], ['Ǳ', 'ǲ'],
+  ['ﬀ', 'Ff'], ['ﬁ', 'Fi'], ['ﬂ', 'Fl'], ['ﬃ', 'Ffi'], ['ﬄ', 'Ffl'], ['ﬅ', 'St'], ['ﬆ', 'St'],
+]);
+
 function titleCase(s) {
-  return s.replace(/[\p{L}\p{M}\p{N}'’]+/gu, (w) => {
-    const chars = Array.from(w);
-    return goUpper(chars[0]) + chars.slice(1).map((c) => lc(c)).join('');
-  });
+  const runes = Array.from(s);
+  let out = '';
+  let isMidWord = false;
+  const isCased = (r) => reCased.test(r);
+  for (let i = 0; i < runes.length; i++) {
+    const r = runes[i];
+    const cp = r.codePointAt(0);
+    const wasMid = MID_RUNES.has(cp);
+    if (isCased(r)) {
+      if (!isMidWord) {
+        if (TITLE_SPECIAL.has(r)) out += TITLE_SPECIAL.get(r);
+        else {
+          const u = Array.from(r.toUpperCase());
+          out += u.length === 1 ? u[0] : u[0] + u.slice(1).join('').toLowerCase();
+        }
+        isMidWord = true;
+      } else if (r === 'Σ') {
+        // final sigma: preceded by a cased letter, not followed by one (case-ignorable runes are skipped)
+        let j = i - 1;
+        while (j >= 0 && reCaseIgnorable.test(runes[j])) j--;
+        let k = i + 1;
+        while (k < runes.length && reCaseIgnorable.test(runes[k])) k++;
+        out += j >= 0 && isCased(runes[j]) && !(k < runes.length && isCased(runes[k])) ? 'ς' : 'σ';
+      } else out += goLower(r);
+    } else {
+      out += r;
+      if (!(MID_RUNES.has(cp) || reNotBreak.test(r))) isMidWord = false;
+    }
+    if (i + 1 < runes.length && wasMid && MID_RUNES.has(runes[i + 1].codePointAt(0))) isMidWord = false;
+  }
+  return out;
 }
 
 // ---- References ----

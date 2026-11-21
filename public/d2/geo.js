@@ -4,7 +4,7 @@
 // JavaScript port of D2's lib/geo package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.).
 // Go's math.Sin/Cos/Acos/Atan2/Pow can differ from V8 in the last bit; sqrt, abs, min, max and round do not.
 
-import { goRound, goPow, float32, goV, goFixed } from './gomath.js';
+import { goRound, goPow, float32, goV, goFixed, goInt } from './gomath.js';
 
 // ---- math.go ----
 
@@ -22,7 +22,7 @@ export function precisionCompare(a, b, e) {
 }
 
 /** truncates floats to keep up to 3 digits after the decimal point. */
-export const truncateDecimals = (v) => Math.trunc(v * 1000) / 1000;
+export const truncateDecimals = (v) => goInt(v * 1000) / 1000; // float64(int(v*1000)) / 1000: int() of NaN or out of range is MinInt64
 
 export function sign(i) {
   if (i < 0) return -1;
