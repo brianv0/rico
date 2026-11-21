@@ -118,6 +118,7 @@ export function normalize(v) {
 
 /** For comparisons: BigInt that fits a double becomes a Number, any other BigInt a string "123n". */
 export function plain(v) {
+  if (typeof v === 'number' && !Number.isFinite(v)) return Number.isNaN(v) ? 'NaN' : v > 0 ? '+Inf' : '-Inf'; // xdump prints non-finite floats this way
   if (typeof v === 'bigint') return (v <= MAX_SAFE && v >= -MAX_SAFE) ? Number(v) : `${v}n`;
   if (Array.isArray(v)) return v.map(plain);
   if (v && typeof v === 'object') {

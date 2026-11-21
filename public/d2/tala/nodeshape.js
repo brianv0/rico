@@ -2025,7 +2025,7 @@ class ShapeTable extends ShapeSquare {
 
   centerPortIndices() {
   if (this.numColumns > 0) {
-    return null;
+    return []; // Go: nil
   }
   return [
     1,
@@ -2063,7 +2063,7 @@ class ShapeTable extends ShapeSquare {
 
   mirroredPortIndices() {
   if (this.numColumns > 0) {
-    return null;
+    return new Map(); // Go: nil
   }
   let centerPorts = this.centerPortIndices();
   return new Map([

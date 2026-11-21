@@ -89,8 +89,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if err := out.Encode(run(mode, in, ruler)); err != nil {
-			out.Encode(map[string]string{"panic": err.Error()})
+		res := run(mode, in, ruler)
+		if err := out.Encode(res); err != nil {
+			if err2 := out.Encode(sanitize(res)); err2 != nil {
+				out.Encode(map[string]string{"panic": err2.Error()})
+			}
 		}
 	}
 }
