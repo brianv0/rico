@@ -1007,12 +1007,42 @@ function threadCard(th, rerender) {
     card.append(m);
     return card;
   }
+  // Long threads fold to the first and the last message; the middle sits behind a "more replies" row. Hovering a moment
+  // (or focusing) PEEKS: the full card floats over its neighbours without moving them. Clicking PINS it open in place.
+  const n = th.msgs.length;
+  const draft = !!draftGet('reply:' + th.id);
+  const folded = n >= 3 && !th.pinned && !draft;
+  const clamped = !th.pinned && !draft && th.msgs.some((m) => m.body.length > 420);
+  if (folded) card.classList.add('folded');
+  if (clamped) card.classList.add('clamped');
+  const mid = el('div', 'mid');
   th.msgs.forEach((m, i) => {
     const d = msgEl(m, th, rerender);
     if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : 'Outdated'));
     if (i === 0 && th.kind === 'issue') d.querySelector('.who').append(el('span', 'badge', 'On the pull request'));
-    card.append(d);
+    if (folded && i > 0 && i < n - 1) mid.append(d); else card.append(d);
+    if (folded && i === 0) {
+      const more = btn('', 'more linkish');
+      const who = [...new Set(th.msgs.slice(1, -1).map((x) => x.user))];
+      for (const u of who.slice(0, 3)) more.append(avatarEl(u, th.msgs.find((x) => x.user === u).avatar));
+      more.append(el('span', null, `${n - 2} more repl${n - 2 === 1 ? 'y' : 'ies'}`));
+      more.title = 'Show every reply';
+      more.addEventListener('click', () => { th.pinned = true; rerender(); });
+      card.append(more, mid);
+    }
   });
+  if (clamped || folded) {
+    let timer = 0;
+    card.addEventListener('mouseenter', () => { timer = setTimeout(() => card.classList.add('peek'), 300); });
+    card.addEventListener('mouseleave', () => { clearTimeout(timer); card.classList.remove('peek'); });
+    card.addEventListener('focusin', (e) => { if (e.target.matches(':focus-visible') && e.target.tagName !== 'TEXTAREA') card.classList.add('peek'); }); // keyboard focus peeks; a mouse click must not shift the layout under the pointer
+    card.addEventListener('focusout', (e) => { if (!card.contains(e.relatedTarget)) card.classList.remove('peek'); });
+  }
+  if (clamped) {
+    const more = btn('Show more', 'linkish showmore');
+    more.addEventListener('click', () => { th.pinned = true; rerender(); });
+    card.append(more);
+  }
   if (th.local) return card;
   const acts = el('div', 'tacts');
   let restoreReply = null;
@@ -1022,6 +1052,7 @@ function threadCard(th, rerender) {
       const form = el('div', 'reply');
       const ta = el('textarea');
       ta.rows = 2; ta.placeholder = 'Reply… (Ctrl/Cmd+Enter to send)'; ta.value = text;
+      th.pinned = true; card.classList.add('opened'); // replying shows the whole thread
       const row = el('div', 'row');
       const send = btn('Reply', 'btn btn-primary');
       const cancel = btn('Cancel');

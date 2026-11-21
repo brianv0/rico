@@ -122,20 +122,20 @@ await step('existing threads appear in the margin, aligned with their text (left
   assert.equal(await page.locator('#doc .has-t').count(), 4); // the removed subtitle + lines 3-6 (two paragraphs) + the list item
 });
 await step('hovering a thread highlights its text; clicking text activates the thread', async () => {
-  await page.locator('#margin .thread', { hasText: 'Will trim it' }).hover();
+  await page.locator('#margin .thread[data-id="101"]').hover();
   assert.equal(await page.locator('#doc p.hl').count(), 2);
   await page.mouse.move(5, 5);
   await page.getByText('First paragraph here.').first().click({ position: { x: 20, y: 8 } });
   assert.equal(await page.locator('#margin .thread.active').count(), 1);
 });
 await step('replying from the margin posts to GitHub and appends to the thread', async () => {
-  const card = page.locator('#margin .thread', { hasText: 'Will trim it' });
-  await card.getByRole('button', { name: 'Reply' }).click();
+  const card = page.locator('#margin .thread[data-id="101"]');
+  await card.getByRole('button', { name: 'Reply', exact: true }).click();
   await card.locator('textarea').fill('Agreed, thanks.');
   await page.keyboard.press('Control+Enter');
-  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((c) => c.innerText.includes('Will trim it') && c.querySelectorAll('.msg').length === 3));
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((c) => c.dataset.id === '101' && c.querySelectorAll('.msg').length === 3));
   assert.deepEqual(fake.replies, [{ to: 101, body: 'Agreed, thanks.' }]);
-  assert.match(await page.locator('#margin .thread', { hasText: 'Will trim it' }).innerText(), /me[\s\S]*Agreed, thanks\./);
+  assert.match(await page.locator('#margin .thread[data-id="101"]').innerText(), /me[\s\S]*Agreed, thanks\./);
   assert.equal(await noOverlap(), true);
 });
 // ---- source diff view ----
@@ -161,7 +161,7 @@ await step('source diff: existing threads sit under their lines, left-side ones 
   const c = card('docs/plan.md');
   const under = (sel) => c.locator(sel).locator('xpath=following-sibling::tr[1]');
   assert.equal(await under('tr.d-row[data-new="6"]').getAttribute('class'), 'thread-row');
-  assert.match(await under('tr.d-row[data-new="6"]').innerText(), /alice[\s\S]*Will trim it/);
+  assert.match(await under('tr.d-row[data-new="6"]').textContent(), /alice[\s\S]*Will trim it/); // (the middle message of a long thread is folded: present, not visible)
   assert.match(await under('tr.d-del[data-old="2"]').innerText(), /On a removed line/);
   assert.match(await c.locator('.src-note').innerText(), /1 outdated thread/);
 });
@@ -780,9 +780,9 @@ await step('a failure keeps your text and shows GitHub\'s reason; Try again work
   expectHttp = false;
 });
 await step('resolve folds a thread to one line; Show expands it; Reopen brings it back', async () => {
-  const t = () => page.locator('#margin .thread', { hasText: 'Will trim it' });
+  const t = () => page.locator('#margin .thread[data-id="101"]');
   const n = fake.ops.length;
-  await t().getByRole('button', { name: 'Resolve' }).click();
+  await t().getByRole('button', { name: 'Resolve', exact: true }).click();
   assert.equal((await waitOp(n)).op, 'resolve');
   await page.waitForSelector('#margin .thread.resolved .rmark');
   assert.match(await page.locator('#margin .thread.resolved').innerText(), /Resolved[\s\S]*alice/);
@@ -796,7 +796,7 @@ await step('resolve folds a thread to one line; Show expands it; Reopen brings i
   await page.waitForFunction(() => !document.querySelector('#margin .thread.resolved'));
 });
 await step('reactions: add from the picker, toggle off by clicking your own', async () => {
-  const msg = page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.msg').first();
+  const msg = page.locator('#margin .thread[data-id="101"]').locator('.msg').first();
   let n = fake.ops.length;
   await msg.locator('.react.add').click();
   await msg.locator('.picker .react[title="heart"]').click();
@@ -829,12 +829,12 @@ await step('unsent text survives a reload: the comment box and reply boxes', asy
   await page.locator('#c-cancel').click();
   await reload();
   assert.equal(await page.locator('#composer').isHidden(), true, 'Cancel throws the draft away');
-  const t = page.locator('#margin .thread', { hasText: 'Will trim it' });
-  await t.getByRole('button', { name: 'Reply' }).click();
+  const t = page.locator('#margin .thread[data-id="101"]');
+  await t.getByRole('button', { name: 'Reply', exact: true }).click();
   await t.locator('textarea').fill('Reply in progress');
   await reload();
-  assert.equal(await page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply textarea').inputValue(), 'Reply in progress');
-  await page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply').getByRole('button', { name: 'Cancel' }).click();
+  assert.equal(await page.locator('#margin .thread[data-id="101"]').locator('.reply textarea').inputValue(), 'Reply in progress');
+  await page.locator('#margin .thread[data-id="101"]').locator('.reply').getByRole('button', { name: 'Cancel' }).click();
   assert.equal(await page.locator('.reply').count(), 0);
 });
 await step('Ctrl/Cmd+Alt+M comments on the current selection', async () => {
@@ -874,16 +874,16 @@ await step('live refresh: a comment from someone else appears without a reload; 
   assert.equal(id > 0, true);
 });
 await step('live refresh: an open reply box keeps its text and focus while the margin updates', async () => {
-  const t = page.locator('#margin .thread', { hasText: 'Will trim it' });
-  await t.getByRole('button', { name: 'Reply' }).click();
+  const t = page.locator('#margin .thread[data-id="101"]');
+  await t.getByRole('button', { name: 'Reply', exact: true }).click();
   await t.locator('textarea').fill('Typing while others comment');
   await t.locator('textarea').press('End');
   fake.addComment({ user: { login: 'yan' }, line: 6, original_line: 6, in_reply_to_id: 101, body: 'Reply from yan' });
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((x) => /Reply from yan/.test(x.innerText)), null, { timeout: 5000 });
-  const ta = page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply textarea');
+  const ta = page.locator('#margin .thread[data-id="101"]').locator('.reply textarea');
   assert.equal(await ta.inputValue(), 'Typing while others comment');
   assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'TEXTAREA');
-  await page.locator('#margin .thread', { hasText: 'Will trim it' }).locator('.reply').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('#margin .thread[data-id="101"]').locator('.reply').getByRole('button', { name: 'Cancel' }).click();
 });
 await step('live refresh: no polling while the tab is hidden, and it resumes when you come back', async () => {
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); });
@@ -926,7 +926,7 @@ await step('exact words: a partial-line comment highlights just those words (Goo
   assert.deepEqual(await ranges(), { marked: (await ranges()).marked, hover: ['paragraph is hard'], blocks: 0 });
   await page.mouse.move(5, 5);
   assert.deepEqual((await ranges()).hover, []);
-  await page.locator('#margin .thread', { hasText: 'Will trim it' }).hover(); // no quote in that one: the whole block
+  await page.locator('#margin .thread[data-id="101"]').hover(); // no quote in that one: the whole block
   assert.equal((await ranges()).hover.length, 0);
   assert.equal((await ranges()).blocks > 0, true);
   await page.mouse.move(5, 5);
@@ -1005,6 +1005,38 @@ await step('an unsent suggestion survives a reload, edited text and all', async 
   await page.waitForSelector('#composer:not([hidden])');
   assert.equal(await page.locator('#c-sugtext').inputValue(), 'First paragraph, rewritten.');
   await page.click('#c-cancel');
+});
+
+await step('long threads fold to first + last message; hover peeks the rest, clicking pins it; long messages clamp', async () => {
+  await gotoPlan();
+  const t = page.locator('#margin .thread[data-id="101"]');
+  const total = await t.locator('.msg').count();
+  assert.ok(total >= 4, 'thread 101 has grown: ' + total);
+  assert.equal(await t.evaluate((e) => e.classList.contains('folded')), true);
+  assert.equal(await t.locator('.msg:visible').count(), 2, 'only the first and the last message');
+  assert.match(await t.locator('.more').innerText(), new RegExp(`${total - 2} more replies`));
+  const h0 = await t.evaluate((e) => e.getBoundingClientRect().height);
+  const next = await page.evaluate(() => [...document.querySelectorAll('#margin .thread')].filter((x) => x.dataset.id !== '101').map((x) => x.getBoundingClientRect().top));
+  await t.locator('.msg').first().hover();
+  await page.waitForSelector('#margin .thread[data-id="101"].peek');
+  assert.equal(await t.locator('.msg:visible').count(), total, 'peek shows everything');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#margin .thread')].filter((x) => x.dataset.id !== '101').map((x) => x.getBoundingClientRect().top)), next, 'neighbours do not move');
+  await page.screenshot({ path: path.join(root, 'e2e', 'peek.png') });
+  await page.mouse.move(5, 5);
+  await page.waitForFunction(() => !document.querySelector('#margin .thread.peek'));
+  assert.equal(await t.locator('.msg:visible').count(), 2);
+  assert.ok(Math.abs(await t.evaluate((e) => e.getBoundingClientRect().height) - h0) < 1);
+  await t.locator('.more').click();
+  assert.equal(await t.evaluate((e) => e.classList.contains('folded')), false, 'pinned open');
+  assert.equal(await t.locator('.msg:visible').count(), total);
+  // a very long message is clamped, with Show more
+  fake.addComment({ user: { login: 'prose' }, line: 6, original_line: 6, body: 'Long thought. ' + 'This sentence keeps going and going. '.repeat(30) });
+  await page.evaluate(() => window.__rico.refreshComments(true));
+  const long = page.locator('#margin .thread.clamped', { hasText: 'Long thought' });
+  await long.waitFor();
+  assert.ok((await long.locator('.text').evaluate((e) => e.getBoundingClientRect().height)) < 170, 'clamped');
+  await long.getByRole('button', { name: 'Show more' }).click();
+  assert.equal(await page.locator('#margin .thread.clamped', { hasText: 'Long thought' }).count(), 0);
 });
 
 await step('no page errors', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
