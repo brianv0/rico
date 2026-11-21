@@ -154,10 +154,10 @@ cases.forEach((c, i) => {
     const again = runRef(Array(30).fill(c)).map((l) => canon(JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
-  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt }); else withinTol++; } else same++;
+  if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
 });
 console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
-for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
+for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}` + (b.errs ? `\n  err  ${b.errs}` : ''));
 process.exitCode = bad.length ? 1 : 0;
 
 // e2e: D2's own end-to-end goldens. Inputs come from e2eenum/run.sh (the testCases that e2etests' run() compiles, recorded

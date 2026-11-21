@@ -146,6 +146,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return xmlCheck(in)
 	case "dims":
 		return dimsCheck(in, ruler)
+	case "dagro":
+		return dagroCheck(in)
 	case "graphmethods":
 		return graphMethods(in)
 	case "sprintf":

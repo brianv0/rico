@@ -869,7 +869,11 @@ function shiftReachableDownIndexed(g, index, obj, start, distance, isHorizontal,
   processQueue();
 
   const grown = new Set();
-  for (const o of seen) {
+  // Go ranges over the map `seen`, which processQueue() (called inside the loop) adds to: such entries "may be produced during the
+  // iteration or may be skipped". A Go swiss map that grows while it is iterated keeps iterating its old table, so the entries added
+  // by a grown parent's queue are not visited; a JS Set would visit them all. Iterating a snapshot is what Go shows (measured on
+  // fuzzed layouts: visiting the added entries gives layouts that Go never prints).
+  for (const o of [...seen]) {
     if (o.parent === g.root) continue;
     if (shifted.has(o.parent)) continue;
     if (grown.has(o.parent)) continue;
