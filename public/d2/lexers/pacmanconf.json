@@ -1,0 +1,1 @@
+{"name":"PacmanConf","rules":{"root":[["#.*$",["t","CommentSingle"],0],["^\\s*\\[.*?\\]\\s*$",["t","Keyword"],0],["(\\w+)(\\s*)(=)",["g",[["t","NameAttribute"],["t","Text"],["t","Operator"]]],0],["^(\\s*)(\\w+)(\\s*)$",["g",[["t","Text"],["t","NameAttribute"],["t","Text"]]],0],["(\\$repo|\\$arch|%o|%u)\\b",["t","NameVariable"],0],[".",["t","Text"],0]]}}

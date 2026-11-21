@@ -2672,6 +2672,8 @@ const loaders = {
   async fonts() { hooks.fonts = await import('./d2svgfonts.js'); },
   async font(name) { await hooks.fonts.loadFont(name); },
   async markdown() { hooks.markdown = await import('./mdlayout.js'); },
+  async linebreak() { await (await import('./linebreak.js')).loadFullTables(); },
+  async fullfont(file) { await (await import('./fontglyphs.js')).loadFont(file); },
   async highlight() { hooks.highlight = await import('./highlight.js'); },
   async lexer(file) { hooks.highlight ??= await import('./highlight.js'); await hooks.highlight.loadLexer(file); },
   async latex() { await d2latex.loadLatex(); },

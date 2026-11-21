@@ -8,19 +8,21 @@
 // cssFontBoxMetrics, cssNormalLineHeight) on top of textmeasure.js. The Markdown renders to HTML with markdown-it (registered in
 // textmeasure.js) and the tree comes from htmlparse.js.
 //
-// Scope: text made of U+0020..U+007E, U+00A1..U+00FF (and tab/newline in code blocks), i.e. what the bundled fonts cover and what
-// linebreak.js (uniseg's line breaking) supports. Anything else (CJK, emoji, combining marks, symbols) goes through D2's browser
-// fallback emulation (scaleUnicodeCSS, fontfallback, ...) that is not ported: `layoutMarkdown` throws `Deferred` for it.
+// Text outside the 353 runes of fonts/metrics.json goes through the original face (fontglyphs.js: cmap, advances and glyph boxes of the
+// bundled TTFs, loaded on demand: `NeedAsset('fullfont')`), D2's browser fallback emulation (scaleUnicodeCSS) and uniseg's line breaking
+// for all of Unicode (linebreak.js + linebreakdata.js, loaded on demand: `NeedAsset('linebreak')`).
 
 import * as d2fonts from './fonts.js';
 import { parseBody } from './htmlparse.js';
-import { renderMarkdown, MarkdownLineHeight, headerToFontSize } from './textmeasure.js';
-import { Graphemes } from './uniseg.js';
-import { firstLineSegmentInString } from './linebreak.js';
+import { renderMarkdown, MarkdownLineHeight, headerToFontSize, loadGlyph, isDefaultIgnorableRune, fUnion } from './textmeasure.js';
+import { Graphemes, graphemeClusterCount, stringWidth } from './uniseg.js';
+import { inTable, Mn, Me, So, isSymbol } from './uniprops.js';
+import { firstLineSegmentInString, hasFullTables } from './linebreak.js';
+import { fullFont } from './fontglyphs.js';
 import { escapeText } from './svg.js';
 import { goRound, goFixed } from './gomath.js';
 import { utf8Len } from './ast.js';
-import { Deferred } from './d2svg.js';
+import { Deferred, NeedAsset } from './d2svg.js';
 
 const TAB_SIZE = 4;
 
@@ -226,24 +228,78 @@ function ttfOf(ruler, font) {
   return ttf ?? null;
 }
 
-/** measureFontAdvance: the cursor advance of s (font.MeasureString of an x/image face), or null when a glyph is missing */
-function measureFontAdvance(ruler, font, s) {
+// the runes of the dump in fonts/metrics.json: textmeasure.Runes (U+0000..U+00FF and the geometric shapes)
+const inDump = (r) => r <= 0xff || (r >= 0x25a0 && r <= 0x25ff);
+
+/**
+ * The glyph tables of the original face that Go reads for s: the dumped records when every rune of s is one of the atlas runes (the usual
+ * case), else the whole face from fontglyphs.js (`NeedAsset` until it is loaded). null: no such font.
+ */
+function originalFont(ruler, font, s) {
   const ttf = ttfOf(ruler, font);
   if (ttf === null) return null;
   for (const ch of s) {
-    const r = ch.codePointAt(0);
-    // GlyphIndex err != nil || (index == 0 && r != 0)
-    const idx = ttf.index(r);
-    if ((idx === undefined || idx === 0) && r !== 0) return null;
+    if (inDump(ch.codePointAt(0))) continue;
+    const file = d2fonts.FONT_FILES[`${font.Family}-${font.Style}`];
+    if (file === undefined) return null;
+    const full = fullFont(file);
+    if (full === null) throw new NeedAsset('fullfont', file);
+    return full;
   }
+  return ttf;
+}
+
+/** every rune has a glyph: GlyphIndex err != nil || (index == 0 && r != 0) is false */
+function hasGlyphs(ttf, s) {
+  for (const ch of s) {
+    const r = ch.codePointAt(0);
+    const idx = ttf.index(r);
+    if ((idx === undefined || idx === 0) && r !== 0) return false;
+  }
+  return true;
+}
+
+/** Face.GlyphAdvance: the scaled hmtx advance, or null when sfnt cannot load the glyph */
+function glyphAdvance(ttf, ppem, r) {
+  const g = ttf.glyph(ttf.index(r));
+  return g ? ttf.scale(g.a * ppem) : null;
+}
+
+/** measureFontWidth: the width of the ink box or the advance, whichever reaches further, of s (font.BoundString of an x/image face); null when a glyph is missing */
+function measureFontWidth(ruler, font, s) {
+  const ttf = originalFont(ruler, font, s);
+  if (ttf === null || !hasGlyphs(ttf, s)) return null;
+  const ppem = Math.trunc(0.5 + font.Size * 64);
+  let bounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  let advance = 0;
+  let prevC = -1;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (prevC >= 0) advance += ttf.kernAt(ppem, ttf.index(prevC), ttf.index(c));
+    let g;
+    try { g = loadGlyph(ttf, ppem, ttf.index(c)); } catch (e) { continue; } // GlyphBounds failed: the glyph is skipped
+    bounds = fUnion(bounds, { minX: g.bounds.minX + advance, minY: g.bounds.minY, maxX: g.bounds.maxX + advance, maxY: g.bounds.maxY });
+    advance += g.advanceWidth;
+    prevC = c;
+  }
+  const left = Math.min(bounds.minX, 0);
+  const right = Math.max(bounds.maxX, advance);
+  return (right - left) / 64;
+}
+
+/** measureFontAdvance: the cursor advance of s (font.MeasureString of an x/image face), or null when a glyph is missing */
+function measureFontAdvance(ruler, font, s) {
+  const ttf = originalFont(ruler, font, s);
+  if (ttf === null || !hasGlyphs(ttf, s)) return null;
   const ppem = Math.trunc(0.5 + font.Size * 64);
   let advance = 0;
   let prevC = -1;
   for (const ch of s) {
     const c = ch.codePointAt(0);
     if (prevC >= 0) advance += ttf.kernAt(ppem, ttf.index(prevC), ttf.index(c));
-    const idx = ttf.index(c);
-    advance += ttf.scale(ttf.glyphs[idx].a * ppem);
+    const a = glyphAdvance(ttf, ppem, c);
+    if (a === null) continue;
+    advance += a;
     prevC = c;
   }
   return advance / 64;
@@ -267,18 +323,109 @@ function cssNormalLineHeight(ruler, font, size) {
   return goRound(height / 64);
 }
 
-/** the characters this port handles (see the file header) */
+/** Markdown text with characters above U+00FF needs uniseg's line break tables (linebreakdata.js) */
 function checkSupportedText(ruler, s) {
+  if (hasFullTables()) return;
+  for (const ch of s) if (ch.codePointAt(0) > 0xff) throw new NeedAsset('linebreak');
+}
+
+// ---- Ruler.scaleUnicodeCSS (textmeasure.go): the host-font fallback advances of Chromium and SVG viewers ----
+
+const stripDefaultIgnorableRunes = (s) => { let out = ''; for (const ch of s) if (!isDefaultIgnorableRune(ch.codePointAt(0))) out += ch; return out; };
+
+function isColorEmojiGrapheme(s) {
+  let hasEmojiVariation = false, hasEmojiBase = false, hasKeycap = false;
   for (const ch of s) {
     const r = ch.codePointAt(0);
-    if (r === 0x0a || r === 0x09 || (r >= 0x20 && r <= 0x7e) || (r >= 0xa1 && r <= 0xff)) continue;
-    throw new Deferred('markdown-unicode');
+    if (r === 0xfe0f) { hasEmojiVariation = true; continue; }
+    if (r === 0x20e3) { hasKeycap = true; continue; }
+    if (isSymbol(r)) hasEmojiBase = true;
+    // Uniseg's width table incorporates Unicode Emoji_Presentation. Restricting the two-cell result to Other_Symbol distinguishes default
+    // emoji from wide East Asian letters. Checking each base rune also keeps default emoji wide when an explicit text variation selector
+    // is present, matching Chromium's host fallback behavior.
+    if (inTable(So, r) && stringWidth(ch) === 2) return true;
   }
+  if (hasKeycap) {
+    for (const ch of s) {
+      const r = ch.codePointAt(0);
+      if (r === 0x23 || r === 0x2a || (r >= 0x30 && r <= 0x39)) { hasEmojiBase = true; break; }
+    }
+  }
+  return hasEmojiVariation && hasEmojiBase;
+}
+
+function hasUnicodeSymbol(s) {
+  for (const ch of s) if (isSymbol(ch.codePointAt(0))) return true;
+  return false;
+}
+
+function isZeroWidthGrapheme(s) {
+  for (const ch of s) {
+    const r = ch.codePointAt(0);
+    if (inTable(Mn, r) || inTable(Me, r) || isDefaultIgnorableRune(r)) continue;
+    return false;
+  }
+  return true;
+}
+
+/** scaleUnicodeCSS approximates the host-font fallback advances used by Chromium and SVG viewers when native Markdown contains glyphs absent from D2's embedded fonts */
+function scaleUnicodeCSS(ruler, w, font, s) {
+  const cssEmoji = true;
+  // Weird unicode stuff is going on when this is true. See the uniseg README, "Grapheme Clusters".
+  if (graphemeClusterCount(s) !== utf8Len(s)) {
+    w = 0;
+    for (const line of s.split('\n')) {
+      ruler.measurePrecise(font, line);
+      // Font subsets omit layout tables such as GPOS. Use the original glyph advances so supported Unicode runes are not measured as the
+      // replacement glyph used by the fixed-size atlas.
+      const originalLineWidth = measureFontWidth(ruler, font, line);
+      if (originalLineWidth !== null) {
+        w = Math.max(w, originalLineWidth);
+        continue;
+      }
+      const gr = new Graphemes(line);
+      let lineW = 0;
+      while (gr.next()) {
+        let grapheme = String.fromCodePoint(...gr.runes());
+        const originalWidth = measureFontWidth(ruler, font, grapheme);
+        if (originalWidth !== null) {
+          lineW += originalWidth;
+          continue;
+        }
+        const colorEmoji = cssEmoji && isColorEmojiGrapheme(grapheme);
+        if (cssEmoji && !colorEmoji) {
+          const filtered = stripDefaultIgnorableRunes(grapheme);
+          if (filtered !== grapheme) {
+            if (filtered === '') continue;
+            const filteredWidth = measureFontWidth(ruler, font, filtered);
+            if (filteredWidth !== null) {
+              lineW += filteredWidth;
+              continue;
+            }
+            grapheme = filtered;
+          }
+        }
+        if (isZeroWidthGrapheme(grapheme)) continue;
+        // The eventual SVG viewer supplies its own fallback font. CSS emoji and East Asian clusters normally occupy one em (two terminal
+        // cells); narrow missing glyphs occupy half an em. Reserving 2.5 monospace cells made mixed-script Markdown boxes far wider than
+        // Chromium's actual layout.
+        let cells = gr.width();
+        if (cells < 1) cells = 1;
+        let advance = font.Size * cells / 2;
+        if (cssEmoji) {
+          if (colorEmoji) advance = Math.max(advance, font.Size * 1.25);
+          // Text-presentation emoji-capable symbols such as bare U+26A0 occupy one em in Chromium's fallback font.
+          else if (hasUnicodeSymbol(grapheme)) advance = Math.max(advance, font.Size);
+        }
+        lineW += advance;
+      }
+      w = Math.max(w, lineW);
+    }
+  }
+  return w;
 }
 
 // ---- measureMarkdownNode ----
-
-const isASCII = (s) => /^[\x00-\x7f]*$/.test(s);
 
 const markdownPreLineCount = (text) => {
   if (text === '') return 0;
@@ -365,9 +512,10 @@ function measureMarkdownNode(ruler, depth, n, fontFamily, monoFontFamily, fontSi
         // CSS lays out adjacent inline runs by cursor advance, not glyph ink bounds.
         const advance = measureFontAdvance(ruler, font, str);
         if (advance !== null) w = advance;
-        else if (!isASCII(str)) throw new Deferred('markdown-unicode'); // else scaleUnicodeCSS leaves the measured width
+        else w = scaleUnicodeCSS(ruler, w, font, str);
       } else if (!isCode) {
-        // scaleUnicodeLegacy: for the supported characters every grapheme has width 1 and the measurement is unchanged
+        // The browser-era Markdown measurer applied its Unicode fallback correction only to proportional text.
+        w = ruler.scaleUnicodeLegacy(w, font, str);
       }
       w *= fontScale;
       h *= fontScale;
@@ -1027,13 +1175,32 @@ class MarkdownPainter {
     let lineCtx = ctx;
     let hasContent = false;
     let allCode = true;
+    let hasFallback = false, hasSymbolFallback = false, hasColorEmojiFallback = false;
     for (const token of line) {
       if (token.padding || token.text === '') continue;
       hasContent = true;
       if (!token.ctx.inlineCode) {
         const font = this.fontOf(token.ctx);
-        const measurementText = token.text.replaceAll('­', '');
-        if (measureFontAdvance(this.ruler, font, measurementText) === null && !isASCII(measurementText)) throw new Deferred('markdown-unicode');
+        const measurementText = token.text.replaceAll('\u00ad', '');
+        if (measureFontAdvance(this.ruler, font, measurementText) === null) {
+          const graphemes = new Graphemes(measurementText);
+          while (graphemes.next()) {
+            let grapheme = String.fromCodePoint(...graphemes.runes());
+            if (measureFontAdvance(this.ruler, font, grapheme) !== null) continue;
+            const colorEmoji = isColorEmojiGrapheme(grapheme);
+            if (!colorEmoji) {
+              const filtered = stripDefaultIgnorableRunes(grapheme);
+              if (filtered !== grapheme) {
+                if (filtered === '') continue;
+                if (measureFontAdvance(this.ruler, font, filtered) !== null) continue;
+                grapheme = filtered;
+              }
+            }
+            hasFallback = true;
+            if (colorEmoji) hasColorEmojiFallback = true;
+            else if (hasUnicodeSymbol(grapheme)) hasSymbolFallback = true;
+          }
+        }
         allCode = false;
         continue;
       }
@@ -1050,6 +1217,16 @@ class MarkdownPainter {
     if (allCode) {
       // Chromium's normal inline-formatting strut leaves two pixels of line gap around Source Code Pro at the 85% code size.
       lineHeight = goMax(lineHeight, goRound(fontSize * 1.4));
+    }
+    if (hasColorEmojiFallback && !allCode) {
+      // Chromium's color-emoji fallback uses a 26px normal line box at 16px.
+      lineHeight = goMax(lineHeight, goRound(cssFontSizeOf(ctx) * 1.625));
+    } else if (hasSymbolFallback && !allCode) {
+      // Text-presentation emoji-capable symbols use a 24px fallback line box.
+      lineHeight = goMax(lineHeight, goRound(cssFontSizeOf(ctx) * 1.5));
+    } else if (hasFallback && !allCode) {
+      // Host fallback fonts use a slightly taller normal line box for missing proportional glyphs (22px versus Source Sans Pro's 20px at 16px).
+      lineHeight = goMax(lineHeight, goRound(cssFontSizeOf(ctx) * 1.375));
     }
     return lineHeight;
   }
@@ -1350,10 +1527,9 @@ class MarkdownPainter {
     const measurementText = text.replaceAll('­', '');
     let advance = measureFontAdvance(this.ruler, font, measurementText);
     if (advance === null) {
-      // control characters (code blocks): MeasurePrecise's width, which scaleUnicodeCSS leaves alone for ASCII
-      if (!isASCII(measurementText)) throw new Deferred('markdown-unicode');
       [advance] = this.ruler.measurePrecise(font, measurementText);
-      if (advance === 0 && measurementText !== '') return fallback;
+      advance = scaleUnicodeCSS(this.ruler, advance, font, measurementText);
+      if (advance === 0 && measurementText !== '' && !isZeroWidthGrapheme(measurementText)) return fallback;
     }
     let a = advance * ctx.fontScale;
     if (ctx.inlineCode && !ctx.headingCode) a *= FontSize_pre_code_em;

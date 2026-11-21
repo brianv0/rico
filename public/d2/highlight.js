@@ -7,12 +7,13 @@
 // "catppuccin-mocha") reduced to what StyleEntryToSVG prints per token type.
 //
 // The lexers themselves are chroma's own definitions, exported by tools/d2ref `chromadump` (+ genlexers.mjs) as one JSON file each
-// under public/d2/lexers/ and loaded on demand: python, go, bash/sh, javascript/js, typescript/ts, json, yaml (and the Go text
-// template lexer that the Go lexer embeds). Every other language is `Deferred` (chroma has about 280; see lexers/index.json for the
-// names). chroma matches with regexp2 (.NET syntax): the patterns are translated to JavaScript regular expressions, which is exact
-// for ASCII text, so a code label with any other character is `Deferred` too.
+// under public/d2/lexers/ and loaded on demand (lexers/index.json has the name/alias/extension table of all of them). chroma matches
+// with regexp2 (.NET syntax): the patterns run on regexp2.js, a port of that engine, so the tokens are chroma's for any text. Languages
+// chroma resolves to the fallback lexer use it, exactly as Go does.
 
 import { Deferred, NeedAsset } from './d2svg.js';
+import { Regexp } from './regexp2.js';
+import { utf8Len } from './ast.js';
 
 const FILES_BASE = new URL('./lexers/', import.meta.url);
 
@@ -49,102 +50,15 @@ function dependencies(lexer) {
     if (!e) return;
     if (e[0] === 'u') out.add(e[1]);
     if (e[0] === 'g') e[1].forEach(walk);
+    if (e[0] === 'ug') e[3].forEach(walk);
   };
   for (const rules of Object.values(lexer.rules)) for (const [, em] of rules) walk(em);
+  if (lexer.root) for (const rules of Object.values(lexer.root.rules)) for (const [, em] of rules) walk(em); // a delegating lexer's root
+  if (lexer.wrap === 'markdown') out.add('YAML'); // front matter
   return out;
 }
 
 const resolveName = (language) => index.names[language] ?? index.names[language.toLowerCase()];
-
-// ---- regexp2 (.NET) -> JavaScript ----
-
-class Unsupported extends Error {}
-
-/** translates one rule pattern; returns a sticky RegExp. Exact for ASCII input (see the file header). */
-function translate(pattern, lexer) {
-  let flags = 'y';
-  let multiline = !lexer.nm;
-  let ignoreCase = !!lexer.i;
-  let dotAll = !!lexer.s;
-  // leading inline flag groups, e.g. (?s)(?i)
-  for (;;) {
-    const m = /^\(\?([imsn]+)\)/.exec(pattern);
-    if (!m) break;
-    for (const f of m[1]) {
-      if (f === 'i') ignoreCase = true;
-      else if (f === 's') dotAll = true;
-      else if (f === 'm') multiline = true;
-    }
-    pattern = pattern.slice(m[0].length);
-  }
-  let out = '';
-  let inClass = false;
-  let classStart = 0, classOut = 0;
-  let shorthands = ''; // the \w \W \d \D \s \S escapes of the current character class
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i];
-    if (c === '\\') {
-      const n = pattern[i + 1];
-      if (inClass && n !== undefined && 'wWdDsS'.includes(n)) shorthands += n;
-      if (n === 'p' || n === 'P') {
-        // \p{L} and \p{N} on ASCII input
-        const m = /^\\([pP])\{(L|N)\}/.exec(pattern.slice(i));
-        if (!m) throw new Unsupported('\\p');
-        const set = m[2] === 'L' ? 'A-Za-z' : '0-9';
-        if (inClass) {
-          if (m[1] === 'P') throw new Unsupported('\\P in class');
-          out += set;
-        } else out += (m[1] === 'P' ? '[^' : '[') + set + ']';
-        i += m[0].length - 1;
-        continue;
-      }
-      if (!inClass && n === 'A') { out += '(?<![\\s\\S])'; i++; continue; }
-      if (!inClass && (n === 'Z' || n === 'z' || n === 'G')) throw new Unsupported('\\' + n);
-      out += c + (n ?? '');
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (c === ']') {
-        inClass = false;
-        // regexp2 does not combine several shorthand escapes of which one is negated the way JavaScript does (for example [^\W\d]
-        // matches digits): the generator stored the ASCII set regexp2 matches for such a class
-        if (shorthands.length >= 2 && /[WDS]/.test(shorthands)) {
-          const cls = pattern.slice(classStart, i + 1);
-          const set = lexer.cls?.[cls];
-          if (set === undefined) throw new Unsupported('class with several shorthand escapes');
-          out = out.slice(0, classOut) + set;
-          continue;
-        }
-      }
-      out += c;
-      continue;
-    }
-    if (c === '[') {
-      inClass = true;
-      shorthands = '';
-      classStart = i;
-      classOut = out.length;
-      out += c;
-      if (pattern[i + 1] === '^') { out += '^'; i++; }
-      // a ] right after [ or [^ is a literal in .NET; in JavaScript it would close the (empty) class
-      if (pattern[i + 1] === ']') { out += '\\]'; i++; }
-      continue;
-    }
-    if (c === '.') { out += dotAll ? '[\\s\\S]' : '[^\\n]'; continue; }
-    if (c === '$') { out += multiline ? '(?=\\n|(?![\\s\\S]))' : '(?=\\n?$)'; continue; }
-    if (c === '(' && pattern[i + 1] === '?' && /^\(\?(P?<[A-Za-z]|[imsn-]+[:)])/.test(pattern.slice(i))) throw new Unsupported('group syntax');
-    out += c;
-  }
-  if (ignoreCase) flags += 'i';
-  // multiline only matters for ^ ($ is rewritten above)
-  if (multiline) flags += 'm';
-  try {
-    return new RegExp(out, flags);
-  } catch (e) {
-    throw new Unsupported(`pattern ${pattern}: ${e.message}`);
-  }
-}
 
 // ---- RegexLexer ----
 
@@ -179,7 +93,20 @@ function compile(lexer) {
     return list;
   };
   for (const state of Object.keys(rules)) expand(state);
-  return { name: lexer.name, ensureNL: !!lexer.nl, rules: expanded, source: lexer };
+  const compiledLexer = { name: lexer.name, ensureNL: !!lexer.nl, rules: expanded, source: lexer };
+  if (lexer.wrap) {
+    compiledLexer.wrap = lexer.wrap;
+    if (lexer.root) compiledLexer.root = compile(lexer.root);
+    if (lexer.mapping) {
+      // TypeRemappingLexer's lookup table: type -> word -> new type ('' for every token of the type)
+      compiledLexer.lut = new Map();
+      for (const [from, to, words] of lexer.mapping) {
+        if (!compiledLexer.lut.has(from)) compiledLexer.lut.set(from, new Map());
+        for (const w of words && words.length > 0 ? words : ['']) compiledLexer.lut.get(from).set(w, to);
+      }
+    }
+  }
+  return compiledLexer;
 }
 
 const fallbackLexer = compile({
@@ -187,15 +114,17 @@ const fallbackLexer = compile({
   rules: { root: [['.+', ['t', 'Text'], 0], ['\\n', ['t', 'Text'], 0]] },
 });
 
-function matchRules(lexer, text, pos, rules) {
+/** chroma's matchRules: the first rule that matches at pos (regexp2 on the runes of the text), with the texts of its groups */
+function matchRules(lexer, runes, pos, rules) {
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i];
-    if (rule.re === null) rule.re = translate(rule.pattern, rule.lexer);
-    rule.re.lastIndex = pos;
-    const m = rule.re.exec(text);
-    if (m !== null && m.index === pos) {
-      return { rule, groups: Array.from(m, (g) => g ?? '') };
+    if (rule.re === null) {
+      const l = rule.lexer;
+      const flags = (l.nm ? '' : 'm') + (l.i ? 'i' : '') + (l.s ? 's' : '');
+      rule.re = new Regexp('\\G' + (flags ? '(?' + flags + ')' : '') + '(?:' + rule.pattern + ')');
     }
+    const groups = rule.re.matchAt(runes, pos);
+    if (groups !== null) return { rule, groups };
   }
   return null;
 }
@@ -236,8 +165,60 @@ function emit(e, groups, st, out) {
         }
       }
       break;
+    case 'ug': {
+      // UsingByGroup: the lexer named by group e[1] tokenises group e[2] (when chroma knows that name); the other groups use their emitters
+      if (e[3].length !== groups.length - 1) throw new Error('UsingByGroup expects number of emitters to be the same as len(groups)-1');
+      const name = resolveName(groups[e[1]]);
+      let sub = null;
+      if (name !== undefined) {
+        sub = compiled.get(name) ?? null;
+        if (sub === null) {
+          if (index.files[name] === undefined) throw new Deferred(`code language ${groups[e[1]]}`);
+          throw new NeedAsset('lexer', index.files[name]);
+        }
+      }
+      for (let i = 1; i < groups.length; i++) {
+        if (i === e[2] && sub !== null) out.push(...tokenise(sub, groups[e[2]]));
+        else if (e[3][i - 1]) emit(e[3][i - 1], [groups[i]], st, out);
+      }
+      break;
+    }
+    case 'fn': {
+      // the EmitterFuncs of chroma's rst and http lexers
+      const tok = (type, value) => out.push({ type, value });
+      switch (e[1]) {
+        case 'rstCodeBlock': {
+          tok('Punctuation', groups[1]); tok('Text', groups[2]); tok('OperatorWord', groups[3]); tok('Punctuation', groups[4]); tok('Text', groups[5]);
+          tok('Keyword', groups[6]); tok('Text', groups[7]);
+          const code = groups.slice(8).join('');
+          const name = resolveName(groups[6]);
+          if (name === undefined) tok('LiteralString', code);
+          else {
+            const sub = compiled.get(name);
+            if (sub === undefined) {
+              if (index.files[name] === undefined) throw new Deferred(`code language ${groups[6]}`);
+              throw new NeedAsset('lexer', index.files[name]);
+            }
+            out.push(...tokenise(sub, code));
+          }
+          break;
+        }
+        case 'httpHeaderBlock':
+          tok('Name', groups[1]); tok('Text', groups[2]); tok('Operator', groups[3]); tok('Text', groups[4]); tok('Literal', groups[5]); tok('Text', groups[6]);
+          break;
+        case 'httpContinuousHeaderBlock':
+          tok('Text', groups[1]); tok('Literal', groups[2]); tok('Text', groups[3]);
+          break;
+        case 'httpContentBlock':
+          tok('Generic', groups[0]);
+          break;
+        default:
+          throw new Error('emitter function ' + e[1]);
+      }
+      break;
+    }
     case 'us':
-      out.push(...tokenise(st.lexer, groups[0], { state: e[1], nested: true }));
+      out.push(...tokeniseRegex(st.lexer, groups[0], { state: e[1], nested: true }));
       break;
     case 'u': {
       const name = resolveName(e[1]);
@@ -257,7 +238,7 @@ function emit(e, groups, st, out) {
 const ensureLF = (text) => text.replace(/\r\n?/g, '\n');
 
 /** RegexLexer.Tokenise with default options; returns all tokens ({type, value}) */
-function tokenise(lexer, text, options = { state: 'root', ensureLF: true }) {
+function tokeniseRegex(lexer, text, options = { state: 'root', ensureLF: true }) {
   const opts = { state: 'root', ...options };
   if (opts.ensureLF) text = ensureLF(text);
   let newlineAdded = false;
@@ -265,32 +246,192 @@ function tokenise(lexer, text, options = { state: 'root', ensureLF: true }) {
     text += '\n';
     newlineAdded = true;
   }
+  // chroma works on []rune: positions and lengths are in code points (a lone surrogate, invalid in Go's UTF-8, decodes to U+FFFD)
+  const runes = Array.from(text, (c) => { const r = c.codePointAt(0); return r >= 0xd800 && r <= 0xdfff ? 0xfffd : r; });
+  const str = (from, to) => String.fromCodePoint(...runes.slice(from, to));
   const st = { lexer, state: opts.state, stack: [opts.state], pos: 0 };
   const out = [];
-  const end = newlineAdded ? text.length - 1 : text.length;
+  const end = newlineAdded ? runes.length - 1 : runes.length;
+  let stuck = 0;
   while (st.pos < end && st.stack.length > 0) {
+    if (++stuck > 100000) throw new Error('chroma lexer made no progress'); // chroma loops forever here
     st.state = st.stack[st.stack.length - 1];
     const selected = lexer.rules[st.state];
     if (selected === undefined) throw new Error('unknown state ' + st.state);
-    const m = matchRules(lexer, text, st.pos, selected);
+    const m = matchRules(lexer, runes, st.pos, selected);
     if (m === null) {
-      if (text[st.pos] === '\n' && st.state !== opts.state) {
+      if (runes[st.pos] === 0x0a && st.state !== opts.state) {
         st.stack = [opts.state];
         continue;
       }
+      stuck = 0;
       st.pos++;
-      out.push({ type: 'Error', value: text[st.pos - 1] });
+      out.push({ type: 'Error', value: str(st.pos - 1, st.pos) });
       continue;
     }
-    st.pos += m.groups[0].length;
+    if (m.groups[0] !== '') stuck = 0;
+    st.pos += runeCount(m.groups[0]);
     if (m.rule.mutator) mutate(m.rule.mutator, st);
     if (m.rule.emitter) emit(m.rule.emitter, m.groups, st, out);
   }
-  if (st.pos !== text.length && st.stack.length === 0) {
-    out.push({ type: 'Error', value: text.slice(st.pos) });
-    st.pos = text.length;
+  if (st.pos !== runes.length && st.stack.length === 0) {
+    out.push({ type: 'Error', value: str(st.pos, runes.length) });
+    st.pos = runes.length;
   }
   return out.filter((t) => t.type !== 'Ignore');
+}
+
+const runeCount = (s) => { let n = s.length; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) { n--; i++; } } return n; };
+
+// ---- the lexers that wrap a RegexLexer: DelegatingLexer, TypeRemappingLexer and the markdown lexer ----
+
+const encoder = new TextEncoder(), decoder = new TextDecoder();
+
+/** chroma.Coalesce: empty tokens are dropped, neighbours of the same type are joined (up to 8192 bytes) */
+function coalesce(tokens) {
+  const out = [];
+  let prev = null;
+  for (const t of tokens) {
+    if (t.value.length === 0) continue;
+    if (prev === null) prev = { ...t };
+    else if (prev.type === t.type && utf8Len(prev.value) < 8192) prev.value += t.value;
+    else { out.push(prev); prev = { ...t }; }
+  }
+  if (prev !== null) out.push(prev);
+  return out;
+}
+
+/** chroma's splitToken: [left, right] at a byte offset (null is EOF) */
+function splitToken(t, offset) {
+  if (t === null) return [null, null];
+  if (offset === 0) return [null, t];
+  const bytes = encoder.encode(t.value);
+  if (offset === bytes.length) return [t, null];
+  return [{ ...t, value: decoder.decode(bytes.subarray(0, offset)) }, { ...t, value: decoder.decode(bytes.subarray(offset)) }];
+}
+
+/** delegatingLexer.Tokenise: the language lexer (this lexer's own rules) lexes the text; its Other tokens are lexed again by the root lexer and the language's tokens are inserted */
+function tokeniseDelegating(lexer, text, options) {
+  const tokens = coalesce(tokeniseRegex(lexer, text, options));
+  let others = '';
+  const insertions = [];
+  let insert = null, offset = 0, last = null;
+  for (const t of tokens) {
+    if (t.type === 'Other') {
+      if (last !== null && insert !== null && last.type !== 'Other') insert.end = offset;
+      others += t.value;
+    } else {
+      if (last === null || last.type === 'Other') {
+        insert = { start: offset, end: 0, tokens: [] };
+        insertions.push(insert);
+      }
+      insert.tokens.push(t);
+    }
+    last = t;
+    offset += utf8Len(t.value);
+  }
+  if (insertions.length === 0) return tokenise(lexer.root, text, options);
+  const rootTokens = coalesce(tokenise(lexer.root, others, options));
+  const out = [];
+  offset = 0;
+  let tokenIndex = 0, insertionIndex = 0;
+  const nextToken = () => (tokenIndex >= rootTokens.length ? null : rootTokens[tokenIndex++]);
+  const nextInsertion = () => (insertionIndex >= insertions.length ? null : insertions[insertionIndex++]);
+  let t = nextToken();
+  let i = nextInsertion();
+  while (t !== null || i !== null) {
+    if (t === null || (i !== null && i.start < offset + utf8Len(t.value))) {
+      let l;
+      [l, t] = splitToken(t, i.start - offset);
+      if (l !== null) { out.push(l); offset += utf8Len(l.value); }
+      out.push(...i.tokens);
+      offset += i.end - i.start;
+      if (t === null) t = nextToken();
+      i = nextInsertion();
+    } else {
+      out.push(t);
+      offset += utf8Len(t.value);
+      t = nextToken();
+    }
+  }
+  return out;
+}
+
+/** markdownLexer.splitFrontmatter: a leading `---` ... `---` block */
+function splitFrontmatter(text) {
+  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) return null;
+  let lineEnd = text.indexOf('\n');
+  if (lineEnd < 0) return null;
+  const trimCR = (s) => (s.endsWith('\r') ? s.slice(0, -1) : s);
+  if (trimCR(text.slice(0, lineEnd)) !== '---') return null;
+  for (let pos = lineEnd + 1; pos < text.length;) {
+    const next = text.indexOf('\n', pos);
+    if (next < 0) break;
+    lineEnd = next;
+    if (trimCR(text.slice(pos, lineEnd)) === '---') return [text.slice(0, lineEnd + 1), text.slice(lineEnd + 1)];
+    pos = lineEnd + 1;
+  }
+  return null;
+}
+
+/** Lexer.Tokenise of any compiled lexer */
+function tokenise(lexer, text, options) {
+  switch (lexer.wrap) {
+    case 'delegate':
+      return tokeniseDelegating(lexer, text, options);
+    case 'remap': {
+      const out = [];
+      for (const t of tokeniseRegex(lexer, text, options)) {
+        const k = lexer.lut.get(t.type);
+        const to = k === undefined ? undefined : k.get(t.value) ?? k.get('');
+        out.push(to === undefined ? t : { ...t, type: to });
+      }
+      return out;
+    }
+    case 'http': {
+      // httpBodyContentTyper.Tokenise: a Generic token after a Content-Type header is lexed with that MIME type's lexer
+      let contentType = '', isContentType = false, pending = [];
+      const out = [];
+      for (const token of tokeniseRegex(lexer, text, options)) {
+        if (token.type === 'Name' && token.value.toLowerCase() === 'content-type') isContentType = true;
+        else if (token.type === 'Literal' && isContentType) {
+          isContentType = false;
+          contentType = token.value.trim();
+          const pos = contentType.indexOf(';');
+          if (pos > 0) contentType = contentType.slice(0, pos).trim();
+        } else if (token.type === 'Generic' && contentType !== '') {
+          let name = index.mimes[contentType];
+          if (name === undefined && contentType.includes('+')) {
+            contentType = contentType.slice(0, contentType.indexOf('/') + 1) + contentType.slice(contentType.lastIndexOf('+') + 1);
+            name = index.mimes[contentType];
+          }
+          if (name === undefined) { out.push({ ...token, type: 'Text' }); continue; }
+          const sub = compiled.get(name);
+          if (sub === undefined) {
+            if (index.files[name] === undefined) throw new Deferred(`code language ${name}`);
+            throw new NeedAsset('lexer', index.files[name]);
+          }
+          // Go returns the first token of the sub lexer here; the rest of its iterator is only read when the main one is exhausted (and a later body replaces it)
+          const toks = tokenise(sub, token.value);
+          if (toks.length === 0) return out; // an exhausted sub iterator is EOF: the iteration ends
+          out.push(toks[0]);
+          pending = toks.slice(1);
+          continue;
+        }
+        out.push(token);
+      }
+      return [...out, ...pending];
+    }
+    case 'markdown': {
+      const parts = splitFrontmatter(text);
+      if (parts === null) return tokeniseRegex(lexer, text, options);
+      const yaml = compiled.get('YAML');
+      if (yaml === undefined) throw new NeedAsset('lexer', index.files.YAML);
+      return [...tokenise(yaml, parts[0], options), ...tokeniseRegex(lexer, parts[1], options)];
+    }
+    default:
+      return tokeniseRegex(lexer, text, options);
+  }
 }
 
 /** chroma.SplitTokensIntoLines */
@@ -351,7 +492,6 @@ export function styleAttr(styles, tt) {
  * Throws NeedAsset when the lexer file is not loaded yet, Deferred for a language that is not ported.
  */
 export function highlight(language, text) {
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) > 0x7f) throw new Deferred('code-non-ascii');
   const name = resolveName(language);
   let lexer;
   if (name === undefined) lexer = fallbackLexer;
@@ -360,13 +500,7 @@ export function highlight(language, text) {
     lexer = compiled.get(name);
     if (lexer === undefined) throw new NeedAsset('lexer', index.files[name]);
   }
-  let tokens;
-  try {
-    tokens = tokenise(lexer, text);
-  } catch (e) {
-    if (e instanceof Unsupported) throw new Deferred(`code language ${language}`);
-    throw e;
-  }
+  const tokens = tokenise(lexer, text);
   const lines = splitTokensIntoLines(tokens);
   const style = (n) => ({ lines, svgStyles: index.styles[n].svg, background: index.styles[n].background });
   return { light: style('github'), dark: style('catppuccin-mocha') };

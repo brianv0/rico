@@ -1,0 +1,1 @@
+{"name":"CSV","rules":{"root":[["\\r?\\n",["t","Punctuation"],0],[",",["t","Punctuation"],0],["\"",["t","LiteralStringDouble"],["push","escaped"]],["[^\\r\\n,]+",["t","LiteralString"],0]],"escaped":[["\"\"",["t","LiteralStringEscape"],0],["\"",["t","LiteralStringDouble"],["pop",1]],["[^\"]+",["t","LiteralStringDouble"],0]]}}

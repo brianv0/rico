@@ -28,17 +28,38 @@ const aliasOf = { python: ['python', 'py', 'Python'], go: ['go', 'golang'], bash
 const names = {};
 for (const [k, v] of Object.entries(index.names)) if (index.files[v] && !(v in names && names[v].length <= k.length)) names[v] = k;
 for (const [v, k] of Object.entries(names)) if (!Object.values(aliasOf).flat().includes(k) && !(k in langs)) { langs[k] = ['SELECT', 'FROM', 'WHERE', 'public', 'static', 'void', 'int', 'class', 'struct', '#include', '<stdio.h>', 'fn', 'let', 'mut', 'impl', 'def', 'end', 'begin', 'module', 'use', 'require', '<div class="x">', '</div>', '<?xml version="1.0"?>', '<!-- c -->', '&amp;', 'color: red;', '.cls {', '@media', '$var', 'all:', '\t@echo', '[section]', 'key=value', '+++', '--- a', '@@ -1 +1 @@', 'FROM alpine', 'RUN x'].concat(common); aliasOf[k] = [k]; }
+const uni = ['é', 'ñandú', 'Ωμέγα', 'привет', '漢字', 'こんにちは', '🙂', '𝒳', 'ß', 'İ', 'ǅ', '\u00a0', '\u2028', '\u200d', 'a\u0301', '“quoted”', '→', '€', 'ÀÉÎ', 'Ünïcödé', '_é', 'x²', '٣', '１２'];
+const langNames = Object.keys(langs);
 const cases = [];
-for (let i = 0; i < N; i++) {
-  const lang = pick(Object.keys(langs));
+const perLangN = Number(process.env.PER_LANG || 0);
+for (let i = 0; i < (perLangN ? perLangN * langNames.length : N); i++) {
+  const lang = perLangN ? langNames[i % langNames.length] : pick(langNames);
   const words = [...common, ...langs[lang]];
   let text = '';
-  const n = 1 + ((rnd() * 40) | 0);
-  for (let k = 0; k < n; k++) text += pick(words) + (rnd() < 0.5 ? ' ' : '');
-  cases.push({ language: pick(aliasOf[lang]), text });
+  const n = 1 + ((rnd() * 20) | 0);
+  const withUni = process.env.UNICODE ? rnd() < 0.7 : false;
+  for (let k = 0; k < n; k++) text += (withUni && rnd() < 0.3 ? pick(uni) : pick(words)) + (rnd() < 0.5 ? ' ' : rnd() < 0.2 ? '\n' : '');
+  cases.push({ language: aliasOf[lang] ? pick(aliasOf[lang]) : lang, text });
 }
 cases.push({ language: 'asdf', text: 'x := 1\n\nfoo' }, { language: 'Text', text: 'plain text\nmore' }, { language: 'go', text: '' });
-const out = execFileSync('go', ['run', '.', 'highlight'], { cwd: here, input: cases.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 28 }).toString().trim().split('\n');
+// chroma can loop forever on a rule that matches the empty string without changing state (JSONata's `[a-zA-Z0-9_]*` after an unterminated comment): the batch is
+// bisected on a timeout and such a case is reported as a Go panic (skipped)
+const BIN = process.env.D2REF || '/tmp/d2refbin_mine';
+function runGo(batch) {
+  try {
+    return execFileSync(BIN, ['highlight'], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 28, timeout: 20000 }).toString().trim().split('\n');
+  } catch (e) {
+    if (batch.length === 1) return [JSON.stringify({ panic: 'Go did not finish' })];
+    const h = batch.length >> 1;
+    return [...runGo(batch.slice(0, h)), ...runGo(batch.slice(h))];
+  }
+}
+// the JS port stops with 'no progress' where chroma never returns: those cases are not sent to Go
+const hangs = new Set();
+cases.forEach((c, i) => { try { highlight(c.language, c.text); } catch (e) { if (/no progress/.test(e.message)) hangs.add(i); } });
+const goOut = runGo(cases.filter((_, i) => !hangs.has(i)));
+let gi = 0;
+const out = cases.map((_, i) => (hangs.has(i) ? JSON.stringify({ panic: 'chroma does not finish' }) : goOut[gi++]));
 let same = 0, deferred = 0;
 const defBy = {}, okBy = {};
 const bad = [];

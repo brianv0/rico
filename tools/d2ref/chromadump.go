@@ -31,6 +31,10 @@ func chromadump(names []string) {
 		l := lexers.Get(n)
 		rl, ok := l.(*chroma.RegexLexer)
 		if !ok {
+			if w, ok := wrapLexer(l); ok {
+				lx[l.Config().Name] = w
+				continue
+			}
 			lx[n] = map[string]string{"error": "not a RegexLexer"}
 			continue
 		}
@@ -45,6 +49,9 @@ func chromadump(names []string) {
 				}
 			}
 			rl = chroma.MustNewLexer(rl.Config(), func() chroma.Rules { return clone })
+		}
+		if rl.Config().Name == "reStructuredText" {
+			rl = patchFuncs(rl, map[string]string{"(?:source)?code": "rstCodeBlock"})
 		}
 		data, err := chroma.Marshal(rl)
 		if err != nil {
@@ -85,6 +92,17 @@ func chromadump(names []string) {
 		table[c] = l.Config().Name
 	}
 	out["names"] = table
+
+	// every MIME type -> the lexer lexers.MatchMimeType returns (the HTTP lexer lexes a body by its Content-Type)
+	mimes := map[string]string{}
+	for _, l := range lexers.GlobalLexerRegistry.Lexers {
+		for _, m := range l.Config().MimeTypes {
+			if ml := lexers.MatchMimeType(m); ml != nil {
+				mimes[m] = ml.Config().Name
+			}
+		}
+	}
+	out["mimes"] = mimes
 
 	types := map[string][]string{}
 	for _, t := range chroma.TokenTypeValues() {
