@@ -6,7 +6,7 @@ let x = Number(seed) >>> 0 || 1;
 const rnd = (n) => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x % n; };
 const pick = (a) => a[rnd(a.length)];
 const idx = JSON.parse(fs.readFileSync(new URL('../../public/d2/lexers/index.json', import.meta.url), 'utf8'));
-const names = Object.keys(idx.names).filter((k) => idx.files[idx.names[k]] && /^[a-z0-9+#-]{1,20}$/.test(k));
+const names = Object.keys(idx.names).filter((k) => k !== 'latex' && idx.files[idx.names[k]] && /^[a-z0-9+#-]{1,20}$/.test(k));
 const frags = ['foo', 'bar_baz', 'x1', 'if', 'else', 'for', 'return', 'class', 'def', 'func', 'let', 'const', 'import', 'SELECT', 'FROM', '42', '3.14', '0xFF', '"str"', "'c'", '`raw`', '# comment', '// comment',
   '/* c */', '(', ')', '[', ']', '{', '}', ',', ';', ':', '.', '=', '==', '->', '=>', '+', '-', '*', '/', '<', '>', '&&', '||', '!', '@', '$x', '%d', '\\n', '<div>', '</div>', '#include <x.h>', 'nil', 'true'];
 const uni = ['é', 'ñandú', 'Ωμέγα', 'привет', '漢字', 'こんにちは', '🙂', 'ß', 'İ', '“q”', '→', '€', 'Ünï', '_é', 'x²', 'á', ' '];

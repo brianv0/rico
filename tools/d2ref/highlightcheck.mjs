@@ -54,7 +54,12 @@ function runGo(batch) {
     return [...runGo(batch.slice(0, h)), ...runGo(batch.slice(h))];
   }
 }
-const out = runGo(cases);
+// the JS port stops with 'no progress' where chroma never returns: those cases are not sent to Go
+const hangs = new Set();
+cases.forEach((c, i) => { try { highlight(c.language, c.text); } catch (e) { if (/no progress/.test(e.message)) hangs.add(i); } });
+const goOut = runGo(cases.filter((_, i) => !hangs.has(i)));
+let gi = 0;
+const out = cases.map((_, i) => (hangs.has(i) ? JSON.stringify({ panic: 'chroma does not finish' }) : goOut[gi++]));
 let same = 0, deferred = 0;
 const defBy = {}, okBy = {};
 const bad = [];

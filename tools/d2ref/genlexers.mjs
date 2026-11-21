@@ -82,7 +82,8 @@ for (const [name, tree] of Object.entries(dump.lexers)) {
     lexer = { ...convertLexer(tree.lexer), wrap: 'markdown' };
   } else lexer = convertLexer(tree);
   const f = `${fileName(lexer.name)}.json`;
-  fs.writeFileSync(new URL(f, outDir), JSON.stringify(lexer));
+  // JSON.stringify keeps U+2028/U+2029 as they are: write them as escapes
+  fs.writeFileSync(new URL(f, outDir), JSON.stringify(lexer).replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16)));
   files[lexer.name] = f;
 }
 

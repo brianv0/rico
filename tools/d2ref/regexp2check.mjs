@@ -16,7 +16,7 @@ const base = ['def foo(x): return x + 1  # comment\n', 'if (a == b) { c = "str\\
   '<div class="a">text &amp; more</div>\n', '#include <stdio.h>\nint main() { return 0; }\n', '$var = ${x} + $(cmd) "$a" `b`\n', 'ünïcödé Ωμέγα привет 漢字 🙂 αβγ_1\n',
   '\t  \n\n  x\r\ny', 'a.b::c->d => e <= f !== g ... h\n', '@decorator\nclass Foo<T> extends Bar implements Baz {}\n', '/* multi\nline */ end',
   'ÀÉÎ àéî İstanbul ǅ ß ſ K\n', '"""doc""" \'\'\'x\'\'\' `raw` <<EOF\nx\nEOF\n', 'ΑΒΓ αβγ ΣΊΣΥΦΟΣ\n'];
-const alphabet = ' \n\t_-.,:;()[]{}<>"\'`\\/|&*+=!?#$%^~@aAzZ09éÉΩ漢🙂  ';
+const alphabet = ' \n\t_-.,:;()[]{}<>"\'`\\/|&*+=!?#$%^~@aAzZ09éÉΩ漢🙂 \u2028';
 const flagsOf = (tree) => {
   const config = tree.c.find((c) => c.n === 'config');
   const flag = (tag) => config.c.some((c) => c.n === tag && c.t.trim() === 'true');
