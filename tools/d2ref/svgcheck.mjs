@@ -102,5 +102,5 @@ export async function svgFullCheck(c, want, { nofonts }) {
   }
   if (nofonts) { svg = svg == null ? svg : blank(svg); if (typeof want.svg === 'string') want.svg = blank(want.svg); }
   const roKeys = ['pad', 'sketch', 'center', 'themeID', 'darkThemeID', 'themeOverrides', 'darkThemeOverrides', 'scale', 'masterID', 'noXMLTag', 'salt', 'omitVersion'];
-  return { diagram: r.diagram, ro: Object.fromEntries(roKeys.map((k) => [k, ro[k] ?? (k === 'masterID' ? '' : null)])), svg: svg ?? '', err };
+  return { diagram: r.diagram, ro: Object.fromEntries(roKeys.map((k) => [k, ro[k] ?? (k === 'masterID' ? '' : null)])), svg: svg ?? '', err, userinfo: want.userinfo };
 }
