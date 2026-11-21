@@ -1,7 +1,7 @@
 // Differential test: the JS port (public/d2/) against the Go reference (this directory).
 //
 //   go run . corpus <D2 v0.7.2 source dir> > corpus.jsonl     # once; source: proxy.golang.org/oss.terrastruct.com/d2/@v/v0.7.2.zip
-//   node diff.mjs parse corpus.jsonl [--utf16] [--only N] [--show 5]
+//   node diff.mjs <parse|ir> corpus.jsonl [--utf16] [--only N] [--show 5]
 //
 // Each stage maps a case to the same JSON the Go mode prints. Add a stage here as each layer is ported.
 // Output: counts, then the first --show mismatches with the JSON path of the first difference.
@@ -34,10 +34,23 @@ let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...JS
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const ref = execFileSync('go', ['run', '.', mode], { cwd: here, input: cases.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
-  .toString().trim().split('\n');
+// A Go fatal error (such as the stack overflow on a self-referential `vars`) kills the whole process and cannot be
+// recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
+function runRef(batch) {
+  try {
+    return execFileSync('go', ['run', '.', mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+      .toString().trim().split('\n');
+  } catch (e) {
+    if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];
+    const h = batch.length >> 1;
+    return [...runRef(batch.slice(0, h)), ...runRef(batch.slice(h))];
+  }
+}
+const ref = runRef(cases);
 
-const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+// Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
+// *string addresses); those differ on every run, so addresses are blanked in error messages and nowhere else.
+const canon = (v, k) => (Array.isArray(v) ? v.map((x) => canon(x)) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2], k2)])) : k === 'errmsg' && typeof v === 'string' ? v.replace(/0xc[0-9a-f]{9}/g, '0xc000000000') : v);
 function firstDiff(a, b, p = '$') {
   if (JSON.stringify(a) === JSON.stringify(b)) return null;
   if (a && b && typeof a === 'object' && typeof b === 'object') {

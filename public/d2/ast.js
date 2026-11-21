@@ -130,7 +130,14 @@ export const ReservedKeywords = new Set([...SimpleReservedKeywords, ...StyleKeyw
 
 // Go's strings.ToLower maps per code point (U+0130 lowers to plain "i"); JS's toLowerCase uses full mappings and context.
 export const goLower = (s) => { let o = ''; for (const c of s) { const l = c.toLowerCase(); o += c === '\u0130' ? 'i' : Array.from(l).length === 1 ? l : c; } return o; };
-const foldCp = (c) => { const u = c.toUpperCase(); return goLower(Array.from(u).length === 1 ? u : c); };
+// A canonical member of c's simple-folding orbit. U+0130 and U+0131 have no orbit in Go (the Turkish i's).
+const foldCp = (c) => {
+  if (c === '\u0130' || c === '\u0131') return c;
+  const u = c.toUpperCase();
+  if (Array.from(u).length !== 1) return c;
+  const l = u.toLowerCase();
+  return Array.from(l).length === 1 ? l : u;
+};
 /** Go's strings.EqualFold (simple case folding). */
 export function equalFold(a, b) {
   const x = Array.from(a), y = Array.from(b);
@@ -173,7 +180,7 @@ export function rawString(s, inKey) {
 }
 
 /** Go's MakeKeyPathString: a KeyPath over the given string boxes (re-rendered with RawString). */
-export const makeKeyPathString = (a) => ({ range: new Range(), path: a.length ? a.map((el) => rawString(scalarString(el), true)) : null });
+export const makeKeyPathString = (a) => ({ range: new Range(), path: a && a.length ? a.map((el) => rawString(scalarString(el), true)) : null });
 /** Go's KeyPath.IDA. */
 export const keyPathIDA = (kp) => { const ida = []; for (const el of kp.path || []) ida.push(el); return ida.length ? ida : null; };
 

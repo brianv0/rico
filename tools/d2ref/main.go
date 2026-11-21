@@ -146,16 +146,28 @@ func errString(err error) interface{} {
 
 // corpus prints every D2 snippet found in D2's tests: the .d2 files under testdata/ and the
 // `text:` / `script:` string fields of test-case literals in *_test.go, as {"path", "text", "from"} lines.
+// Test cases that come with imported files (a `files:` map, or d2ir's compileFS calls) also carry {"fs"} and
+// path index.d2.
 func corpus(root string) {
 	out := json.NewEncoder(os.Stdout)
 	seen := map[string]bool{}
-	var cases []map[string]string
+	var cases []map[string]interface{}
 	add := func(from, text string) {
 		if seen[text] || strings.TrimSpace(text) == "" {
 			return
 		}
 		seen[text] = true
-		cases = append(cases, map[string]string{"from": from, "text": text})
+		cases = append(cases, map[string]interface{}{"from": from, "text": text})
+	}
+	// Cases with imports: the main file is index.d2 and `files` holds the rest.
+	addFS := func(from, text string, files map[string]string) {
+		b, _ := json.Marshal(files)
+		key := "fs:" + text + string(b)
+		if seen[key] || strings.TrimSpace(text) == "" {
+			return
+		}
+		seen[key] = true
+		cases = append(cases, map[string]interface{}{"from": from, "text": text, "fs": files, "path": "index.d2"})
 	}
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -173,6 +185,47 @@ func corpus(root string) {
 				return nil
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
+				// compileFS(t, "index.d2", map[string]string{...}) in d2ir's import tests.
+				if call, ok := n.(*ast.CallExpr); ok && len(call.Args) >= 3 {
+					if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "compileFS" {
+						if files, ok := stringMap(call.Args[2]); ok {
+							if name, ok := stringLit(call.Args[1]); ok && files[name] != "" {
+								rest := map[string]string{}
+								for k, v := range files {
+									if k != name {
+										rest[k] = v
+									}
+								}
+								addFS(rel+":compileFS", files[name], rest)
+							}
+						}
+					}
+				}
+				// Test cases that have both `text` and `files`.
+				if lit, ok := n.(*ast.CompositeLit); ok {
+					var text string
+					var files map[string]string
+					var haveText bool
+					for _, el := range lit.Elts {
+						kv, ok := el.(*ast.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						k, ok := kv.Key.(*ast.Ident)
+						if !ok {
+							continue
+						}
+						switch k.Name {
+						case "text", "script":
+							text, haveText = stringLit(kv.Value)
+						case "files":
+							files, _ = stringMap(kv.Value)
+						}
+					}
+					if haveText && files != nil {
+						addFS(rel+":files", text, files)
+					}
+				}
 				kv, ok := n.(*ast.KeyValueExpr)
 				if !ok {
 					return true
@@ -189,9 +242,11 @@ func corpus(root string) {
 		}
 		return nil
 	})
-	sort.SliceStable(cases, func(i, j int) bool { return cases[i]["from"] < cases[j]["from"] })
+	sort.SliceStable(cases, func(i, j int) bool { return cases[i]["from"].(string) < cases[j]["from"].(string) })
 	for i, c := range cases {
-		c["path"] = fmt.Sprintf("corpus/%04d.d2", i)
+		if _, ok := c["path"]; !ok {
+			c["path"] = fmt.Sprintf("corpus/%04d.d2", i)
+		}
 		out.Encode(c)
 	}
 }
@@ -216,4 +271,26 @@ func stringLit(e ast.Expr) (string, bool) {
 		return stringLit(v.X)
 	}
 	return "", false
+}
+
+// stringMap evaluates a map[string]string literal.
+func stringMap(e ast.Expr) (map[string]string, bool) {
+	lit, ok := e.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
+	}
+	m := map[string]string{}
+	for _, el := range lit.Elts {
+		kv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			return nil, false
+		}
+		k, ok1 := stringLit(kv.Key)
+		v, ok2 := stringLit(kv.Value)
+		if !ok1 || !ok2 {
+			return nil, false
+		}
+		m[k] = v
+	}
+	return m, true
 }

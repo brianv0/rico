@@ -12,7 +12,7 @@ Source: D2 **v0.7.2** (`oss.terrastruct.com/d2`, MPL-2.0). Every ported file kee
 | Stage | Go packages | JS | Matches Go |
 |---|---|---|---|
 | parse | `d2ast`, `d2parser` | `public/d2/ast.js`, `parser.js` | 972/972 corpus cases, UTF-8 and UTF-16 |
-| ir | `d2ir` | | |
+| ir | `d2ir` (+ `d2format.Format`, `d2ast` helpers, the constants of `d2target`/`d2themes`, `textmeasure.ReplaceSubstitutionsMarkdown`) | `public/d2/d2ir.js`, `format.js`, `target.js`, `themes.js`, `textmeasure.js` (+ helpers in `ast.js`) | 1025/1025 corpus cases, UTF-8 and UTF-16; 190/190 extra cases (`extra.jsonl`); about 40k fuzzed cases. Residue below |
 | graph | `d2compiler`, `d2graph` (no dimensions), `d2target` types, `d2themes` | | |
 | layout | `lib/textmeasure`, `d2graph.SetDimensions`, `d2layouts` (+ `d2near`, `d2grid`, `d2sequence`), `d2dagrelayout`, `d2exporter`, `lib/geo`, `lib/shape`, `lib/label` | | |
 | render | `d2renderers/d2svg`, `lib/svg`, `lib/color` | | |
@@ -28,15 +28,21 @@ the first JSON path that differs.
 ```bash
 curl -sSLo d2.zip https://proxy.golang.org/oss.terrastruct.com/d2/@v/v0.7.2.zip && unzip -q d2.zip   # D2 source
 cd tools/d2ref
-go run . corpus ../../oss.terrastruct.com/d2@v0.7.2 > corpus.jsonl   # 972 snippets from D2's own tests
+go run . corpus ../../oss.terrastruct.com/d2@v0.7.2 > corpus.jsonl   # ~1000 snippets from D2's own tests (53 with imported files)
 node diff.mjs parse corpus.jsonl            # and again with --utf16
 node diff.mjs parse corpus.jsonl --only 17  # one case
+node diff.mjs ir extra.jsonl                # hand-written cases for what the corpus lacks (array spreads, imports, links, markdown vars)
+node fuzz.mjs corpus.jsonl 4000 7 > fuzz.jsonl && node diff.mjs ir fuzz.jsonl   # mutation fuzzing, seeded
 ```
 
 Go modes: `parse`, `ir`, `graph`, `layout` (diagram JSON after dimensions and layout), `render` (SVG). To add
 a stage, port the packages, then add one line to `STAGES` in `diff.mjs` that returns the same JSON shape
 as the Go mode. A stage is done when **every** corpus case matches Go in both UTF-8 and UTF-16 mode (cases
 where Go itself panics are skipped automatically). Also add random/fuzzed inputs once a stage passes.
+
+Cases may carry `"fs": {"x.d2": "..."}`; the main file is then `index.d2` (the `ir` and later modes pass the files to Go through
+`memfs`, and the JS port takes `{ fs }`). Without `fs`, Go's `d2ir` reads the real disk, so an import in a case with no `fs`
+fails with `open x.d2: no such file or directory`; the JS port never reads the disk and prints the same message.
 
 `node --test` covers Rico; the D2 diff needs Go, so it is a separate command and not part of `npm test`.
 
@@ -65,6 +71,26 @@ where Go itself panics are skipped automatically). Also add random/fuzzed inputs
 5. **Don't type literal U+2028/U+2029 or other invisible characters into source**; write ` ` and check
    with `grep -nP '[\x{2028}\x{2029}]' public/d2/*.js` (an editor tool once turned the escapes into the
    characters and broke a regex).
+
+## Known residue (ir stage)
+
+These are the places where the JS output is not (or cannot be) the same as Go's; each is deliberate.
+
+- **Pointer addresses in one error message.** `import key %q doesn't exist inside import` formats a `[]d2ast.String` with `%q`,
+  which makes Go print the struct fields and `*string` addresses (`0xc000420510`). The JS port prints the same text with
+  `0xc000000000` and `diff.mjs` blanks `0xc[0-9a-f]{9}` in `errmsg` strings (nowhere else).
+- **Go fatal errors.** A self-referential `vars` (`Cherry: { cc: ${Cherry} }`) overflows Go's stack, which kills the whole
+  `go run` process. `diff.mjs` bisects the batch and reports that case as a Go panic. JS throws `RangeError` there.
+- **Markdown inside block strings.** `d2ir` substitutes `${var}` in block strings only outside code, which Go finds with goldmark.
+  `textmeasure.js` uses a line scanner plus regexes (fences, indented code, HTML blocks, lists, code spans, autolinks, link
+  destinations). It matches Go on every case in the corpus and on about 99.7% of fuzzed markdown; blockquotes, reference
+  definitions and lazy-continuation corner cases are not modelled. The real markdown port belongs to the layout stage.
+- **`html.UnescapeString` and `url.Parse`** (used for `link:` and `icon:` of imported files) are reduced to the entities and
+  URL forms that plausibly occur; invalid URLs are rejected for the common reasons only.
+- **Go slice aliasing is modelled in one place.** Spreading an array variable into an array (`[...${a}; x]`) in Go overwrites
+  elements when the slice has spare capacity (`append(append(vals[:i], spread...), vals[i+1:]...)`), and the `range` loop above
+  sees them. `d2ir.js` reproduces this with Go's allocator size classes (`growCap`, `goAppend`). It matches Go on all corpus, extra and
+  fuzzed cases so far.
 
 ## The hard parts
 

@@ -102,7 +102,7 @@ function atoi(s) {
 const parseBool = (s) => (['1', 't', 'T', 'TRUE', 'true', 'True'].includes(s) ? true : ['0', 'f', 'F', 'FALSE', 'false', 'False'].includes(s) ? false : null);
 
 // Go's html.UnescapeString, for the entities that plausibly occur in a link or icon.
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', copy: '©', reg: '®' };
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', copy: '\u00a9', reg: '\u00ae' };
 function htmlUnescape(s) {
   return s.replace(/&(?:#[xX]([0-9a-fA-F]+)|#([0-9]+)|([A-Za-z][A-Za-z0-9]*));?/g, (m, hex, dec, name) => {
     if (name !== undefined) return m.endsWith(';') && ENTITIES[name] !== undefined ? ENTITIES[name] : m;
@@ -1142,7 +1142,7 @@ export class IRArray {
   copy(newParent) {
     const a = shallow(this);
     a.parent = newParent;
-    a.values = cp(a.values);
+    a.values = goCopySlice(a.values);
     for (let i = 0; i < (a.values || []).length; i++) a.values[i] = a.values[i].copy(a);
     return a;
   }
@@ -1642,7 +1642,11 @@ class Compiler {
       }
       if (f.composite instanceof IRArray) {
         const arr = f.composite;
-        for (const val of (arr.values || []).slice()) {
+        // Go ranges over the slice header it has now; a spread can overwrite the elements behind it.
+        const vals0 = arr.values || [];
+        const n0 = vals0.length;
+        for (let k = 0; k < n0; k++) {
+          const val = vals0[k];
           if (val instanceof Scalar) {
             const removed = this.resolveSubstitutions(varsStack, val);
             if (removed) i--;
@@ -2755,7 +2759,7 @@ class Compiler {
               this.errorf(v, 'can only spread import array into array');
               continue;
             }
-            dst.values = [...(dst.values || []), ...(arr.values || [])];
+            dst.values = goAppend(dst.values, arr.values || []);
             continue;
           }
           if (n.composite) irv = n.composite;
@@ -2773,7 +2777,7 @@ class Compiler {
         continue;
       }
 
-      dst.values = [...(dst.values || []), irv];
+      dst.values = goAppend(dst.values, [irv]);
     }
   }
 
@@ -2931,32 +2935,73 @@ class Compiler {
   }
 }
 
-// Go's `append(append(vals[:i], spread...), vals[i+1:]...)`. When vals has the capacity for the spread, the first
-// append overwrites the elements after i and the second then copies the overwritten ones. Go's capacity after the
-// appends in compileArray (and the rounding up of the allocator's size classes) is modelled by goCap.
-function goSpliceSpread(vals, i, spread) {
-  const cap = goCap(vals);
-  const backing = vals.slice();
-  while (backing.length < cap) backing.push(null);
-  const tail = vals.slice(i + 1);
-  let first;
-  if (i + spread.length <= cap) {
-    for (let k = 0; k < spread.length; k++) backing[i + k] = spread[k];
-    first = backing.slice(0, i + spread.length);
-    // arr.Values[i+1:] is read from the (now overwritten) backing array
-    const tail2 = backing.slice(i + 1, vals.length);
-    return [...first, ...tail2];
+// ---- Go slice capacity, for the one place where d2ir depends on it ----
+//
+// resolveSubstitutions spreads an array into an array with `append(append(vals[:i], spread...), vals[i+1:]...)`. When
+// vals has spare capacity, the inner append overwrites the elements after i and the outer one then copies the
+// overwritten ones back (and a `range` over the old slice sees them too). To reproduce that, the arrays in
+// IRArray.values carry the capacity Go's allocator would have given them in `$cap`.
+
+// Go's malloc size classes (runtime/sizeclasses.go).
+const SIZE_CLASSES = [8, 16, 24, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640, 704, 768, 896, 1024, 1152, 1280, 1408, 1536, 1792, 2048, 2304, 2688, 3072, 3200, 3456, 4096, 4864, 5376, 6144, 6528, 6784, 6912, 8192, 9472, 9728, 10240, 10880, 12288, 13568, 14336, 16384, 18432, 19072, 20480, 21760, 24576, 27264, 28672, 32768];
+// runtime.roundupsize for a pointerful allocation (an Value slice is 16-byte interfaces).
+function roundupsize(size) {
+  let req = size;
+  if (req <= 32768 - 8) {
+    if (req > 512) req += 8; // malloc header
+    for (const c of SIZE_CLASSES) if (c >= req) return c - (req - size);
   }
-  first = [...vals.slice(0, i), ...spread];
-  return [...first, ...tail];
+  return Math.ceil(size / 8192) * 8192;
 }
-// The capacity Go's runtime gives a []Value built by repeated single appends, which doubles from 1, as the
-// element size is 16 bytes. (Slices built by Copy or a spread import get exact size-class capacities; this
-// approximation treats them the same.)
-function goCap(vals) {
-  let cap = 0;
-  for (let n = 1; n <= vals.length; n++) if (n > cap) cap = cap === 0 ? 1 : cap * 2;
-  return cap;
+// runtime.growslice's capacity for 16-byte elements.
+function growCap(oldCap, newLen) {
+  let newcap = oldCap;
+  const doublecap = newcap + newcap;
+  if (newLen > doublecap) newcap = newLen;
+  else if (oldCap < 256) newcap = doublecap;
+  else { for (;;) { newcap += (newcap + 3 * 256) >> 2; if (newcap >= newLen) break; } }
+  return Math.floor(roundupsize(newcap * 16) / 16);
+}
+const capOf = (a) => (a ? a.$cap ?? a.length : 0);
+/** Go's append(a, items...) for a Values slice: a new array carrying the capacity Go would have. */
+function goAppend(a, items) {
+  if (items.length === 0) return a;
+  const n = a ? a.length : 0, c = capOf(a);
+  const res = [...(a || []), ...items];
+  res.$cap = n + items.length <= c ? c : growCap(c, n + items.length);
+  return res;
+}
+/** Go's append([]Value(nil), a...). */
+function goCopySlice(a) {
+  if (!a || a.length === 0) return null;
+  const res = a.slice();
+  res.$cap = growCap(0, a.length);
+  return res;
+}
+
+// Go's `append(append(vals[:i], spread...), vals[i+1:]...)`. vals itself is overwritten in place where Go's backing
+// array would be.
+function goSpliceSpread(vals, i, spread) {
+  const n = vals.length, s = spread.length, c = capOf(vals);
+  let first, firstCap, shared;
+  if (i + s <= c) {
+    for (let k = 0; k < s; k++) vals[i + k] = spread[k];
+    first = vals.slice(0, i + s);
+    firstCap = c;
+    shared = true;
+  } else {
+    first = [...vals.slice(0, i), ...spread];
+    firstCap = growCap(c, i + s);
+    shared = false;
+  }
+  const tail = vals.slice(i + 1, n); // read after the first append, so from the overwritten backing array
+  const res = [...first, ...tail];
+  if (res.length <= firstCap) {
+    res.$cap = firstCap;
+    if (shared) for (let k = 0; k < tail.length; k++) vals[first.length + k] = tail[k];
+  } else res.$cap = growCap(firstCap, res.length);
+  vals.length = n;
+  return res;
 }
 
 function formatCyclicChain(cyclicChain) {
