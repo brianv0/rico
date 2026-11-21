@@ -10,6 +10,7 @@
 
 import * as color from './color.js';
 import { goFixed } from './gomath.js';
+import { formatFloat } from './svg.js';
 import { ShapeSQLTable, ShapeClass } from './target.js';
 
 export const newNeutral = () => ({ n1: '', n2: '', n3: '', n4: '', n5: '', n6: '', n7: '' });
@@ -145,13 +146,13 @@ export class ThemableElement {
     return Object.assign(Object.create(ThemableElement.prototype), this);
   }
 
-  setTranslate(x, y) { this.Transform = `translate(${goFixed(x, 6)} ${goFixed(y, 6)})`; }
+  setTranslate(x, y) { this.Transform = `translate(${formatFloat(x)} ${formatFloat(y)})`; }
 
   setMaskUrl(url) { this.Mask = `url(#${url})`; }
 
   render() {
     const el = this;
-    const f = (v) => goFixed(v, 6);
+    const f = formatFloat;
     let out = '<' + el.tag;
 
     // href has to be at the top for the img bundler to detect <image> tags correctly

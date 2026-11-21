@@ -30,6 +30,7 @@ import { strconvCheck } from './strconvcheck.mjs';
 import { sprintfCheck } from './sprintfcheck.mjs';
 import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
+import { svgCheck, svgPrepare } from './svgcheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -72,6 +73,10 @@ const STAGES = {
   sprintf: sprintfCheck,
   graphmethods: graphMethods,
   dims: (c) => dimsCheck(c, ruler),
+  // d2ref's `svgfromdiagram` mode: the JS renderer takes Go's own diagram JSON (and the render options Go ended up with) and
+  // must print Go's SVG byte for byte. `svg` is the full SVG (fonts embedded), `svgnofonts` blanks the font data on both sides.
+  svg: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', flags }),
+  svgnofonts: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', nofonts: true, flags }),
   // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
   // ported) is reported as deferred.
   layout: (c) => {
@@ -109,7 +114,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // recovered, so on failure the batch is bisected and the crashing case is reported like a panic.
 function runRef(batch) {
   try {
-    return execFileSync('go', ['run', '.', mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
+    return execFileSync('go', ['run', '.', mode === 'svg' || mode === 'svgnofonts' ? 'svgfromdiagram' : mode], { cwd: here, input: batch.map((c) => JSON.stringify(c)).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
     if (batch.length === 1) return [JSON.stringify({ panic: 'Go crashed (fatal error)' })];
@@ -117,6 +122,8 @@ function runRef(batch) {
     return [...runRef(batch.slice(0, h)), ...runRef(batch.slice(h))];
   }
 }
+if (mode === 'svg' || mode === 'svgnofonts') await svgPrepare(mode === 'svgnofonts');
+const refMode = mode === 'svgnofonts' ? 'svgfromdiagram' : mode === 'svg' ? 'svgfromdiagram' : mode;
 const ref = runRef(cases);
 
 // Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
@@ -130,18 +137,25 @@ function firstDiff(a, b, p = '$', t = 0) {
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${p}.${k}`, t); if (d) return d; }
     if (t) return null; // every leaf is within tolerance
   }
+  if (typeof a === 'string' && typeof b === 'string' && a.length > 200) {
+    let i = 0;
+    while (i < a.length && a[i] === b[i]) i++;
+    const ctx = (x) => JSON.stringify(x.slice(Math.max(0, i - 100), i + 100));
+    return { path: `${p} (first difference at char ${i} of ${a.length}/${b.length})`, got: ctx(a), want: ctx(b) };
+  }
   return { path: p, got: JSON.stringify(a)?.slice(0, 200), want: JSON.stringify(b)?.slice(0, 200) };
 }
 
 let same = 0, panics = 0, withinTol = 0, deferred = 0, unstable = 0;
+const deferredBy = {};
 const bad = [];
 const t0 = performance.now();
-cases.forEach((c, i) => {
+for (const [i, c] of cases.entries()) {
   const want = JSON.parse(ref[i]);
-  if (want.panic) { panics++; return; } // Go itself panicked: nothing to match
+  if (want.panic) { panics++; continue; } // Go itself panicked: nothing to match
   let got;
-  try { got = canon(JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
-  if (got.deferred) { deferred++; return; }
+  try { got = canon(JSON.parse(JSON.stringify(await STAGES[mode](c, want, flags)))); } catch (e) { got = { threw: String(e.stack || e) }; }
+  if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; continue; }
   let d = firstDiff(got, canon(want));
   if (d && mode === 'layout') {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
@@ -150,8 +164,8 @@ cases.forEach((c, i) => {
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
   if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.from ?? JSON.stringify(c).slice(0, 160), ...dt }); else withinTol++; } else same++;
-});
-console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
+}
+console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (${Object.entries(deferredBy).map(([k, v]) => `${k}: ${v}`).join(', ')})` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
 process.exitCode = bad.length ? 1 : 0;
 

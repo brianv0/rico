@@ -65,6 +65,9 @@ type input struct {
 	// target mode
 	Diagram json.RawMessage `json:"diagram"`
 
+	// svgfromdiagram mode
+	Ropts *ropts `json:"ropts"`
+
 	// label mode
 	Route  [][]float64 `json:"route"`
 	Stroke float64     `json:"stroke"`
@@ -177,6 +180,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 	case "graph":
 		g, config, err := d2compiler.Compile(in.Path, strings.NewReader(in.Text), &d2compiler.CompileOptions{UTF16Pos: in.UTF16Pos, FS: fsys})
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
+	case "svgfromdiagram":
+		return svgFromDiagram(in, ruler, fsys)
 	case "layout", "render":
 		ctx := log.WithDefault(context.Background())
 		layout := in.Layout

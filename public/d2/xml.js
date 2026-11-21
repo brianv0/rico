@@ -73,7 +73,7 @@ class PlainError {
   constructor(msg) { this.msg = msg; this.syntax = false; }
 }
 
-class Decoder {
+export class Decoder {
   constructor(data) {
     this.data = data; // binary string
     this.pos = 0;
@@ -83,6 +83,8 @@ class Decoder {
     this.toClose = null;
     this.nextByte = -1;
     this.err = null;
+    this.ns = {}; // d2svg: namespace prefix -> URL (Decoder.ns)
+    this.nsSaves = [];
   }
 
   syntaxError(msg) { return new SyntaxError_(msg); }
@@ -284,7 +286,7 @@ class Decoder {
       this.ungetc(b);
       const data = this.text(-1, false);
       if (data === null) return null;
-      return { kind: 'other' };
+      return { kind: 'other', sub: 'chardata', data };
     }
 
     b = this.mustgetc();
@@ -332,7 +334,7 @@ class Decoder {
             return null;
           }
         }
-        return { kind: 'other' };
+        return { kind: 'other', sub: 'procinst' };
       }
 
       case 33: { // <!: Maybe comment, maybe CDATA.
@@ -354,7 +356,7 @@ class Decoder {
               }
               b0 = b1; b1 = b;
             }
-            return { kind: 'other' };
+            return { kind: 'other', sub: 'comment' };
           }
           case 91: { // <![
             for (let i = 0; i < 6; i++) {
@@ -364,7 +366,7 @@ class Decoder {
             }
             const data = this.text(-1, true);
             if (data === null) return null;
-            return { kind: 'other' };
+            return { kind: 'other', sub: 'chardata', data };
           }
         }
 
@@ -403,7 +405,7 @@ class Decoder {
             break;
           }
         }
-        return { kind: 'other' };
+        return { kind: 'other', sub: 'directive' };
       }
     }
 
@@ -417,6 +419,7 @@ class Decoder {
     }
 
     let empty = false;
+    const attrs = [];
     for (;;) {
       this.space();
       b = this.mustgetc();
@@ -443,9 +446,10 @@ class Decoder {
       this.space();
       const data = this.attrval();
       if (data === null) return null;
+      attrs.push({ name: an, value: data });
     }
     if (empty) { this.needClose = true; this.toClose = name; }
-    return { kind: 'start', name };
+    return { kind: 'start', name, attrs };
   }
 
   // token returns the next significant token ({kind, name}) or null; the error is in this.err.
@@ -455,8 +459,18 @@ class Decoder {
       if (this.err === EOF && this.stk.length > 0) this.err = this.syntaxError('unexpected EOF');
       return null;
     }
-    if (t.kind === 'start') this.stk.push(t.name);
-    else if (t.kind === 'end') {
+    if (t.kind === 'start') {
+      // In XML name spaces, the translations listed in the attributes apply to the element name and to the other attribute names
+      const saves = [];
+      for (const a of t.attrs) {
+        if (a.name.space === 'xmlns') { saves.push([a.name.local, this.ns[a.name.local]]); this.ns[a.name.local] = a.value; }
+        if (a.name.space === '' && a.name.local === 'xmlns') { saves.push(['', this.ns['']]); this.ns[''] = a.value; }
+      }
+      this.nsSaves.push(saves);
+      this.stk.push(t.name);
+      t.name = this.translate(t.name, true);
+      t.attrs = t.attrs.map((a) => ({ name: this.translate(a.name, false), value: a.value }));
+    } else if (t.kind === 'end') {
       const s = this.stk.pop();
       const name = t.name;
       if (s === undefined) { this.err = this.syntaxError('unexpected end element </' + dec(name.local) + '>'); return null; }
@@ -466,8 +480,21 @@ class Decoder {
         this.err = this.syntaxError('element <' + dec(s.local) + '> in space ' + dec(s.space) + ' closed by </' + dec(name.local) + '> in space ' + ns);
         return null;
       }
+      for (const [k, v] of this.nsSaves.pop().reverse()) { if (v === undefined) delete this.ns[k]; else this.ns[k] = v; }
+      t.name = this.translate(name, true);
     }
     return t;
+  }
+
+  // translate rewrites a prefix to its namespace URL (Decoder.translate); returns a new name.
+  translate(n, isElementName) {
+    const out = { space: n.space, local: n.local };
+    if (n.space === 'xmlns') return out;
+    if (n.space === '' && !isElementName) return out;
+    if (n.space === 'xml') out.space = 'http://www.w3.org/XML/1998/namespace';
+    else if (n.space === '' && n.local === 'xmlns') return out;
+    if (Object.prototype.hasOwnProperty.call(this.ns, out.space)) out.space = this.ns[out.space];
+    return out;
   }
 
   // Skip reads tokens until the end of the element whose start has been read.

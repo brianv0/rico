@@ -7,6 +7,25 @@
 import { Point, Segment, BezierCurve, euclideanDistance, newPoint } from './geo.js';
 import { goRound, float32, goV, goFixed, goLog10 } from './gomath.js';
 
+// ---- number.go ----
+
+/** FormatFloat (v0.9.0 lib/svg/number.go): integers print without a fraction ("-0" for negative zero), others as %.6f with trailing zeros trimmed */
+export function formatFloat(value) {
+  if (value >= -9223372036854775808 && value < 9223372036854775808) {
+    const integer = Math.trunc(value);
+    if (value === integer) {
+      if (integer === 0 && Object.is(value, -0)) return '-0';
+      return Math.abs(integer) < 9007199254740992 ? String(integer) : BigInt(integer).toString();
+    }
+  }
+  let s = goFixed(value, 6);
+  if (s.includes('.')) {
+    s = s.replace(/0+$/, '');
+    if (s.endsWith('.')) s = s.slice(0, -1);
+  }
+  return s;
+}
+
 // ---- path.go ----
 
 // TODO probably use math.Big
