@@ -1,6 +1,6 @@
 // JS side of `shape` mode (tools/d2ref/shapecheck.go): same JSON shape from public/d2/shape.js.
 import * as geo from '../../public/d2/geo.js';
-import { newShape, traceToShapeBorder, CLOUD_TYPE } from '../../public/d2/shape.js';
+import { newShape, traceToShapeBorder, CLOUD_TYPE, getPathCommands } from '../../public/d2/shape.js';
 
 const F = (v) => (Number.isNaN(v) ? 'NaN' : v === Infinity ? '+Inf' : v === -Infinity ? '-Inf' : v);
 const pt = (p) => (p ? [F(p.x), F(p.y)] : null);
@@ -36,6 +36,8 @@ export function shapeCheck(c) {
   }
   out.fit = fits;
   out.path = s.getSVGPathData();
+  const pcs = getPathCommands(s);
+  if (pcs !== null) out.pathCommands = pcs.map((pc) => pc.map((c) => [c.Kind, pt(c.Control1), pt(c.Control2), pt(c.End)]));
 
   const per = [];
   const hits = [];

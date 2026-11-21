@@ -1,8 +1,8 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
-// JavaScript port of D2's lib/color package (oss.terrastruct.com/d2 v0.7.2, Copyright 2022 Terrastruct Inc.), with
-// the parts of github.com/mazznoer/csscolorparser v0.1.5 (MIT) and github.com/lucasb-eyer/go-colorful v1.2.0 (MIT)
+// JavaScript port of D2's lib/color package (github.com/d2lang/d2 v0.9.0, Copyright 2022 Terrastruct Inc.), with
+// the parts of github.com/mazznoer/csscolorparser v0.1.8 (MIT) and github.com/lucasb-eyer/go-colorful v1.4.1 (MIT)
 // that it uses: Parse, Color.Hsl, Hsl, Clamped and Hex.
 //
 // Go's `(T, error)` returns become: return T, or throw an Error carrying Go's error message.
@@ -93,6 +93,53 @@ export function fromOklab(l, a, b, alpha) {
 }
 
 export const fromOklch = (l, c, h, alpha) => fromOklab(l, c * Math.cos(h), c * Math.sin(h), alpha);
+
+function labToXyz(l, a, b) {
+  const e = 216.0 / 24389.0;
+  const k = 24389.0 / 27.0;
+  const Xn = 0.95047;
+  const Yn = 1.00000;
+  const Zn = 1.08883;
+
+  const fy = (l + 16.0) / 116.0;
+  const fx = fy + (a / 500.0);
+  const fz = fy - (b / 200.0);
+
+  let x, y, z;
+  // Calculate Y
+  if (l > 8.0) y = Yn * goPow(fy, 3); // Standard check is usually on L rather than fy^3 for Y
+  else y = Yn * (l / k);
+
+  // Calculate X
+  const fx3 = goPow(fx, 3);
+  if (fx3 > e) x = Xn * fx3;
+  else x = Xn * (116.0 * fx - 16.0) / k;
+
+  // Calculate Z
+  const fz3 = goPow(fz, 3);
+  if (fz3 > e) z = Zn * fz3;
+  else z = Zn * (116.0 * fz - 16.0) / k;
+
+  return [x, y, z];
+}
+
+function xyzToLinearRgb(x, y, z) {
+  let r = 3.2404537 * x - 1.537177 * y - 0.498531 * z;
+  let g = -0.969266 * x + 1.876010 * y + 0.041556 * z;
+  let b = 0.055643 * x - 0.204025 * y + 1.057225 * z;
+  r = Math.max(0, Math.min(1, r));
+  g = Math.max(0, Math.min(1, g));
+  b = Math.max(0, Math.min(1, b));
+  return [r, g, b];
+}
+
+export function fromLab(l, a, b, alpha) {
+  const [x, y, z] = labToXyz(l, a, b);
+  const [R, G, B] = xyzToLinearRgb(x, y, z);
+  return fromLinearRGB(R, G, B, alpha);
+}
+
+export const fromLch = (l, c, h, alpha) => fromLab(l, c * Math.cos(h), c * Math.sin(h), alpha);
 
 const black = newColor(0, 0, 0, 1);
 
@@ -202,69 +249,91 @@ export function parse(s) {
 
   if (op !== -1 && s.endsWith(')')) {
     const fname = goTrimSpace(s.slice(0, op));
-    let alpha = 1.0;
-    let okA = true;
     s = s.slice(op + 1, s.length - 1);
-    s = s.replaceAll(',', ' ');
-    s = s.replaceAll('/', ' ');
-    const params = goFields(s);
+    // strings.FieldsFunc: runs of ',', '/' and ' ' separate (no other whitespace does)
+    const params = s.split(/[,/ ]/).filter((x) => x !== '');
+
+    if (params.length !== 3 && params.length !== 4) throw new Error('Invalid format');
+
+    let alpha = 1.0;
+    if (params.length === 4) {
+      const [v, ok] = parsePercentOrFloat(params[3]);
+      if (!ok) throw new Error('Invalid format');
+      alpha = clamp0_1(v);
+    }
 
     if (fname === 'rgb' || fname === 'rgba') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`${fname}() format needs 3 or 4 parameters, ${input}`);
       const [r, okR] = parsePercentOr255(params[0]);
       const [g, okG] = parsePercentOr255(params[1]);
       const [b, okB] = parsePercentOr255(params[2]);
-      if (params.length === 4) [alpha, okA] = parsePercentOrFloat(params[3]);
-      if (okR && okG && okB && okA) return newColor(clamp0_1(r), clamp0_1(g), clamp0_1(b), clamp0_1(alpha));
+
+      if (okR && okG && okB) return newColor(clamp0_1(r), clamp0_1(g), clamp0_1(b), alpha);
       throw new Error(`Wrong ${fname}() components, ${input}`);
     } else if (fname === 'hsl' || fname === 'hsla') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`${fname}() format needs 3 or 4 parameters, ${input}`);
       const [h, okH] = parseAngle(params[0]);
       const [s_, okS] = parsePercentOrFloat(params[1]);
       const [l, okL] = parsePercentOrFloat(params[2]);
-      if (params.length === 4) [alpha, okA] = parsePercentOrFloat(params[3]);
-      if (okH && okS && okL && okA) return fromHsl(h, s_, l, alpha);
+
+      if (okH && okS && okL) return fromHsl(h, s_, l, alpha);
       throw new Error(`Wrong ${fname}() components, ${input}`);
     } else if (fname === 'hwb' || fname === 'hwba') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`hwb() format needs 3 or 4 parameters, ${input}`);
       const [H, okH] = parseAngle(params[0]);
       const [W, okW] = parsePercentOrFloat(params[1]);
       const [B, okB] = parsePercentOrFloat(params[2]);
-      if (params.length === 4) [alpha, okA] = parsePercentOrFloat(params[3]);
-      if (okH && okW && okB && okA) return fromHwb(H, W, B, alpha);
+
+      if (okH && okW && okB) return fromHwb(H, W, B, alpha);
       throw new Error(`Wrong hwb() components, ${input}`);
     } else if (fname === 'hsv' || fname === 'hsva') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`hsv() format needs 3 or 4 parameters, ${input}`);
       const [h, okH] = parseAngle(params[0]);
       const [s_, okS] = parsePercentOrFloat(params[1]);
       const [v, okV] = parsePercentOrFloat(params[2]);
-      if (params.length === 4) [alpha, okA] = parsePercentOrFloat(params[3]);
-      if (okH && okS && okV && okA) return fromHsv(h, s_, v, alpha);
+
+      if (okH && okS && okV) return fromHsv(h, s_, v, alpha);
       throw new Error(`Wrong hsv() components, ${input}`);
     } else if (fname === 'oklab') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`oklab() format needs 3 or 4 parameters, ${input}`);
       const [l, okL] = parsePercentOrFloat(params[0]);
       let [a, okA2, fmtA] = parsePercentOrFloat(params[1]);
       let [b, okB, fmtB] = parsePercentOrFloat(params[2]);
-      let okAlpha = true;
-      if (params.length === 4) [alpha, okAlpha] = parsePercentOrFloat(params[3]);
-      if (okL && okA2 && okB && okAlpha) {
+
+      if (okL && okA2 && okB) {
         if (fmtA) a = remap(a, -1.0, 1.0, -0.4, 0.4);
         if (fmtB) b = remap(b, -1.0, 1.0, -0.4, 0.4);
         return fromOklab(Math.max(l, 0), a, b, alpha);
       }
       throw new Error(`Wrong oklab() components, ${input}`);
     } else if (fname === 'oklch') {
-      if (params.length !== 3 && params.length !== 4) throw new Error(`oklch() format needs 3 or 4 parameters, ${input}`);
       const [l, okL] = parsePercentOrFloat(params[0]);
       let [c, okC, fmtC] = parsePercentOrFloat(params[1]);
       const [h, okH] = parseAngle(params[2]);
-      if (params.length === 4) [alpha, okA] = parsePercentOrFloat(params[3]);
-      if (okL && okC && okH && okA) {
+
+      if (okL && okC && okH) {
         if (fmtC) c = c * 0.4;
         return fromOklch(Math.max(l, 0), Math.max(c, 0), h * Math.PI / 180, alpha);
       }
       throw new Error(`Wrong oklch() components, ${input}`);
+    } else if (fname === 'lab') {
+      let [l, okL, fmtL] = parsePercentOrFloat(params[0]);
+      let [a, okA2, fmtA] = parsePercentOrFloat(params[1]);
+      let [b, okB, fmtB] = parsePercentOrFloat(params[2]);
+
+      if (okL && okA2 && okB) {
+        if (fmtL) l = l * 100;
+        if (fmtA) a = remap(a, -1, 1, -125, 125);
+        if (fmtB) b = remap(b, -1, 1, -125, 125);
+        return fromLab(Math.max(l, 0), a, b, alpha);
+      }
+      throw new Error('Invalid lab()');
+    } else if (fname === 'lch') {
+      let [l, okL, fmtL] = parsePercentOrFloat(params[0]);
+      let [c, okC, fmtC] = parsePercentOrFloat(params[1]);
+      const [h, okH] = parseAngle(params[2]);
+
+      if (okL && okC && okH) {
+        if (fmtL) l = l * 100;
+        if (fmtC) c = c * 150;
+        return fromLch(Math.max(l, 0), Math.max(c, 0), h * Math.PI / 180, alpha);
+      }
+      throw new Error('Invalid lch()');
     }
   }
 
@@ -517,6 +586,12 @@ export function validColor(color) {
 
 export const newGradient = () => ({ Type: '', Direction: '', ColorStops: [], ID: '' });
 
+function gradientStopOffset(position, index, totalStops) {
+  if (position !== '') return position;
+  if (totalStops === 1) return '0.00%';
+  return `${goFixed(index / (totalStops - 1) * 100, 2)}%`;
+}
+
 export function parseGradient(cssGradient) {
   cssGradient = goTrimSpace(cssGradient);
 
@@ -619,11 +694,7 @@ export function linearGradientToSVG(gradient) {
 
   const totalStops = gradient.ColorStops.length;
   gradient.ColorStops.forEach((cs, i) => {
-    let offset = cs.Position;
-    if (offset === '') {
-      const offsetValue = i / (totalStops - 1) * 100;
-      offset = `${goFixed(offsetValue, 2)}%`;
-    }
+    const offset = gradientStopOffset(cs.Position, i, totalStops);
     sb += `<stop offset="${offset}" stop-color="${cs.Color}" />`;
     sb += '\n';
   });
@@ -709,11 +780,7 @@ export function radialGradientToSVG(gradient) {
   sb += '\n';
   const totalStops = gradient.ColorStops.length;
   gradient.ColorStops.forEach((cs, i) => {
-    let offset = cs.Position;
-    if (offset === '') {
-      const offsetValue = i / (totalStops - 1) * 100;
-      offset = `${goFixed(offsetValue, 2)}%`;
-    }
+    const offset = gradientStopOffset(cs.Position, i, totalStops);
     sb += `<stop offset="${offset}" stop-color="${cs.Color}" />`;
     sb += '\n';
   });

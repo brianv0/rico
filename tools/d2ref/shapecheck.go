@@ -78,6 +78,17 @@ func shapeCheck(in input) interface{} {
 	}
 	out["fit"] = fits
 	out["path"] = s.GetSVGPathData()
+	if pcs := shape.GetPathCommands(s); pcs != nil {
+		cmds := [][][]interface{}{}
+		for _, pc := range pcs {
+			one := [][]interface{}{}
+			for _, c := range pc {
+				one = append(one, []interface{}{int(c.Kind), pt(&c.Control1), pt(&c.Control2), pt(&c.End)})
+			}
+			cmds = append(cmds, one)
+		}
+		out["pathCommands"] = cmds
+	}
 
 	per := []interface{}{}
 	hits := []interface{}{}
