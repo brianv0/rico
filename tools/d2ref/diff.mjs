@@ -40,8 +40,12 @@ await initD2();
 function measure(c) {
   const family = c.fontFamily || null, mono = c.monoFamily || null;
   if (c.markdown) {
-    const [width, height] = measureMarkdown(c.text, ruler, family, mono, c.fontSize);
-    return { width, height, err: null };
+    try {
+      const [width, height] = measureMarkdown(c.text, ruler, family, mono, c.fontSize);
+      return { width, height, err: null };
+    } catch (e) {
+      return { width: 0, height: 0, err: e.message };
+    }
   }
   const t = { text: c.text, fontSize: c.fontSize, isBold: !!c.bold, isItalic: !!c.italic, language: c.language || '' };
   const dims = getTextDimensionsWithMono(null, ruler, t, family, mono);

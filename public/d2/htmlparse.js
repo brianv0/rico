@@ -76,6 +76,7 @@ export class Node {
 }
 
 const VOID = new Set(['area', 'base', 'basefont', 'bgsound', 'br', 'col', 'embed', 'frame', 'hr', 'img', 'input', 'keygen', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const HEAD_ONLY = new Set(['base', 'basefont', 'bgsound', 'link', 'meta', 'title', 'style', 'script', 'noframes']);
 const RAW = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']);
 const SPECIAL = new Set('address applet area article aside base basefont bgsound blockquote body br button caption center col colgroup dd details dir div dl dt embed fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html iframe img input keygen li link listing main marquee menu meta nav noembed noframes noscript object ol p param plaintext pre script search section select source style summary table tbody td template textarea tfoot th thead title tr track ul wbr xmp'.split(' '));
 const P_CLOSERS = new Set('address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer header hgroup main menu nav ol p search section summary ul pre listing form table hr h1 h2 h3 h4 h5 h6 xmp plaintext'.split(' '));
@@ -226,8 +227,14 @@ export function parseBody(src) {
     return true;
   };
 
+  // The insertion modes before <body> (initial, before html, before head, in head, after head): whitespace, comments and
+  // ignorable end tags are dropped (or go to <head>/<html>, which are outside the body), head-only elements (title, style, ...)
+  // go to <head>, and the first body content ends the phase. Everything the caller sees is the body's subtree.
+  let pre = true;
   const startTag = (name, attrs = '') => {
+    if (pre && name === 'body') pre = false;
     if (name === 'html' || name === 'head' || name === 'body') return; // merged into the existing elements
+    pre = false;
     // no doctype: quirks mode, where <table> does not close an open <p>
     if (P_CLOSERS.has(name) && name !== 'table') closeP();
     if (isHeading(name) && isHeading(cur().data)) stack.pop();
@@ -238,6 +245,7 @@ export function parseBody(src) {
           if (n === 'li') { generateImplied('li'); popUntil('li'); break; }
           if (SPECIAL.has(n) && n !== 'address' && n !== 'div' && n !== 'p') break;
         }
+        closeP();
         break;
       case 'dd': case 'dt':
         for (let i = stack.length - 1; i >= 0; i--) {
@@ -245,6 +253,7 @@ export function parseBody(src) {
           if (n === 'dd' || n === 'dt') { generateImplied(n); popUntil(n); break; }
           if (SPECIAL.has(n) && n !== 'address' && n !== 'div' && n !== 'p') break;
         }
+        closeP();
         break;
       case 'button':
         if (hasInScope('button')) { generateImplied(); popUntil('button'); }
@@ -295,6 +304,10 @@ export function parseBody(src) {
   };
 
   const endTag = (name) => {
+    if (pre) {
+      if (name !== 'html' && name !== 'body' && name !== 'br') return;
+      pre = false;
+    }
     switch (name) {
       case 'html': case 'body': case 'head': return;
       case 'br': startTag('br'); return;
@@ -344,6 +357,11 @@ export function parseBody(src) {
   const flushText = (end) => {
     if (end > textStart) {
       let t = decodeEntities(src.slice(textStart, end));
+      if (pre) {
+        t = t.replace(/^[\t\n\f\r ]+/, '');
+        if (t === '') return;
+        pre = false;
+      }
       if (pendingPreNewline) { if (t[0] === '\n') t = t.slice(1); pendingPreNewline = false; }
       if (TABLE_CTX.has(cur().data) && /^[\t\n\f\r ]*$/.test(t)) appendText(t);
       else { reconstruct(); appendText(t); }
@@ -363,13 +381,13 @@ export function parseBody(src) {
         else if (src.startsWith('<!--->', lt)) { data = ''; i = lt + 6; }
         else if (end < 0) { data = src.slice(lt + 4); i = n; }
         else { data = src.slice(lt + 4, end); i = end + 3; }
-        cur().appendChild(new Node('comment', data));
+        if (!pre) cur().appendChild(new Node('comment', data));
       } else if (c === '!' || c === '?') {
         // doctype (ignored in body) / CDATA / bogus comment: ends at the next '>'
         const end = src.indexOf('>', lt + 2);
         const data = end < 0 ? src.slice(lt + 2) : src.slice(lt + 2, end);
         i = end < 0 ? n : end + 1;
-        if (!/^doctype/i.test(data)) cur().appendChild(new Node('comment', c === '?' ? '?' + data : data));
+        if (!pre && !/^doctype/i.test(data)) cur().appendChild(new Node('comment', c === '?' ? '?' + data : data));
       } else if (c === '/') {
         const m = /^<\/([A-Za-z][^\t\n\f \/>]*)[^>]*>?/.exec(src.slice(lt));
         if (m) { endTag(m[1].toLowerCase()); i = lt + m[0].length; }
@@ -395,7 +413,8 @@ export function parseBody(src) {
           if (ch === '>') break;
         }
         i = j + 1;
-        startTag(name, src.slice(lt + nm[0].length, j).trim());
+        const inHead = pre && HEAD_ONLY.has(name);
+        if (!inHead) startTag(name, src.slice(lt + nm[0].length, j).trim());
         if (RAW.has(name) && !VOID.has(name)) {
           const close = new RegExp('</' + name + '[\\t\\n\\f />]', 'i');
           const rest = src.slice(i);
@@ -403,7 +422,7 @@ export function parseBody(src) {
           const body_ = m ? rest.slice(0, m.index) : rest;
           let t = name === 'textarea' || name === 'title' ? decodeEntities(body_) : body_;
           if (name === 'textarea' && t[0] === '\n') t = t.slice(1);
-          appendText(t);
+          if (!inHead) appendText(t);
           i += body_.length;
           // the end tag is processed by the loop
         } else if (name === 'pre' || name === 'listing') pendingPreNewline = true;
