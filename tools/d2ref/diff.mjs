@@ -16,6 +16,9 @@ import { setMarkdownIt, loadMetrics, newRuler, getTextDimensionsWithMono, measur
 import * as d2fonts from '../../public/d2/fonts.js';
 import { shapeCheck } from './shapecheck.mjs';
 import { labelCheck } from './labelcheck.mjs';
+import { colorCheck } from './colorcheck.mjs';
+import { elementCheck } from './elementcheck.mjs';
+import { targetCheck, targetStatics } from './targetcheck.mjs';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
@@ -45,6 +48,10 @@ const STAGES = {
   mdhtml: (c) => ({ html: renderMarkdown(c.text), err: null }),
   shape: shapeCheck,
   label: labelCheck,
+  color: colorCheck,
+  element: elementCheck,
+  target: targetCheck,
+  targetstatics: targetStatics,
 };
 
 const [mode, file, ...flags] = process.argv.slice(2);

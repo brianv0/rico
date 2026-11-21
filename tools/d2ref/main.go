@@ -62,6 +62,9 @@ type input struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
 
+	// target mode
+	Diagram json.RawMessage `json:"diagram"`
+
 	// label mode
 	Route  [][]float64 `json:"route"`
 	Stroke float64     `json:"stroke"`
@@ -75,6 +78,10 @@ func main() {
 	}
 	if os.Args[1] == "corpus" {
 		corpus(os.Args[2])
+		return
+	}
+	if os.Args[1] == "themes" {
+		themesdump()
 		return
 	}
 	if os.Args[1] == "fontmetrics" {
@@ -122,6 +129,14 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return shapeCheck(in)
 	case "label":
 		return labelCheck(in)
+	case "color":
+		return colorCheck(in)
+	case "element":
+		return elementCheck(in)
+	case "target":
+		return targetCheck(in)
+	case "targetstatics":
+		return targetStatics()
 	case "parse":
 		ast, err := d2parser.Parse(in.Path, strings.NewReader(in.Text), &d2parser.ParseOptions{UTF16Pos: in.UTF16Pos})
 		return struct {
