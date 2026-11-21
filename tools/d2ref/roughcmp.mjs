@@ -138,6 +138,7 @@ const list = [...uniq.values()].filter((c) => c.js);
 const input = list.map((c) => JSON.stringify({ rough: { kind: c.kind, args: c.args, pts: c.pts, path: c.path, opts: c.opts, gen: c.gen } }) + '\n').join('');
 const out = execFileSync(bin, ['rough'], { input, maxBuffer: 1 << 30 }).toString().trim().split('\n');
 let same = 0, truncSame = 0, tolSame = 0, goErr = 0;
+const tolList = [];
 const bad = [], tolBy = {}, badBy = {}, truncBy = {};
 const trunc = (d) => d.replace(/(\d+)\.(\d+)/g, (m) => { const i = m.indexOf('.'); return m.slice(0, i + 1 + Math.min(m.length - i - 1, 6)); }); // d2sketch.truncatePathData
 const numRE = /-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g;
@@ -156,7 +157,7 @@ list.forEach((c, i) => {
   if (a === b) { same++; return; }
   if (norm(c.js, trunc) === norm(want.paths, trunc)) { truncSame++; truncBy[c.kind] = (truncBy[c.kind] || 0) + 1; return; }
   const cat = c.kind + (c.path && /A/.test(c.path) ? '+arc' : '');
-  if (c.js.length === want.paths.length && c.js.every((p, k) => p.stroke === want.paths[k].stroke && p.strokeWidth === want.paths[k].strokeWidth && p.fill === want.paths[k].fill && within(p.d, want.paths[k].d, 1e-12))) { tolSame++; tolBy[cat] = (tolBy[cat] || 0) + 1; return; }
+  if (c.js.length === want.paths.length && c.js.every((p, k) => p.stroke === want.paths[k].stroke && p.strokeWidth === want.paths[k].strokeWidth && p.fill === want.paths[k].fill && within(p.d, want.paths[k].d, 1e-12))) { tolSame++; tolBy[cat] = (tolBy[cat] || 0) + 1; tolList.push({ c, want }); return; }
   let k = 0;
   while (k < a.length && a[k] === b[k]) k++;
   badBy[cat] = (badBy[cat] || 0) + 1;
@@ -170,4 +171,12 @@ const by = {};
 for (const c of list) by[c.kind] = (by[c.kind] || 0) + 1;
 console.log('calls by kind: ' + Object.entries(by).map(([k, v]) => `${k} ${v}`).join(', '));
 for (const b of bad.slice(0, 8)) console.log(`\n${b.c.kind} ${JSON.stringify(b.c.args ?? b.c.pts ?? b.c.path)} ${JSON.stringify(b.c.opts)}\n  at ${b.at}\n  js ${b.js}\n  go ${b.go}`);
+for (const t of tolList.slice(0, 3)) {
+  const pa = t.c.js.map((p) => p.d), pb = t.want.paths.map((p) => p.d);
+  const k = pa.findIndex((x, i) => trunc(x) !== trunc(pb[i]));
+  const a = trunc(pa[k]), b = trunc(pb[k]);
+  let i = 0;
+  while (a[i] === b[i]) i++;
+  console.log(`\ntruncation boundary: ${t.c.kind} ${JSON.stringify(t.c.args ?? t.c.pts ?? t.c.path)} ${JSON.stringify(t.c.opts)}\n  js ${pa[k].slice(Math.max(0, i - 30), i + 40)}\n  go ${pb[k].slice(Math.max(0, i - 30), i + 40)}`);
+}
 process.exitCode = bad.length ? 1 : 0;
