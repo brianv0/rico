@@ -200,6 +200,10 @@ local server and the Worker (`src/worker.js`).
    npm install && npm run deploy
    ```
 
+**Staging.** `npm run deploy:stage` deploys a separate Worker (`rico-stage`) to `https://stage.ricorico.dev` using the
+`[env.stage]` block in `wrangler.toml`. It has its own GitHub OAuth app (callback `https://stage.ricorico.dev/auth/callback`),
+`GITHUB_CLIENT_ID`, and secrets (`npx wrangler secret put GITHUB_CLIENT_SECRET --env stage`, same for `SESSION_SECRET`).
+
 **Fallback deploy (no Workers Assets).** `npm run deploy:embed` deploys the same Worker with the static app embedded in
 the script (`scripts/build-embed.mjs`, `src/worker-embed.js`, `wrangler.embed.toml`; about 7 MB gzipped, so it needs a paid
 Workers plan). Use it where the Workers Assets upload cannot be made, for example behind an API proxy that replaces the
