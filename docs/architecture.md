@@ -2,9 +2,11 @@
 
 Rico lets a reviewer read the rendered markdown of a pull request and leave comments on any span
 of text, including spans that cross paragraph boundaries. This document describes how the pieces
-fit together and why they are shaped the way they are.
+fit together, why they are shaped the way they are, and which trade-offs we accepted on purpose.
 
-The short version: a small local server talks to GitHub, and a browser page does everything else. Nothing is stored remotely, and the GitHub token never reaches the browser.
+The short version: a small local server talks to GitHub, and a browser page does everything else.
+Nothing is stored remotely, the GitHub token never reaches the browser, and the server has no
+state of its own beyond a cached token.
 
 ![Rico overview](img/diagram.svg)
 
@@ -14,6 +16,7 @@ The short version: a small local server talks to GitHub, and a browser page does
 - Let a comment cover any selection, however many blocks it spans.
 - Post real pull request reviews, so teammates see them in GitHub as usual.
 - Stay small: no database, no accounts, no build step.
+- Degrade gracefully: when a selection cannot be anchored exactly, say so instead of guessing.
 
 ## Non-goals
 
@@ -51,7 +54,11 @@ map. A selection is resolved to the blocks that contain its two ends. Inside a h
 paragraph the line is refined by counting words, because a block alone would over-select.
 
 > Refinement only trusts the word count when the rendered text and the source agree exactly.
-> Otherwise it falls back to the whole block, which is always correct but coarser.
+> Otherwise it falls back to the whole block, which is always correct but coarser. A wrong line is
+> worse than a wide one, so the fallback is deliberate.
+
+Fenced code is handled separately: the line inside the fence is found by counting newlines, since
+code is rendered verbatim and word counting would be meaningless there.
 
 ## GitHub constraints
 
@@ -99,9 +106,11 @@ npm start
 
 ## Security
 
-The server binds to `127.0.0.1` only. A request must carry a loopback `Host` header, which blocks
-DNS rebinding, and every `POST` must send `X-Rico: 1`, which a cross-site page cannot do without
-a preflight that the server never answers.
+The server binds to `127.0.0.1` only and never to a public interface. A request must carry a
+loopback `Host` header, which blocks DNS rebinding, and every `POST` must send `X-Rico: 1`, which a
+cross-site page cannot do without a preflight that the server never answers.
+
+The token is read once per process. It is never written to disk, logged, or sent to the browser.
 
 See the [glossary](glossary.md) for terms used here, and [getting started](guide/getting-started.md)
 for a walkthrough.
