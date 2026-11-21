@@ -200,6 +200,11 @@ local server and the Worker (`src/worker.js`).
    npm install && npm run deploy
    ```
 
+**Fallback deploy (no Workers Assets).** `npm run deploy:embed` deploys the same Worker with the static app embedded in
+the script (`scripts/build-embed.mjs`, `src/worker-embed.js`, `wrangler.embed.toml`; about 7 MB gzipped, so it needs a paid
+Workers plan). Use it where the Workers Assets upload cannot be made, for example behind an API proxy that replaces the
+short-lived upload key wrangler sends. A later `npm run deploy` switches back to Workers Assets.
+
 **Session storage.** By default the whole session is the encrypted cookie (like oauth2-proxy's cookie store). For
 stronger handling, bind a KV namespace named `SESSIONS` (see the commented block in `wrangler.toml`): the token is then
 encrypted with a key made of `SESSION_SECRET` *and* a random half carried only by the cookie, and the ciphertext lives in
