@@ -114,6 +114,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return runNodeshape(in)
 	case "lgops":
 		return runOps(in)
+	case "t1stages", "t1ops":
+		return runT1(mode, in, ruler)
 	}
 	return runFixture(mode, in)
 }
