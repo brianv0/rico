@@ -112,6 +112,8 @@ if (!STAGES[mode] || !file) {
 }
 const utf16 = flags.includes('--utf16');
 let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...JSON.parse(l), utf16 }));
+// --sketch: render every case of the svg stages in sketch mode (Go compiles with the sketch option too, so the diagram has the HandDrawn font)
+if (flags.includes('--sketch')) cases = cases.map((c) => ({ ...c, ropts: { ...c.ropts, sketch: true } }));
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 
 const here = path.dirname(fileURLToPath(import.meta.url));

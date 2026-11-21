@@ -36,6 +36,7 @@ export async function svgPrepare(nofonts) {
   try { hooks.markdown = await import('../../public/d2/mdlayout.js'); } catch (e) { /* not ported yet */ }
   hooks.highlight = await import('../../public/d2/highlight.js');
   for (const f of Object.values(hooks.highlight.index.files)) await hooks.highlight.loadLexer(f);
+  hooks.sketch = await import('../../public/d2/d2sketch.js');
   hooks.patterns = await import('../../public/d2/d2svgpatterns.js');
   await hooks.patterns.loadPattern('paper');
   await hooks.patterns.loadPattern('grain');
@@ -44,7 +45,6 @@ export async function svgPrepare(nofonts) {
 export function svgCheck(c, want, { nofonts }) {
   if (want.ro == null || want.diagram == null) return { deferred: 'compile-error' };
   const ro = want.ro;
-  if (ro.sketch) return { deferred: 'sketch' };
   sawUserinfo = false;
   const diagram = fixIcons(diagramFromJSON(JSON.parse(JSON.stringify(want.diagram))));
   if (sawUserinfo) return { deferred: 'icon-userinfo' };

@@ -68,6 +68,9 @@ type input struct {
 	// svgfromdiagram mode
 	Ropts *ropts `json:"ropts"`
 
+	// rough mode
+	Rough json.RawMessage `json:"rough"`
+
 	// zlib / woff / fontsubset modes
 	Data   string `json:"data"`
 	Corpus string `json:"corpus"`
@@ -202,6 +205,8 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 		return linebreakCheck(in)
 	case "svgfromdiagram":
 		return svgFromDiagram(in, ruler, fsys)
+	case "rough":
+		return roughCheck(in)
 	case "layout", "render":
 		ctx := log.WithDefault(context.Background())
 		layout := in.Layout
