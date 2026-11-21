@@ -32,11 +32,15 @@ import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
 import * as bigjson from '../../public/d2/tala/bigjson.js';
 import * as talacheck from './talacheck.mjs';
+import { svgCheck, svgFullCheck, svgPrepare } from './svgcheck.mjs';
+import { latexCheck } from './latexcheck.mjs';
+import { loadLatex } from '../../public/d2/d2latex.js';
 
 setMarkdownIt(markdownit);
 await loadMetrics();
 const ruler = newRuler();
 await initD2();
+await loadLatex(); // vendor/mathjax.js (the browser loads it only when a diagram has a LaTeX label)
 
 // measure: input lines {text, fontFamily?, monoFamily?, fontSize, bold?, italic?, language?, markdown?} (see measurecorpus.mjs)
 function measure(c) {
@@ -100,11 +104,18 @@ const STAGES = {
   sprintf: sprintfCheck,
   graphmethods: graphMethods,
   dims: (c) => dimsCheck(c, ruler),
-  // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout. A case that needs latex (d2latex is not
-  // ported) is reported as deferred.
+  // d2ref's `latex` mode: d2latex.Render and d2latex.Measure of the TeX source in `text` (see latexfuzz.mjs, latexformulas.mjs)
+  latex: latexCheck,
+  // d2ref's `svgfromdiagram` mode: the JS renderer takes Go's own diagram JSON (and the render options Go ended up with) and
+  // must print Go's SVG byte for byte. `svg` is the full SVG (fonts embedded), `svgnofonts` blanks the font data on both sides.
+  svg: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', flags }),
+  svgnofonts: (c, want, flags) => svgCheck(c, want, { fonts: 'embed', nofonts: true, flags }),
+  // the whole JS pipeline (compile with the case's render options, then render) against Go's: use with --sketch for sketch mode
+  svgfull: (c, want, flags) => svgFullCheck(c, want, { flags }),
+  svgfullnofonts: (c, want, flags) => svgFullCheck(c, want, { nofonts: true, flags }),
+  // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout.
   layout: (c) => {
     const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
-    if (r.err && r.err.name === 'LatexNotPorted') return { deferred: 'latex' };
     return { diagram: r.diagram, err: r.err ? r.err.message : null };
   },
   // d2ref's `graph` mode: {graph, config, err} from d2compiler.Compile, err as its text.
@@ -131,6 +142,8 @@ if (!STAGES[mode] || !file) {
 const utf16 = flags.includes('--utf16');
 const isTala = mode in TALA_MODES;
 let cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => ({ ...(isTala ? bigjson.parse(l) : JSON.parse(l)), utf16 }));
+// --sketch: render every case of the svg stages in sketch mode (Go compiles with the sketch option too, so the diagram has the HandDrawn font)
+if (flags.includes('--sketch')) cases = cases.map((c) => ({ ...c, ropts: { ...c.ropts, sketch: true } }));
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -140,7 +153,7 @@ function runRef(batch) {
   try {
     const [cmd, args, opts] = isTala
       ? [(process.env.TALA_REF || '/tmp/tala-ref') + '/xdump.bin', [TALA_MODES[mode]], {}]
-      : ['go', ['run', '.', mode], { cwd: here }];
+      : ['go', ['run', '.', /^svg/.test(mode) ? 'svgfromdiagram' : mode], { cwd: here }];
     return execFileSync(cmd, args, { ...opts, input: batch.map((c) => (isTala ? bigjson.stringify(c) : JSON.stringify(c))).join('\n'), maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] })
       .toString().trim().split('\n');
   } catch (e) {
@@ -149,6 +162,7 @@ function runRef(batch) {
     return [...runRef(batch.slice(0, h)), ...runRef(batch.slice(h))];
   }
 }
+if (/^svg/.test(mode)) await svgPrepare(/nofonts$/.test(mode));
 const ref = runRef(cases);
 
 // Go prints pointers inside one error message (`import key %q ...` formats a []d2ast.String with %q, which dumps
@@ -162,28 +176,35 @@ function firstDiff(a, b, p = '$', t = 0) {
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${p}.${k}`, t); if (d) return d; }
     if (t) return null; // every leaf is within tolerance
   }
+  if (typeof a === 'string' && typeof b === 'string' && a.length > 200) {
+    let i = 0;
+    while (i < a.length && a[i] === b[i]) i++;
+    const ctx = (x) => JSON.stringify(x.slice(Math.max(0, i - 100), i + 100));
+    return { path: `${p} (first difference at char ${i} of ${a.length}/${b.length})`, got: ctx(a), want: ctx(b) };
+  }
   return { path: p, got: JSON.stringify(a)?.slice(0, 200), want: JSON.stringify(b)?.slice(0, 200) };
 }
 
 let same = 0, panics = 0, withinTol = 0, deferred = 0, unstable = 0;
+const deferredBy = {};
 const bad = [];
 const t0 = performance.now();
-cases.forEach((c, i) => {
+for (const [i, c] of cases.entries()) {
   const want = isTala ? bigjson.plain(bigjson.parse(ref[i])) : JSON.parse(ref[i]);
-  if (want.panic) { panics++; return; } // Go itself panicked: nothing to match
+  if (want.panic) { panics++; continue; } // Go itself panicked: nothing to match
   let got;
-  try { got = canon(isTala ? bigjson.plain(STAGES[mode](c)) : JSON.parse(JSON.stringify(STAGES[mode](c)))); } catch (e) { got = { threw: String(e.stack || e) }; }
-  if (got.deferred) { deferred++; return; }
+  try { got = canon(isTala ? bigjson.plain(await STAGES[mode](c, want, flags)) : JSON.parse(JSON.stringify(await STAGES[mode](c, want, flags)))); } catch (e) { got = { threw: String(e.stack || e) }; }
+  if (got.deferred) { deferred++; deferredBy[got.deferred] = (deferredBy[got.deferred] || 0) + 1; continue; }
   let d = firstDiff(got, canon(want));
-  if (d && mode === 'layout') {
+  if (d && (mode === 'layout' || mode === 'svgfull')) {
     // Go iterates maps in random order in d2dagrelayout (shiftReachableDown, adjustRankSpacing), so its own output can vary
     // between runs. If Go gives the JS answer in some of 100 more runs, the case is Go-unstable, not a mismatch.
     const again = runRef(Array(100).fill(c)).map((l) => canon(JSON.parse(l)));
     if (again.some((w) => !firstDiff(got, w))) { unstable++; d = null; }
   }
   if (d) { const dt = tol ? firstDiff(got, canon(want), '$', tol) : d; if (dt) bad.push({ i, from: c.name ?? c.from ?? (isTala ? bigjson.stringify(c) : JSON.stringify(c)).slice(0, 160), ...dt, errs: got.err || want.err ? `js: ${JSON.stringify(got.err)?.slice(0, 200)} go: ${JSON.stringify(want.err)?.slice(0, 200)}` : '' }); else withinTol++; } else same++;
-});
-console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (latex)` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
+}
+console.log(`${mode}${utf16 ? ' (utf16)' : ''}: ${same}/${cases.length - panics - deferred} identical to Go` + (tol ? `, ${withinTol} more within relative ${tol}` : '') + (panics ? `, ${panics} skipped (Go panicked)` : '') + (deferred ? `, ${deferred} deferred (${Object.entries(deferredBy).map(([k, v]) => `${k}: ${v}`).join(', ')})` : '') + (unstable ? `, ${unstable} of the identical are Go-unstable (Go's own output varies between runs; JS equals one of them)` : '') + `, JS ${(performance.now() - t0) | 0}ms`);
 for (const b of bad.slice(0, Number(flag('--show', 5)))) console.log(`\n#${b.i} ${b.from}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}` + (b.errs ? `\n  err  ${b.errs}` : ''));
 process.exitCode = bad.length ? 1 : 0;
 
@@ -195,14 +216,13 @@ async function e2e(file, flags) {
   const src = (flags.includes('--src') ? flags[flags.indexOf('--src') + 1] : null) ||
     execFileSync('go', ['list', '-m', '-f', '{{.Dir}}', 'github.com/d2lang/d2'], { cwd: path.dirname(fileURLToPath(import.meta.url)) }).toString().trim();
   const cases = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  let same = 0, noGolden = 0, deferred = 0, errSame = 0;
+  let same = 0, noGolden = 0, errSame = 0;
   const bad = [];
   const tolv = Number(flags.includes('--tol') ? flags[flags.indexOf('--tol') + 1] : 0);
   for (const c of cases) {
     const gp = path.join(src, 'e2etests/testdata', c.name, 'dagre/board.exp.json');
     const copts = { utf16: false, layout: 'dagre', ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined };
     const r = d2compile(c.text, copts, c.themeID != null ? { themeID: c.themeID } : {});
-    if (r.err && r.err.name === 'LatexNotPorted') { deferred++; continue; }
     if (c.expErr) { if (r.err && r.err.message === c.expErr) errSame++; else bad.push({ name: c.name, path: '$err', got: r.err && r.err.message, want: c.expErr }); continue; }
     if (c.dagreFeatureError || !fs.existsSync(gp)) { noGolden++; continue; }
     if (r.err) { bad.push({ name: c.name, path: '$err', got: r.err.message, want: 'a diagram' }); continue; }
@@ -212,7 +232,7 @@ async function e2e(file, flags) {
     const d = firstDiff(sortKeys(got), sortKeys(want), "$", tolv); // key order is not compared (v0.9.0 goldens write url.URL fields in another order)
     if (d) bad.push({ name: c.name, ...d }); else same++;
   }
-  console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden, ${deferred} deferred (latex)`);
+  console.log(`e2e: ${same}/${same + bad.length} dagre goldens identical, ${errSame} expected errors identical, ${noGolden} without golden`);
   for (const b of bad.slice(0, Number(flags.includes('--show') ? flags[flags.indexOf('--show') + 1] : 8))) console.log(`\n${b.name}\n  at ${b.path}\n  got  ${b.got}\n  want ${b.want}`);
   process.exit(bad.length ? 1 : 0);
 }

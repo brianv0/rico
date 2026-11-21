@@ -1,0 +1,3 @@
+{"from":"extra:latex-invalid-merror","path":"index.d2","text":"a: |latex \\frac{1} |\nb: |latex \\undefinedmacro |\nc: |latex { |\na -> b -> c"}
+{"from":"extra:latex-special","path":"index.d2","text":"a: |latex a`b${c} |\nb: |latex $x$ |\nc: |latex 50\\% \\& \\# |"}
+{"from":"extra:latex-mhchem","path":"index.d2","text":"a: |latex \\ce{SO4^2- + Ba^2+ -> BaSO4 v} |\nb: |latex \\pu{1.2 kg} |"}

@@ -67,6 +67,18 @@ type input struct {
 	// target mode
 	Diagram json.RawMessage `json:"diagram"`
 
+	// svgfromdiagram mode
+	Ropts *ropts `json:"ropts"`
+
+	// rough mode
+	Rough json.RawMessage `json:"rough"`
+
+	// zlib / woff / fontsubset modes
+	Data   string `json:"data"`
+	Corpus string `json:"corpus"`
+	Family string `json:"family"`
+	Style  string `json:"style"`
+
 	// label mode
 	Route  [][]float64 `json:"route"`
 	Stroke float64     `json:"stroke"`
@@ -80,6 +92,10 @@ func main() {
 	}
 	if os.Args[1] == "corpus" {
 		corpus(os.Args[2])
+		return
+	}
+	if os.Args[1] == "chromadump" {
+		chromadump(os.Args[2:])
 		return
 	}
 	if os.Args[1] == "themes" {
@@ -181,6 +197,20 @@ func run(mode string, in input, ruler *textmeasure.Ruler) (res interface{}) {
 	case "graph":
 		g, config, err := d2compiler.Compile(in.Path, strings.NewReader(in.Text), &d2compiler.CompileOptions{UTF16Pos: in.UTF16Pos, FS: fsys})
 		return map[string]interface{}{"graph": g, "config": config, "err": errString(err)}
+	case "zlib":
+		return zlibCheck(in)
+	case "latex":
+		return latexCheck(in)
+	case "regexp2":
+		return regexp2Probe(in)
+	case "highlight":
+		return highlightCheck(in)
+	case "linebreak":
+		return linebreakCheck(in)
+	case "svgfromdiagram":
+		return svgFromDiagram(in, ruler, fsys)
+	case "rough":
+		return roughCheck(in)
 	case "layout", "render":
 		ctx := log.WithDefault(context.Background())
 		layout := in.Layout
