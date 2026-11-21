@@ -26,10 +26,13 @@ export class ParseError {
 /**
  * Parse D2 source. Like Go, the returned map is always usable; errors are collected, not thrown.
  * utf16: count columns/bytes in UTF-16 code units (what the WASM build does for JS callers).
+ * parseError: an existing ParseError to append to (d2ir uses one for the whole compile); the returned err is then
+ * non-null if it holds any error, including earlier ones, as in Go.
  * @returns {{ ast: object, err: ParseError|null }}
  */
-export function parse(path, text, { utf16 = false } = {}) {
+export function parse(path, text, { utf16 = false, parseError = null } = {}) {
   const p = new Parser(path, text, utf16);
+  if (parseError) p.err = parseError; // Go's ParseOptions.ParseError: collect into the caller's errors
   const ast = p.parseMap(true);
   return { ast, err: p.err.empty() ? null : p.err };
 }
@@ -373,7 +376,7 @@ class Parser {
 
       [r, newlines] = this.peekNotSpace();
       if (r === null || newlines > 0) { this.rewind(); return; }
-      if (r === '[') { this.commit(); mk.edge_index = this.parseEdgeIndex(); } else this.rewind();
+      if (r === '[') { this.commit(); const ei = this.parseEdgeIndex(); if (ei) mk.edge_index = ei; } else this.rewind();
 
       [r, newlines] = this.peekNotSpace();
       if (r === null || newlines > 0) { this.rewind(); return; }
@@ -673,7 +676,7 @@ class Parser {
       if (!inKey && r === '$') {
         const subst = this.parseSubstitution(false);
         if (subst) {
-          if (sb.length > 0) { push({ string: sb }); sb = ''; rawb = ''; }
+          if (sb.length > 0) { push({ string: sb }); sb = ''; } // Go resets sb but not rawb here
           push({ substitution: subst });
           continue;
         }
@@ -966,56 +969,159 @@ export function trimCommonIndent(s) {
   return common === '' ? s : trimIndent(s, common);
 }
 
-// Go's big.Rat SetString, printed the way Rat marshals to JSON ("2/5", "200"); null if s is not a number.
+// Go's big.Rat SetString (ratconv.go, natconv.go), printed the way Rat marshals to JSON ("2/5", "200"); null if s is
+// not a number. Underscores between digits, 0b/0o/0x prefixes, hex floats with a "p" exponent and "a/b" are all accepted.
 export function ratString(s) {
+  if (s.length === 0) return null;
   let num, den;
-  const frac = /^([+-]?)([^/]+)\/([^/]+)$/.exec(s);
-  if (frac) {
-    num = intBase0(frac[2]);
-    den = intBase0(frac[3], false);
-    if (num === null || den === null || den === 0n) return null;
-    if (frac[1] === '-') num = -num;
+  const sep = s.indexOf('/');
+  if (sep >= 0) {
+    const a = bigIntSetString(s.slice(0, sep));
+    if (a === null) return null;
+    const r = new ByteReader(s.slice(sep + 1));
+    const b = natScan(r, 0, false);
+    if (b.err || r.readByte() !== null) return null;
+    if (b.val === 0n) return null;
+    num = a;
+    den = b.val;
   } else {
-    let m = /^([+-]?)0([xXbBoO])([0-9a-fA-F_]+)$/.exec(s);
-    if (m) {
-      num = intBase0('0' + m[2] + m[3]);
-      if (num === null) return null;
-      if (m[1] === '-') num = -num;
-      den = 1n;
-    } else {
-      m = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(s);
-      if (!m || (m[2] + (m[3] ?? '')) === '') return null;
-      const digits = m[2] + (m[3] ?? '');
-      let exp = (m[4] ? Number(m[4]) : 0) - (m[3]?.length ?? 0);
-      if (Math.abs(exp) > 1e6) return null;
-      num = BigInt(digits);
-      den = 1n;
-      if (exp >= 0) num *= 10n ** BigInt(exp);
-      else den = 10n ** BigInt(-exp);
-      if (m[1] === '-') num = -num;
+    const r = new ByteReader(s);
+    const neg = scanSign(r);
+    if (neg === null) return null;
+    const m = natScan(r, 0, true);
+    if (m.err) return null;
+    const e = scanExponent(r);
+    if (e.err) return null;
+    if (r.readByte() !== null) return null;
+    if (m.val === 0n) return '0';
+    let exp2 = 0, exp5 = 0;
+    if (m.count < 0) {
+      const d = m.count;
+      if (m.base === 10) { exp5 = d; exp2 = d; } else if (m.base === 2) exp2 = d; else if (m.base === 8) exp2 = d * 3; else exp2 = d * 4;
     }
+    if (e.base === 10) { exp5 += e.exp; exp2 += e.exp; } else exp2 += e.exp;
+    num = m.val;
+    den = 1n;
+    if (exp5 !== 0) {
+      const n = Math.abs(exp5);
+      if (n > 1e6) return null; // avoid excessively large exponents
+      const pow5 = 5n ** BigInt(n);
+      if (exp5 > 0) num *= pow5; else den = pow5;
+    }
+    if (exp2 < -1e7 || exp2 > 1e7) return null;
+    if (exp2 > 0) num <<= BigInt(exp2); else if (exp2 < 0) den <<= BigInt(-exp2);
+    if (neg) num = -num;
   }
-  if (den < 0n) { den = -den; num = -num; }
   const g = gcd(num < 0n ? -num : num, den);
   if (g > 1n) { num /= g; den /= g; }
   return den === 1n ? String(num) : `${num}/${den}`;
 }
 const gcd = (a, b) => { while (b) [a, b] = [b, a % b]; return a || 1n; };
 
-// Go's big.Int SetString(s, 0): optional sign, 0x/0o/0b/0 prefixes, underscores only after a prefix.
-function intBase0(s, signed = true) {
-  const m = /^([+-]?)(.*)$/.exec(s);
-  if (!signed && m[1]) return null;
-  let t = m[2], base = 10;
-  const pre = /^0([xXbBoO])/.exec(t);
-  if (pre) { base = { x: 16, b: 2, o: 8 }[pre[1].toLowerCase()]; t = t.slice(2); }
-  else if (t.length > 1 && t[0] === '0') { base = 8; t = t.slice(1); }
-  if (base !== 10 && t.includes('_')) {
-    if (/^_|__|_$/.test(t) && !(pre && /^_[^_]/.test(t) && !/__|_$/.test(t))) return null;
-    t = t.replace(/_/g, '');
+class ByteReader {
+  constructor(s) { this.s = s; this.i = 0; }
+  readByte() { return this.i < this.s.length ? this.s[this.i++] : null; }
+  unreadByte() { this.i--; }
+}
+function scanSign(r) { // true if negative, null on a read error
+  const ch = r.readByte();
+  if (ch === null) return null;
+  if (ch === '-') return true;
+  if (ch !== '+') r.unreadByte();
+  return false;
+}
+// big.Int SetString(s, 0)
+function bigIntSetString(s) {
+  const r = new ByteReader(s);
+  const neg = scanSign(r);
+  if (neg === null) return null;
+  const m = natScan(r, 0, false);
+  if (m.err || r.readByte() !== null) return null;
+  return neg ? -m.val : m.val;
+}
+// nat.scan: returns { val, base, count, err }; count is the digit count, or minus the fractional digits if there was a period.
+function natScan(r, base, fracOk) {
+  let prev = '.', invalSep = false;
+  let ch = r.readByte();
+  let b = base, prefix = '';
+  let count = 0;
+  if (base === 0) {
+    b = 10;
+    if (ch === '0') {
+      prev = '0';
+      count = 1;
+      ch = r.readByte();
+      if (ch !== null) {
+        switch (ch) {
+          case 'b': case 'B': b = 2; prefix = 'b'; break;
+          case 'o': case 'O': b = 8; prefix = 'o'; break;
+          case 'x': case 'X': b = 16; prefix = 'x'; break;
+          default: if (!fracOk) { b = 8; prefix = '0'; }
+        }
+        if (prefix !== '') {
+          count = 0; // prefix is not counted
+          if (prefix !== '0') ch = r.readByte();
+        }
+      }
+    }
   }
-  const ok = { 2: /^[01]+$/, 8: /^[0-7]+$/, 10: /^[0-9]+$/, 16: /^[0-9a-fA-F]+$/ }[base];
-  if (!ok.test(t)) return null;
-  const v = base === 10 ? BigInt(t) : BigInt((base === 16 ? '0x' : base === 8 ? '0o' : '0b') + t);
-  return m[1] === '-' ? -v : v;
+  let val = 0n, dp = -1;
+  const B = BigInt(b);
+  while (ch !== null) {
+    if (ch === '.' && fracOk) {
+      fracOk = false;
+      if (prev === '_') invalSep = true;
+      prev = '.';
+      dp = count;
+    } else if (ch === '_' && base === 0) {
+      if (prev !== '0') invalSep = true;
+      prev = '_';
+    } else {
+      let d1 = 99;
+      if (ch >= '0' && ch <= '9') d1 = ch.charCodeAt(0) - 48;
+      else if (ch >= 'a' && ch <= 'z') d1 = ch.charCodeAt(0) - 97 + 10;
+      else if (ch >= 'A' && ch <= 'Z') d1 = ch.charCodeAt(0) - 65 + 10; // b <= 36 always here
+      if (d1 >= b) { r.unreadByte(); break; } // ch does not belong to number anymore
+      prev = '0';
+      count++;
+      val = val * B + BigInt(d1);
+    }
+    ch = r.readByte();
+  }
+  let err = false;
+  if (invalSep || prev === '_') err = true;
+  if (count === 0) {
+    // no digits found
+    if (prefix === '0') return { val: 0n, base: 10, count: 1, err }; // only the octal prefix 0: decimal 0
+    err = true;
+  }
+  if (dp >= 0) count = dp - count; // 0 <= dp <= count
+  return { val, base: b, count, err };
+}
+// scanExponent(r, base2ok=true, sepOk=true): { exp, base, err }
+function scanExponent(r) {
+  let ch = r.readByte();
+  if (ch === null) return { exp: 0, base: 10, err: false };
+  let base;
+  if (ch === 'e' || ch === 'E') base = 10;
+  else if (ch === 'p' || ch === 'P') base = 2;
+  else { r.unreadByte(); return { exp: 0, base: 10, err: false }; }
+  let digits = '';
+  ch = r.readByte();
+  if (ch === '+' || ch === '-') {
+    if (ch === '-') digits += '-';
+    ch = r.readByte();
+  }
+  let prev = '.', invalSep = false, hasDigits = false;
+  while (ch !== null) {
+    if (ch >= '0' && ch <= '9') { digits += ch; prev = '0'; hasDigits = true; }
+    else if (ch === '_') { if (prev !== '0') invalSep = true; prev = '_'; }
+    else { r.unreadByte(); break; }
+    ch = r.readByte();
+  }
+  if (!hasDigits) return { exp: 0, base, err: true };
+  const n = BigInt(digits);
+  if (n > 9223372036854775807n || n < -9223372036854775808n) return { exp: 0, base, err: true };
+  if (invalSep || prev === '_') return { exp: Number(n), base, err: true };
+  return { exp: Number(n), base, err: false };
 }

@@ -318,6 +318,9 @@ export const LightCatalog = [NeutralDefault, NeutralGrey, FlagshipTerrastruct, C
 
 export const DarkCatalog = [DarkMauve, DarkFlagshipTerrastruct];
 
+/** Whether d2themescatalog.Find(id) finds a theme (d2ir uses this). */
+export const themeExists = (id) => LightCatalog.some((t) => t.id === id) || DarkCatalog.some((t) => t.id === id);
+
 const clone = (t) => JSON.parse(JSON.stringify(t));
 
 /** Find returns a copy of the theme with the given id, or the zero Theme */

@@ -1,0 +1,190 @@
+{"from": "extra:spread-1-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-2-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-3-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-4-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-5-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-5-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-6-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-5-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-6-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread2", "path": "index.d2", "text": "vars: { a: [1;2] }\nx: { y: [...${a}; 3] }\nz: [...${a}]"}
+{"from": "extra:subst-array", "path": "index.d2", "text": "vars: { a: x }\nb: [${a}; ${a}-1; \"q ${a}\"]"}
+{"from": "extra:import-key-missing", "path": "index.d2", "text": "x: @foo.a.b", "fs": {"foo.d2": "a: 1"}}
+{"from": "extra:import-key-missing2", "path": "index.d2", "text": "x: @foo.a", "fs": {"foo.d2": "b: 1"}}
+{"from": "extra:import-missing", "path": "index.d2", "text": "x: @foo", "fs": {}}
+{"from": "extra:cyclic", "path": "index.d2", "text": "x: @a", "fs": {"a.d2": "y: @b", "b.d2": "z: @a"}}
+{"from": "extra:cyclic-self", "path": "index.d2", "text": "x: @a", "fs": {"a.d2": "y: @a"}}
+{"from": "extra:import-links", "path": "index.d2", "text": "...@a\nq", "fs": {"a.d2": "y -> z: hi\nlink: https://x.com\nicon: ./i.svg\nk.link: layers.b\nlayers: { b: { m } }"}}
+{"from": "extra:import-sub", "path": "index.d2", "text": "i: @sub/a", "fs": {"sub/a.d2": "a.icon: ./icon.png\na.link: layers.x\nb.link: http://example.com/x\nc.icon: /abs/i.png\nd.link: _.layers.x\nlayers: { x: { y } }"}}
+{"from": "extra:import-sub2", "path": "index.d2", "text": "i: { ...@sub/a }", "fs": {"sub/a.d2": "a.icon: ./icon.png\na.link: layers.x\nb.link: mailto:a@b.c\nc.icon: %zz\nd.icon: https://a/b\nlayers: { x: { y } }"}}
+{"from": "extra:import-vars", "path": "index.d2", "text": "vars: { v: 1 }\n...@a\nx: ${v}", "fs": {"a.d2": "vars: { w: ${v} }\nq: ${w}"}}
+{"from": "extra:import-overlay", "path": "index.d2", "text": "a: @x\na.b: 2", "fs": {"x.d2": "b: 1\nc -> d"}}
+{"from": "extra:import-existing-edges", "path": "index.d2", "text": "a -> b\na: @x", "fs": {"x.d2": "b: 1\nc -> d"}}
+{"from": "extra:import-array", "path": "index.d2", "text": "x: [@a; ...@b; 3]", "fs": {"a.d2": "[1;2]", "b.d2": "[4;5]"}}
+{"from": "extra:import-array2", "path": "index.d2", "text": "x: [@a; ...@b; 3]", "fs": {"a.d2": "k: 1", "b.d2": "k: [4;5]"}}
+{"from": "extra:triple-glob-import", "path": "index.d2", "text": "***.style.opacity: 0.5\nlayers: { a: { x -> y } ; b: @b }", "fs": {"b.d2": "z"}}
+{"from": "extra:steps-scen", "path": "index.d2", "text": "steps: { 1: { a }; 2: { b } }\nscenarios: { s: @s }", "fs": {"s.d2": "c"}}
+{"from": "extra:md-subst", "path": "index.d2", "text": "x: |md\n  hello ${n} `${n}`\n\n  ```\n  ${n}\n  ```\n\n      ${n}\n  ${n}\n|\nvars: { n: world }"}
+{"from": "extra:md-subst2", "path": "index.d2", "text": "vars: { n: world; m: { o: deep } }\nx: |md hello ${n} ${m.o} |\ny: |go ${n} |"}
+{"from": "extra:md-subst3", "path": "index.d2", "text": "vars: { n: world }\nx: |md\n  *${n}* ${n}${n}\n  `a ${n}` ``b ${n}`` ${n}\n|"}
+{"from": "extra:unicode-fold", "path": "index.d2", "text": "\u0130CON: x\nstyle: { Opacity: 1 }\n\u0130con: y\nicon: z\n*\u0130*.k: 1"}
+{"from": "extra:unicode-fold2", "path": "index.d2", "text": "\u015eHAPE: x\nShape: y\n\u0130: 1\n\u015f: 2\n*\u015f*.a"}
+{"from": "extra:globs", "path": "index.d2", "text": "a.b.c\n**.d\n***.e"}
+{"from": "extra:glob-edges", "path": "index.d2", "text": "a.b\nc.d\n(**.b -> *.d)[*].style.stroke: red"}
+{"from": "extra:filters", "path": "index.d2", "text": "a: { b; c }\n*: { &leaf: true; style.fill: red }\n**: { &level: 1; x }"}
+{"from": "extra:edge-suspend", "path": "index.d2", "text": "a; b; c -> d\n(* -> *)[*]: x\n(a -> b)[0]: null\n(c -> d)[0]: suspend"}
+{"from": "extra:suspend", "path": "index.d2", "text": "a: suspend\nb: unsuspend\nc -> d: {&src: c}\n*.style.fill: red\nx: null"}
+{"from": "extra:edge-idx-err", "path": "index.d2", "text": "a; b; a -> b\n(a -> b)[5]: x"}
+{"from": "extra:underscore", "path": "index.d2", "text": "a: { b -> c }\n_.x"}
+{"from": "extra:underscore2", "path": "index.d2", "text": "a: { b: { _.c; _._.d; (_.x -> _.y) } }"}
+{"from": "extra:underscore3", "path": "index.d2", "text": "a: { b: { c -> _.d } }\nx: { y: { (z -> _._.q) } }"}
+{"from": "extra:config-ok", "path": "index.d2", "text": "vars: { d2-config: { theme-id: 4; sketch: true; pad: 10 } }\nx"}
+{"from": "extra:config-bad", "path": "index.d2", "text": "vars: { d2-config: { theme-id: 999; sketch: maybe; pad: x; bad: 1; theme-overrides: 1; data }}"}
+{"from": "extra:config-nested", "path": "index.d2", "text": "x: { vars: { d2-config: { sketch: true } } }"}
+{"from": "extra:undefined", "path": "index.d2", "text": "x: ${undefined}\ny: \"${undefined}\"\nz: [${u}]"}
+{"from": "extra:vars-composite", "path": "index.d2", "text": "vars: { m: { a: 1; b: 2 } ; arr: [1;2] }\nx: ${m}\ny: \"${m}\"\nz: ${m}-a\nq: { ...${m} }\nr: ${arr}\ns: { ...${arr} }\nt: [...${m}]"}
+{"from": "extra:vars-edge", "path": "index.d2", "text": "vars: { m: { a -> b } }\nx -> y: ${m}\nq: { ...${m} }\nz -> w: ${arr}\nvars2: 1"}
+{"from": "extra:vars-self", "path": "index.d2", "text": "vars: { x: ${x}-b; y: ${z} }\nhi: { vars: { x: ${x}-c }; yo: ${x} }"}
+{"from": "extra:links", "path": "index.d2", "text": "a.link: layers.x.y\nlayers: { x: { b.link: _.layers.x; y: { c.link: _._.layers.x ; d.link: nope; e.link: layers.k } } }"}
+{"from": "extra:links2", "path": "index.d2", "text": "x: { y: { link: layers.a } }\nlayers: { a: { z.link: _.layers.b }; b: {} }"}
+{"from": "extra:classes", "path": "index.d2", "text": "classes: { c: { style.fill: red } }\nlayers: { a: { classes: { d: { style.stroke: blue } }; x.class: c }; b: { x } }\nscenarios: { s: { y } }"}
+{"from": "extra:board-edge", "path": "index.d2", "text": "layers: { a: { b } }\nlayers.a.c -> layers.a.b\nx -> layers"}
+{"from": "extra:steps", "path": "index.d2", "text": "steps: { 1: { a }; 2: { b }; 3: { c: { d } } }"}
+{"from": "extra:scenarios", "path": "index.d2", "text": "scenarios: { a: { x }; b: { y } }\nx"}
+{"from": "extra:edge-stuff", "path": "index.d2", "text": "a -> b: { style.opacity: 0.4 ; source-arrowhead: { shape: diamond }; label: hi}\n(a -> b)[0].style.stroke: red\n(a -> b)[0]: null"}
+{"from": "extra:shape-glob", "path": "index.d2", "text": "x: { shape: sql_table; *: { a } ; b: int }\ny: { shape: class; *.z: 1; m: x }\nx.*.c: 2"}
+{"from": "extra:quote-format", "path": "index.d2", "text": "a: 'it''s'\nb: \"q\\\"x\"\nc: |md\n  x\n|\n(a -> b)[0]: |go x |"}
+{"from": "extra:import-empty", "path": "index.d2", "text": "a: @", "fs": {}}
+{"from": "extra:import-paths", "path": "index.d2", "text": "a: @./x\nb: @../y\nc: @/abs/z", "fs": {"x.d2": "q", "y.d2": "r"}}
+{"from": "extra:import-ext", "path": "index.d2", "text": "a: @x.d2.y", "fs": {"x.d2": "y: 1"}}
+{"from": "extra:case", "path": "index.d2", "text": "a.b.c: 1\na.b.c: 2\na.B.c: 3\nA: 4\na -> b -> c\n(a -> b)[0]: x\n(A -> B)[1]: y"}
+{"from": "extra:array-index", "path": "index.d2", "text": "x: [a; b; c]\nx.y: 1\nx -> y"}
+{"from": "extra:array-comment", "path": "index.d2", "text": "x: [\n  \"\"\" block \"\"\"\n  a\n  # c\n  [1;2]\n  {k: v}\n]"}
+{"from": "extra:edge-in-map", "path": "index.d2", "text": "a: {\n  b\n  c\n}\n(a.b -> a.c)[*]: x\na.(b -> c)[0]: y\na.(b -> c): z"}
+{"from": "extra:chain", "path": "index.d2", "text": "(a -> b -> c)[*].style.stroke: red\na.b.(x -> y)\n(a.b -> a.c)"}
