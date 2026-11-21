@@ -9,7 +9,7 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-3.0-or-later
  *
- * Modified: wrapped as an ES module (tools/d2ref/elkbuild/build.py, vendor/README.txt); the compiled code is unchanged apart from the two small edits listed there.
+ * Modified: wrapped as an ES module and adapted to elk-go (tools/d2ref/elkbuild/build.py, vendor/README.txt); the compiled code is otherwise unchanged.
  *******************************************************************************/
 const module = { exports: {} };
 const exports = module.exports;
@@ -3413,7 +3413,7 @@ function Xr(a){if(Wr(a)){a.c=a.a;return a.a.Pb()}else{throw Lcb(new Kub)}}
 function hib(a,b){if(b==0||a.e==0){return a}return b>0?Aib(a,b):Dib(a,-b)}
 function iib(a,b){if(b==0||a.e==0){return a}return b>0?Dib(a,b):Aib(a,-b)}
 function zc(a){a.e=3;a.d=a.Yb();if(a.e!=2){a.e=0;return true}return false}
-function YVb(a){var b;b=new GWb;mNb(b,a);rNb(b,(nyc(),Bwc),null);return b}
+function YVb(a){var b;b=new GWb;mNb(b,a);b.elkgoOrd=a.elkgoOrd;rNb(b,(nyc(),Bwc),null);return b}
 function btd(a,b,c){var d;return d=a.Fh(b),d>=0?a.Ih(d,c,true):mtd(a,b,c)}
 function jUc(a,b,c){return $eb(Zfd(USc(a),Xfd(b.b)),Zfd(USc(a),Xfd(c.b)))}
 function kUc(a,b,c){return $eb(Zfd(USc(a),Xfd(b.e)),Zfd(USc(a),Xfd(c.e)))}
@@ -4640,7 +4640,7 @@ function vgc(a,b,c){if(a.e){switch(a.b){case 1:dgc(a.c,b,c);break;case 0:egc(a.c
 function uIc(a){var b,c;if(a==null){return null}c=SC(SP,aue,199,a.length,0,2);for(b=0;b<c.length;b++){c[b]=JD(Qmb(a[b],a[b].length),199)}return c}
 function lSc(a){var b;b=JD(oNb(a,(SXc(),CXc)),104);rNb(a,(_Wc(),BWc),new lgd(0,0));oSc(new HTc,a,b.b-Ueb(MD(oNb(a,IWc))),b.d-Ueb(MD(oNb(a,KWc))))}
 function Qfe(a){var b;if(Ofe(a)){Nfe(a);if(a.sl()){b=Oee(a.e,a.b,a.c,a.a,a.j);a.j=b}a.g=a.a;++a.a;++a.c;a.i=0;return a.j}else{throw Lcb(new Kub)}}
-function cWb(a,b,c){c.Tg('Compound graph preprocessor',1);a.a=new Np;elkgoPrepare(b);hWb(a,b,null);bWb(a,b);gWb(a);rNb(b,(Wrc(),Sqc),a.a);a.a=null;kjb(a.b);c.Ug()}
+function cWb(a,b,c){c.Tg('Compound graph preprocessor',1);a.a=new Np;elkgoPrepare(b);hWb(a,b,null);bWb(a,b);gWb(a);elkgoReorder(b);rNb(b,(Wrc(),Sqc),a.a);a.a=null;kjb(a.b);c.Ug()}
 function Q7b(a,b,c){var d,e,f;for(e=new Yr(Dr((b?EYb(a):HYb(a)).a.Jc(),new Dl));Wr(e);){d=JD(Xr(e),17);f=b?d.c.i:d.d.i;f.k==($Yb(),UYb)&&NYb(f,c)}}
 function Klc(a,b,c){var d,e,f;d=b.i.j.c.length;if(pNb(b,(Wrc(),trc))&&pNb(c,trc)){e=slc(b,c,a.b,d);f=slc(c,b,a.b,d);return e<f?-1:e>f?1:0}return 0}
 function lzc(){lzc=qdb;jzc=new nzc(qye,0);kzc=new nzc('PORT_POSITION',1);izc=new nzc('NODE_SIZE_WHERE_SPACE_PERMITS',2);hzc=new nzc('NODE_SIZE',3)}
@@ -6331,7 +6331,7 @@ var vte='object',wte='boolean',xte='number',yte='string',zte='function',Ate=2147
 // --------------    RUN GWT INITIALIZATION CODE    -------------- 
 gwtOnLoad(null, 'elk', null);
 
-// ---- elk-go compatibility (see the edits above; the functions below are not part of ELK.js) ----
+// ---- elk-go compatibility (edits 6 and 7 above; the functions below are not part of ELK.js) ----
 var elkgoOrd=0;
 function elkgoPrepare(top){var edges=[];(function walk(g){for(var i=0;i<g.a.c.length;i++){var n=g.a.c[i];for(var j=0;j<n.j.c.length;j++){var p=n.j.c[j];for(var k=0;k<p.g.c.length;k++){edges.push(p.g.c[k])}}if(n.e){n.elkgoMin=Infinity;walk(n.e)}}})(top);
 edges.sort(function(x,y){return x.elkgoOrd-y.elkgoOrd});
@@ -6340,6 +6340,18 @@ for(var i=0;i<edges.length;i++){var e=edges[i];if(!e.c||!e.d){continue}var sg=DY
 for(var g=sg;g&&g!=lca;g=up(g)){if(g.e&&e.elkgoOrd<g.e.elkgoMin){g.e.elkgoMin=e.elkgoOrd}}
 for(var g=tg;g&&g!=lca;g=up(g)){if(g.e&&e.elkgoOrd<g.e.elkgoMin){g.e.elkgoMin=e.elkgoOrd}}}}
 function elkgoConstraints(parent,edge){return edge.elkgoOrd>parent.elkgoMin?(Mld(),Jld):JD(oNb(parent,(nyc(),qxc)),102)}
+// elk-go's reorderCompoundPortDummies: the external-port dummies of every nested graph come after its other nodes, connected ones first, ordered by the
+// path to the node they lead to (the index of each node on the way down, a descendant before its ancestor), the port index, the import order of the edge
+function elkgoInside(d){for(var i=0;i<d.j.c.length;i++){var p=d.j.c[i],k;for(k=0;k<p.g.c.length;k++){if(p.g.c[k].d){return{port:p.g.c[k].d,edge:p.g.c[k]}}}for(k=0;k<p.e.c.length;k++){if(p.e.c[k].c){return{port:p.e.c[k].c,edge:p.e.c[k]}}}}return null}
+function elkgoIndex(list,x){for(var i=0;i<list.c.length;i++){if(list.c[i]==x){return i}}return Infinity}
+function elkgoGraphIndex(g,n){var idx=0;for(var i=0;i<g.a.c.length;i++){var m=g.a.c[i];if(m.k==($Yb(),TYb)){continue}if(m==n){return idx}idx++}return Infinity}
+function elkgoKey(g,port){var n=port.i;if(!n){return{path:null,port:Infinity}}var path=[elkgoGraphIndex(g,n)];if(n.e){var d=oNb(port,(Wrc(),Crc));if(d){var next=elkgoInside(d);if(next){var r=elkgoKey(n.e,next.port);return{path:path.concat(r.path||[]),port:r.port}}}}return{path:path,port:elkgoIndex(n.j,port)}}
+function elkgoCompare(a,b){var n=Math.min(a.length,b.length);for(var i=0;i<n;i++){if(a[i]<b[i]){return -1}if(a[i]>b[i]){return 1}}return a.length>b.length?-1:a.length<b.length?1:0}
+function elkgoReorder(g){var nodes=g.a.c.slice(),i;for(i=0;i<nodes.length;i++){if(nodes[i].e){elkgoReorder(nodes[i].e)}}nodes=g.a.c.slice();var normal=[],dummies=[];
+for(i=0;i<nodes.length;i++){var n=nodes[i];if(n.k!=($Yb(),TYb)){normal.push(n);continue}var o={node:n,connected:false,path:[],port:Infinity,edge:Infinity,rank:i};var ins=elkgoInside(n);if(ins){o.connected=true;var key=elkgoKey(g,ins.port);o.path=key.path||[];o.port=key.port;o.edge=ins.edge.elkgoOrd}else{var origin=oNb(n,(Wrc(),urc));if(origin&&RD(origin,12)&&origin.i){o.port=elkgoIndex(origin.i.j,origin)}}dummies.push(o)}
+if(dummies.length<2){return}
+dummies.sort(function(x,y){if(x.connected!=y.connected){return x.connected?-1:1}var c=elkgoCompare(x.path,y.path);if(c!=0){return c}if(x.port!=y.port){return x.port<y.port?-1:1}if(x.edge!=y.edge){return x.edge<y.edge?-1:1}return x.rank-y.rank});
+var out=normal.slice();for(i=0;i<dummies.length;i++){out.push(dummies[i].node)}for(i=0;i<out.length;i++){g.a.c[i]=out[i]}}
 
 export const Dispatcher = module.exports.Dispatcher;
 export const Worker = module.exports.Worker;
