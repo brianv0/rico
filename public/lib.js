@@ -218,6 +218,23 @@ export function coversWholeLines(selectedText, srcLines) {
 const spanOf = (s, e) => (s === e ? `line ${s}` : `lines ${s}–${e}`);
 
 /**
+ * When GitHub can anchor only part of the selection, the whole range still travels with the comment: a collapsed
+ * block holding the actual source lines (each cut to `maxLine` chars, long ranges to their head and tail).
+ *   c: {path, start, end, side, lines (the source lines start..end), sha (commit those lines are from)}
+ */
+export function rangeDetails(c, { maxLine = 240, maxLines = 40 } = {}) {
+  let lines = c.lines.map((l) => clipMiddle(String(l).replace(/\s+$/, ''), maxLine - 3));
+  if (lines.length > maxLines) {
+    const h = Math.ceil(maxLines / 2);
+    lines = [...lines.slice(0, h), `… ${lines.length - maxLines} more lines …`, ...lines.slice(lines.length - (maxLines - h))];
+  }
+  const text = lines.join('\n');
+  const f = fenceFor(text);
+  const sha = c.sha ? ` at ${String(c.sha).slice(0, 7)}${c.side === 'LEFT' ? ' (old file)' : ''}` : '';
+  return `<details><summary>Full selection: ${spanOf(c.start, c.end)} of <code>${c.path.replace(/[<&]/g, (x) => (x === '<' ? '&lt;' : '&amp;'))}</code>${sha}</summary>\n\n${f}\n${text}\n${f}\n\n</details>`;
+}
+
+/**
  * One review comment, formatted for GitHub's line-comment API ({path, line, side, start_line?, start_side?, body}).
  * The body is: an optional "Re:" note (a diagram element), a note when the range was clamped to the diff, the
  * quote (only when `includeQuote`, or by default when the anchor is not exact), then the comment itself.
@@ -234,6 +251,7 @@ export function buildLineComment(c) {
   const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
   if (include && quote) parts.push(quote);
   parts.push(c.body);
+  if (!c.anchor.exact && c.lines?.length) parts.push(rangeDetails(c));
   const side = c.side === 'LEFT' ? 'LEFT' : 'RIGHT'; // LEFT = a removed (or original-side) line in the source diff
   const item = { path: c.path, line: c.anchor.end, side, body: parts.join('\n\n') };
   if (c.anchor.start < c.anchor.end) {

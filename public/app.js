@@ -1749,6 +1749,8 @@ async function submitComposer(mode) {
     about: p.aboutShort || '', // diagram element, so the comment says what it is about on GitHub
     includeQuote: p.suggest ? false : p.anchor ? $('#c-qinc').checked : true, // a suggestion is its own quote
     quoteMd: $('#c-qtext').value.trim(), // markdown actually posted
+    lines: (p.side === 'LEFT' ? view.oldLines || [] : view.lines).slice(p.start - 1, p.end), // the selected source lines, in case GitHub can anchor fewer
+    sha: p.side === 'LEFT' ? state.pr.baseSha : state.pr.headSha,
   };
   draftSet('composer', null);
   hideComposer();

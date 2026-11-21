@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, canSuggest, suggestionBody, lineDiff, parseSuggestion, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -451,4 +451,19 @@ test('lineDiff: unchanged lines stay context, changes are del then add, empty ed
   assert.deepEqual(lineDiff('a\nb', 'a'), [{ type: 'ctx', text: 'a' }, { type: 'del', text: 'b' }]);
   assert.deepEqual(lineDiff(['x'], []), [{ type: 'del', text: 'x' }]);
   assert.deepEqual(lineDiff(['x'], ['x']).map((r) => r.type), ['ctx']);
+});
+
+test('clamped comments carry the actual selected lines in a collapsed block; long lines and ranges are cut', () => {
+  const base = { path: 'a.md', start: 3, end: 5, side: 'RIGHT', anchor: { start: 3, end: 3, exact: false }, body: 'Hi', quoteMd: '> q', lines: ['one', 'two `x`', 'x'.repeat(300)], sha: 'abc1234def' };
+  const body = buildLineComment(base).body;
+  assert.match(body, /^_Selected lines 3–5 of `a.md`\. GitHub can only anchor line 3 here, but this comment is about all of lines 3–5\._\n\n> q\n\nHi\n\n<details><summary>Full selection: lines 3–5 of <code>a.md<\/code> at abc1234<\/summary>\n\n```\none\ntwo `x`\n/);
+  const block = body.split('\n```\n')[1];
+  assert.ok(block.split('\n')[2].length <= 240 && block.includes(' … '), 'a 300-char line is cut');
+  assert.ok(body.endsWith('</details>'));
+  assert.ok(!buildLineComment({ ...base, anchor: { start: 3, end: 5, exact: true } }).body.includes('<details>'), 'exact anchors need none');
+  assert.ok(!buildLineComment({ ...base, lines: undefined }).body.includes('<details>'));
+  const many = rangeDetails({ ...base, end: 100, lines: Array.from({ length: 100 }, (_, i) => 'l' + i) });
+  assert.match(many, /l19\n… 60 more lines …\nl80\n/);
+  assert.match(rangeDetails({ ...base, side: 'LEFT' }), /at abc1234 \(old file\)/);
+  assert.match(rangeDetails({ ...base, lines: ['```js'] }), /````\n```js\n````/, 'fences cannot be broken out of');
 });
