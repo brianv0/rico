@@ -278,7 +278,7 @@ await step('range spanning two hunks clamps to the best hunk and says so', async
   assert.equal(await page.locator('#c-review').innerText(), 'Add to review', 'a pending review exists now');
   const op = await sendAndWait('Control+Shift+Enter');
   assert.equal(op.start_line, 9); assert.equal(op.line, 10);
-  assert.equal(op.body, '_Selected lines 9–12; anchored to lines 9–10._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nSpans hunks.');
+  assert.equal(op.body, '_Selected lines 9–12 of `docs/plan.md`. GitHub can only anchor lines 9–10 here, but this comment is about all of lines 9–12._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nSpans hunks.');
   assert.equal(fake.ops.filter((o) => o.op === 'pending.create').length, 1, 'one pending review, reused');
 });
 await step('selection outside the diff is posted as a PR comment with a quote, and sits beside the text it quotes', async () => {

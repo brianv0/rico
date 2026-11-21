@@ -227,7 +227,10 @@ export function buildLineComment(c) {
   const quote = c.quoteMd !== undefined ? c.quoteMd : quoteText(c.quote);
   const parts = [];
   if (c.about) parts.push(`_Re: ${c.about}_`); // which diagram element this is about
-  if (!c.anchor.exact) parts.push(`_Selected ${spanOf(c.start, c.end)}; anchored to ${spanOf(c.anchor.start, c.anchor.end)}._`);
+  if (!c.anchor.exact) { // GitHub can pin fewer lines than were selected: say the whole range, in words an agent can act on
+    const old = c.side === 'LEFT' ? ' (old file)' : '';
+    parts.push(`_Selected ${spanOf(c.start, c.end)} of \`${c.path}\`${old}. GitHub can only anchor ${spanOf(c.anchor.start, c.anchor.end)} here, but this comment is about all of ${spanOf(c.start, c.end)}._`);
+  }
   const include = c.includeQuote !== undefined ? c.includeQuote : !c.anchor.exact;
   if (include && quote) parts.push(quote);
   parts.push(c.body);

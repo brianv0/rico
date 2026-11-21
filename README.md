@@ -86,7 +86,9 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   Selections wholly outside the diff become a PR comment with a quote.
 - **Quotes.** A comment keeps GitHub's native line range; the body can also quote the relevant parts of
   your selection: prose as a blockquote, code (and D2) as a fenced block of the source lines with its
-  language. The quote is included only when it adds information (a partial line, a diagram, a clamped range, or
+  language. When GitHub can anchor fewer lines than you selected (a range crossing hunks), the comment still says so in words:
+  *Selected lines 24–27 of `path`. GitHub can only anchor line 24 here, but this comment is about all of lines 24–27.* — so a
+  person or an AI agent reading it on GitHub gets the full range. The quote is included only when it adds information (a partial line, a diagram, a clamped range, or
   text outside the diff). Long selections keep their head and tail with an ellipsis.
 - **Diagrams (D2 and Mermaid), rendered client-side.** `d2` and `mermaid` code blocks render in the browser
   (D2 as WASM via `@terrastruct/d2`, Mermaid as plain JS); both are *optional* dependencies loaded on demand,

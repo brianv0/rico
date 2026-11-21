@@ -106,7 +106,7 @@ test('buildReview anchors inline comments and folds the rest into the body', () 
   assert.equal(r.commit_id, 'abc');
   assert.equal(r.comments.length, 2);
   assert.deepEqual(r.comments[0], { path: 'a.md', line: 8, side: 'RIGHT', start_line: 3, start_side: 'RIGHT', body: 'exact one' });
-  assert.equal(r.comments[1].body, '_Selected lines 3–30; anchored to lines 3–6._\n\n> q2\n\nclamped');
+  assert.equal(r.comments[1].body, '_Selected lines 3–30 of `a.md`. GitHub can only anchor lines 3–6 here, but this comment is about all of lines 3–30._\n\n> q2\n\nclamped');
   assert.match(r.body, /Overall: good\./);
   assert.match(r.body, /`a\.md` L50\*\*\n> q3\n\noutside/);
 });
@@ -392,7 +392,7 @@ test('buildLineComment: exact anchor is just the comment; clamped or quoted adds
   assert.deepEqual(buildLineComment(base), { path: 'a.md', line: 3, side: 'RIGHT', body: 'Hi' });
   assert.equal(buildLineComment({ ...base, includeQuote: true }).body, '> words\n\nHi');
   const clamped = buildLineComment({ ...base, start: 3, end: 9, anchor: { start: 5, end: 6, exact: false }, about: 'node “A”', side: 'LEFT' });
-  assert.deepEqual(clamped, { path: 'a.md', line: 6, side: 'LEFT', start_line: 5, start_side: 'LEFT', body: '_Re: node “A”_\n\n_Selected lines 3–9; anchored to lines 5–6._\n\n> words\n\nHi' });
+  assert.deepEqual(clamped, { path: 'a.md', line: 6, side: 'LEFT', start_line: 5, start_side: 'LEFT', body: '_Re: node “A”_\n\n_Selected lines 3–9 of `a.md` (old file). GitHub can only anchor lines 5–6 here, but this comment is about all of lines 3–9._\n\n> words\n\nHi' });
 });
 
 test('buildPrComment says where the text is, quotes it, and parseQuote reads it back', () => {
@@ -402,7 +402,7 @@ test('buildPrComment says where the text is, quotes it, and parseQuote reads it 
 });
 
 test('parseQuote: lead-in lines only, multi-line quotes, no quote, and a quote deeper in the text is not the selection', () => {
-  assert.deepEqual(parseQuote('_Re: node “A”_\n\n_Selected lines 3–9; anchored to lines 5–6._\n\n> one\n> two\n>\n> three\n\nBody'), { path: null, about: 'node “A”', quote: 'one\ntwo\n\nthree', rest: 'Body' });
+  assert.deepEqual(parseQuote('_Re: node “A”_\n\n_Selected lines 3–9 of `a.md`. GitHub can only anchor lines 5–6 here, but this comment is about all of lines 3–9._\n\n> one\n> two\n>\n> three\n\nBody'), { path: null, about: 'node “A”', quote: 'one\ntwo\n\nthree', rest: 'Body' });
   assert.equal(parseQuote('Just a comment').quote, null);
   assert.equal(parseQuote('I agree with:\n\n> this').quote, null);
   assert.equal(parseQuote('').quote, null);

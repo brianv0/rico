@@ -108,7 +108,7 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? 'o
   check('review submitted once, as a COMMENT', st.posted.length === 1 && st.posted[0].event === 'COMMENT', JSON.stringify(st.posted));
   const [a, b] = st.ops.filter((o) => o.op === 'pending.add');
   check('multi-line anchor 3–6 on RIGHT', a.start_line === 3 && a.line === 6 && a.side === 'RIGHT' && a.body === '> First paragraph here.\n>\n> Second paragraph is hard wrapped across two\n\nTighten this whole section - it repeats itself.', JSON.stringify(a));
-  check('clamped anchor 9–10 carries the header, the prose quote and the code as a fenced block', b.start_line === 9 && b.line === 10 && b.body === '_Selected lines 9–12; anchored to lines 9–10._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nThis spans a hunk boundary.', JSON.stringify(b).slice(0, 200));
+  check('clamped anchor 9–10 carries the header, the prose quote and the code as a fenced block', b.start_line === 9 && b.line === 10 && b.body === '_Selected lines 9–12 of `docs/plan.md`. GitHub can only anchor lines 9–10 here, but this comment is about all of lines 9–12._\n\n> item two\n\n```js\nconst a = 1;\n```\n\nThis spans a hunk boundary.', JSON.stringify(b).slice(0, 200));
   shot('os-submitted');
 
   console.log(results.every(Boolean) ? 'ALL OK' : 'SOME FAILED');
