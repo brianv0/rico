@@ -634,7 +634,7 @@ await step('merged view: a changed paragraph is one block with the removed and i
   await page.waitForFunction(() => document.querySelector('#doc .wmerge'));
   const r = await page.evaluate(() => {
     const p = document.querySelector('#doc p.wmerge');
-    const visible = [...document.querySelectorAll('#doc p')].filter((e) => /wording of the closing/.test(e.textContent) && e.getBoundingClientRect().height > 0).length;
+    const visible = [...document.querySelectorAll('#doc p')].filter((e) => /wording of the closing/.test(e.textContent) && !e.closest('.away') && e.getBoundingClientRect().height > 0).length;
     const away = document.querySelector('#doc .away');
     return { l: p.dataset.l, lo: p.dataset.lo, del: [...p.querySelectorAll('.wdel')].map((e) => e.textContent), ins: [...p.querySelectorAll('.wa')].map((e) => e.textContent), text: p.textContent,
       visible, awayH: away.getBoundingClientRect().height, decoDel: getComputedStyle(p.querySelector('.wdel')).textDecorationLine, decoIns: getComputedStyle(p.querySelector('.wa')).textDecorationLine,
