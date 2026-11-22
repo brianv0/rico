@@ -405,7 +405,7 @@ await step('line mapping is exact for every block and range in a complex documen
   await page.waitForFunction(() => { const i = document.querySelector('#doc img'); return i && i.complete && i.naturalWidth === 1; }, null, { timeout: 15000 });
   assert.deepEqual(res.bad, [], JSON.stringify(res.bad));
 });
-// ---- diagrams (D2 + Mermaid), all client-side in sandboxed frames ----
+// ---- diagrams (D2 + Mermaid + Graphviz), all client-side in sandboxed frames ----
 // Viewport coordinates of an element inside the n-th diagram frame, scrolled into view.
 const frameSpot = (n, kind, key) => page.evaluate(([n, kind, key]) => {
   const frame = document.querySelectorAll('#doc iframe.dia-frame')[n];
@@ -415,6 +415,10 @@ const frameSpot = (n, kind, key) => page.evaluate(([n, kind, key]) => {
   if (kind === 'd2') { // D2 tags a group with base64(id); edge ids are stored HTML-escaped
     const g = d.querySelector(`g[class="${btoa(key.replace(/>/g, '&gt;'))}"]`);
     el = (key.startsWith('(') && g.querySelector('text')) || g;
+  } else if (kind.startsWith('dot-')) { // Graphviz titles each group with the node name, "a->b" for an edge, "cluster_x" for a cluster
+    const cls = { 'dot-node': 'node', 'dot-edge': 'edge', 'dot-cluster': 'cluster' }[kind];
+    const g = [...d.querySelectorAll(`g.${cls}`)].find((x) => x.querySelector(':scope > title').textContent === key);
+    el = g && (g.querySelector('text') || g);
   } else if (kind === 'm-node') el = [...d.querySelectorAll('g.node')].find((g) => new RegExp(`flowchart-${key}-\\d+$`).test(g.id));
   else if (kind === 'm-actor') el = d.querySelector(`rect.actor-top[name="${key}"]`);
   else if (kind === 'm-text') el = [...d.querySelectorAll('text.messageText')].find((t) => t.textContent.trim() === key);
@@ -433,18 +437,18 @@ const frameSpot = (n, kind, key) => page.evaluate(([n, kind, key]) => {
 const clickIn = async (n, kind, key) => { const p = await frameSpot(n, kind, key); await page.mouse.click(p.x, p.y); await page.waitForSelector('#composer:not([hidden])'); };
 const rangeLabel = async () => { const t = await page.locator('#c-range').innerText(); await page.keyboard.press('Escape'); return t; };
 
-await step('diagrams: 4 render in sandboxed script-free frames, 2 broken ones show their errors', async () => {
+await step('diagrams: 6 render in sandboxed script-free frames, 3 broken ones show their errors', async () => {
   const external = [];
   page.on('response', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); }); // anything that actually got an answer
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.locator('#files button[data-path="docs/diagrams.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
-  await page.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 4 && document.querySelectorAll('#doc .dia-err').length === 2, null, { timeout: 90000 });
+  await page.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 6 && document.querySelectorAll('#doc .dia-err').length === 3, null, { timeout: 90000 });
   assert.equal(await page.locator('#doc figure.dia svg').count(), 0, 'diagram SVG lives inside the frames, never in the page');
   const attrs = await page.evaluate(() => [...document.querySelectorAll('#doc iframe.dia-frame')].map((f) => ({ sandbox: f.getAttribute('sandbox'), csp: /Content-Security-Policy[^>]*default-src 'none'/.test(f.srcdoc) })));
-  assert.deepEqual(attrs, Array(4).fill({ sandbox: 'allow-same-origin', csp: true }));
+  assert.deepEqual(attrs, Array(6).fill({ sandbox: 'allow-same-origin', csp: true }));
   const errs = await page.locator('#doc .dia-err').allInnerTexts();
-  assert.match(errs[0], /does not compile[\s\S]*line \d/); assert.match(errs[1], /does not compile[\s\S]*Parse error/i);
+  assert.match(errs[0], /does not compile[\s\S]*line \d/); assert.match(errs[1], /does not compile[\s\S]*Parse error/i); assert.match(errs[2], /does not compile[\s\S]*syntax error/i);
   assert.equal(await page.locator('#doc figure.dia').nth(1).locator('details').evaluate((d) => d.open), true, 'source opens on error');
   await page.waitForTimeout(600);
   assert.deepEqual(external, [], 'the hostile icon URL must never be fetched');
@@ -513,6 +517,20 @@ await step('Mermaid: sequence actors and messages map to their lines', async () 
   await clickIn(3, 'm-text', 'comment box');
   assert.equal(await rangeLabel(), 'Comments on line 36');
 });
+await step('Graphviz: nodes, edges and clusters map to their lines; undirected graphs too', async () => {
+  await clickIn(4, 'dot-node', 'Server');
+  assert.equal(await rangeLabel(), 'Comments on line 49'); // the first mention
+  await clickIn(4, 'dot-edge', 'Server->GitHub');
+  assert.equal(await rangeLabel(), 'Comments on line 50');
+  await clickIn(4, 'dot-cluster', 'cluster_gh');
+  assert.equal(await rangeLabel(), 'Comments on line 51');
+  await clickIn(5, 'dot-edge', 'b--c');
+  assert.equal(await rangeLabel(), 'Comments on line 57');
+});
+await step('Graphviz: the dark theme drops the white page and inverts the colours', async () => {
+  const bg = await page.evaluate(() => { const d = document.querySelectorAll('#doc iframe.dia-frame')[4].contentDocument; return getComputedStyle(d.querySelector('g.graph > polygon')).fill; });
+  assert.match(bg, /rgba\(0, 0, 0, 0\)|transparent/);
+});
 await step('diagrams: the composer opens next to the clicked element, not at the top of the diagram', async () => {
   await clickIn(2, 'm-node', 'C');
   const [cTop, fTop, spot] = await page.evaluate(() => { const f = document.querySelectorAll('#doc iframe.dia-frame')[2].getBoundingClientRect(); return [document.getElementById('composer').getBoundingClientRect().top, f.top, null]; });
@@ -537,11 +555,13 @@ await step('diagrams: without the optional dependencies the source is shown with
   const p2 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await p2.route('**/vendor/d2.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
   await p2.route('**/vendor/mermaid.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
+  await p2.route('**/vendor/viz.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
   await p2.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fdiagrams.md`);
-  await p2.waitForFunction(() => document.querySelectorAll('#doc .dia-err').length === 6, null, { timeout: 30000 });
+  await p2.waitForFunction(() => document.querySelectorAll('#doc .dia-err').length === 9, null, { timeout: 30000 });
   const t = await p2.locator('#doc .dia-err').allInnerTexts();
   assert.match(t[0], /not available[\s\S]*npm install @terrastruct\/d2/);
   assert.match(t[3], /not available[\s\S]*npm install mermaid/);
+  assert.match(t[6], /not available[\s\S]*npm install @viz-js\/viz/);
   assert.equal(await p2.locator('#doc figure.dia').first().locator('details').evaluate((d) => d.open), true);
   await p2.close();
 });

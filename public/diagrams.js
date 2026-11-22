@@ -1,10 +1,11 @@
-// Client-side diagram rendering (D2 via WASM, Mermaid via plain JS) and the mapping from a clicked
-// element back to the source line that defines it. Both renderers are optional dependencies,
+// Client-side diagram rendering (D2 via WASM, Mermaid via plain JS, Graphviz/DOT via WASM) and the mapping from a
+// clicked element back to the source line that defines it. The renderers are optional dependencies,
 // loaded on demand; if one is missing the caller shows the source instead.
-import { d2LineMaps, decodeD2Class, findMermaidLines } from './lib.js';
+import { d2LineMaps, decodeD2Class, findMermaidLines, findDotLines } from './lib.js';
 
 export const diagramLang = (info) => {
   const l = String(info || '').trim().split(/\s+/)[0].toLowerCase();
+  if (l === 'dot' || l === 'graphviz' || l === 'gv') return 'dot'; // GitHub highlights ```dot; ```graphviz and ```gv are the common aliases
   return l === 'd2' || l === 'mermaid' ? l : null;
 };
 
@@ -16,13 +17,13 @@ const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof mat
  * The document shown inside the diagram's sandboxed iframe. The frame has no scripts (sandbox), and
  * this CSP forbids every network request, so untrusted diagram source cannot run code or phone home.
  */
-export const frameDoc = (svg) => '<!doctype html><meta charset="utf-8">'
+export const frameDoc = (svg, css = '') => '<!doctype html><meta charset="utf-8">'
   // An iframe whose colour scheme differs from its embedder gets an opaque white canvas (a white strip, light-grey lines on
   // white in dark mode). Declaring the scheme the page is using keeps it transparent.
   + `<meta name="color-scheme" content="${prefersDark() ? 'dark' : 'light'}">`
   + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
   + '<style>html,body{margin:0;background:transparent}body{display:flex;justify-content:center}'
-  + 'svg{max-width:100%;height:auto;cursor:pointer}</style>' // links are neutralised by the capture-phase click handler, not by CSS
+  + `svg{max-width:100%;height:auto;cursor:pointer}${css}</style>` // links are neutralised by the capture-phase click handler, not by CSS
   + `<body>${svg}</body>`;
 
 // ---------------- D2 ----------------
@@ -140,7 +141,52 @@ async function renderMermaid(source) {
   };
 }
 
+// ---------------- Graphviz (DOT) ----------------
+let vizPromise = null;
+
+// Graphviz draws black lines and text on an opaque white polygon. In the dark theme the colours are inverted (hue kept) and the
+// background dropped so the diagram sits on the page like the others.
+const dotCss = () => 'g.graph>polygon{fill:transparent!important;stroke:transparent!important}' + (prefersDark() ? 'svg{filter:invert(.92) hue-rotate(180deg)}' : '');
+
+async function renderDot(source) {
+  let viz;
+  try { viz = await (vizPromise ||= import('/vendor/viz.js').then((m) => m.instance())); } catch {
+    vizPromise = null;
+    throw fail(['Install the optional dependency: npm install @viz-js/viz'], true);
+  }
+  let r;
+  try { r = viz.render(source, { format: 'svg', engine: 'dot' }); } catch (e) { throw fail([String(e.message || e)]); }
+  if (r.status !== 'success' || !r.output) {
+    const errs = (r.errors || []).filter((x) => x.level !== 'warning').map((x) => String(x.message || x).trim().replace(/\s*\n\s*/g, ' '));
+    throw fail(errs.length ? errs : ['Graphviz could not render this diagram']);
+  }
+  const hit = (el, h) => { const lines = findDotLines(source, h); return lines ? { el, kind: h.kind, label: h.label, lines: [lines] } : null; };
+  const titleOf = (g) => g.querySelector(':scope > title')?.textContent ?? '';
+  // "a:p1:n->b:p2" / "a--b": drop ports, split on the arrow
+  const ends = (t) => { const m = /^(.*?)(->|--)(.*)$/s.exec(t); return m ? { from: m[1].split(':')[0], to: m[3].split(':')[0], undirected: m[2] === '--' } : null; };
+  return {
+    svg: r.output,
+    css: dotCss(),
+    resolve(target) {
+      const g = target.closest ? target.closest('g.node, g.edge, g.cluster') : null;
+      if (!g) return null;
+      const t = titleOf(g);
+      if (g.classList.contains('node')) return hit(g, { kind: 'node', id: t, label: t });
+      if (g.classList.contains('cluster')) return hit(g, { kind: 'cluster', id: t, label: t.replace(/^cluster_?/, '') || t });
+      const e = ends(t);
+      if (!e) return null;
+      let n = 0; // the nth edge between the same pair
+      for (const o of g.ownerDocument.querySelectorAll('g.edge')) {
+        if (o === g) break;
+        const x = ends(titleOf(o));
+        if (x && x.from === e.from && x.to === e.to) n++;
+      }
+      return hit(g, { kind: 'edge', from: e.from, to: e.to, undirected: e.undirected, n, label: `${e.from} ${e.undirected ? '–' : '→'} ${e.to}` });
+    },
+  };
+}
+
 /** Render a diagram. Throws an Error with `.messages` (and `.unavailable` if the renderer is not installed). */
 export function renderDiagram(lang, source) {
-  return lang === 'd2' ? renderD2(source) : renderMermaid(source);
+  return lang === 'd2' ? renderD2(source) : lang === 'dot' ? renderDot(source) : renderMermaid(source);
 }

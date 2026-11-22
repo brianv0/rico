@@ -40,3 +40,23 @@ sequenceDiagram
 flowchart LR
   A -->
 ```
+
+## Graphviz
+
+```dot
+digraph G {
+  rankdir=LR;
+  Browser -> Server [label="select"];
+  Server -> GitHub;
+  subgraph cluster_gh { label="GitHub"; GitHub; API }
+  GitHub -> API;
+}
+```
+
+```graphviz
+graph { a -- b -- c; b -- d }
+```
+
+```dot
+digraph { a -> }
+```

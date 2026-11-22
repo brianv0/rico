@@ -526,6 +526,143 @@ export function findMermaidLines(source, hint) {
   return null;
 }
 
+/**
+ * Split DOT source into tokens with their 0-based line: identifiers (quoted strings unescaped,
+ * numerals, HTML-like <...> strings), the arrows "->" and "--", and single punctuation characters.
+ * Comments (//, /* *\/ and lines starting with #) are skipped.
+ */
+export function dotTokens(source) {
+  const src = String(source);
+  const out = [];
+  let i = 0;
+  let line = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      i += 2;
+      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') line++; i++; }
+      i += 2;
+      continue;
+    }
+    if (c === '#' && (i === 0 || src[i - 1] === '\n')) { while (i < n && src[i] !== '\n') i++; continue; }
+    const at = line;
+    if (c === '"') {
+      let t = '';
+      i++;
+      while (i < n && src[i] !== '"') {
+        if (src[i] === '\\' && i + 1 < n) { if (src[i + 1] === '"') { t += '"'; i += 2; continue; } if (src[i + 1] === '\n') { line++; i += 2; continue; } t += src[i]; i++; continue; }
+        if (src[i] === '\n') line++;
+        t += src[i++];
+      }
+      i++;
+      out.push({ t, line: at, type: 'id' });
+      while (src[i] === ' ' && /^ *\+ *"/.test(src.slice(i, i + 12))) { // "a" + "b" concatenation
+        i = src.indexOf('"', i + 1) + 1;
+        let more = '';
+        while (i < n && src[i] !== '"') { if (src[i] === '\n') line++; more += src[i++]; }
+        i++;
+        out[out.length - 1].t += more;
+      }
+      continue;
+    }
+    if (c === '<') {
+      let depth = 0;
+      let t = '';
+      while (i < n) {
+        if (src[i] === '<') depth++;
+        else if (src[i] === '>') { depth--; if (depth === 0) { i++; break; } }
+        if (src[i] === '\n') line++;
+        t += src[i++];
+      }
+      out.push({ t: t.slice(1), line: at, type: 'id' });
+      continue;
+    }
+    if ((c === '-' && (src[i + 1] === '>' || src[i + 1] === '-'))) { out.push({ t: src.slice(i, i + 2), line: at, type: 'arrow' }); i += 2; continue; }
+    if (/[A-Za-z0-9_.\u0080-￿-]/.test(c)) {
+      let t = '';
+      while (i < n && /[A-Za-z0-9_.\u0080-￿-]/.test(src[i]) && !(src[i] === '-' && (src[i + 1] === '>' || src[i + 1] === '-'))) t += src[i++];
+      out.push({ t, line: at, type: 'id' });
+      continue;
+    }
+    out.push({ t: c, line: at, type: 'p' });
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Find the source line a clicked Graphviz element refers to. Graphviz titles every SVG group with the
+ * node name, "a->b" / "a--b" for an edge, or "cluster_x" for a cluster.
+ *  hint: {kind: 'node', id} | {kind: 'edge', from, to, n} | {kind: 'cluster', id}
+ * Returns {s, e} (0-based lines) or null when nothing matches (the caller then uses the whole block).
+ * Only statement-level tokens count (attribute lists in [...] are skipped), so a label that happens to
+ * contain a node's name is never mistaken for the node.
+ */
+export function findDotLines(source, hint) {
+  if (!hint) return null;
+  const toks = dotTokens(source);
+  const one = (l) => (l == null ? null : { s: l, e: l });
+  // statement-level tokens only: drop [...] attribute lists, "name = value" pairs and ports
+  const flat = [];
+  let depth = 0;
+  for (let i = 0; i < toks.length; i++) {
+    const k = toks[i];
+    if (k.t === '[') { depth++; continue; }
+    if (k.t === ']') { depth = Math.max(0, depth - 1); continue; }
+    if (depth) continue;
+    if (k.type === 'id' && toks[i + 1]?.t === '=') { i += 2; continue; } // attr = value
+    if (k.t === ':' && toks[i + 1]?.type === 'id') { i += 1; if (toks[i + 1]?.t === ':' && toks[i + 2]?.type === 'id') i += 2; continue; } // port (and compass)
+    flat.push(k);
+  }
+  if (hint.kind === 'cluster') {
+    for (let i = 0; i < flat.length - 1; i++) if (flat[i].t === 'subgraph' && flat[i + 1].t === hint.id) return one(flat[i].line);
+    return null;
+  }
+  if (hint.kind === 'node') {
+    // a declaration (id followed by [attrs] or at statement start) wins over a mention inside an edge
+    const idxs = [];
+    toks.forEach((k, i) => { if (k.type === 'id' && k.t === hint.id) idxs.push(i); });
+    for (const i of idxs) {
+      const prev = toks[i - 1]?.t;
+      if (toks[i + 1]?.t === '[' && prev !== '=' && prev !== '->' && prev !== '--') return one(toks[i].line);
+    }
+    const f = flat.find((k) => k.type === 'id' && k.t === hint.id && !/^(graph|node|edge|subgraph|digraph|strict)$/i.test(k.t));
+    return one(f ? f.line : null);
+  }
+  if (hint.kind === 'edge') {
+    // operands of each arrow: the id before/after it, or every id of a { a b } group
+    const group = (from, dir) => {
+      const t = flat[from];
+      if (!t) return [];
+      if (t.type === 'id') return [t.t];
+      if (t.t === (dir < 0 ? '}' : '{')) {
+        const ids = [];
+        for (let j = from, d = 0; j >= 0 && j < flat.length; j += dir) {
+          const x = flat[j];
+          if (x.t === '{') d += dir; else if (x.t === '}') d -= dir;
+          else if (x.type === 'id') ids.push(x.t);
+          if (d === 0 && j !== from) break;
+        }
+        return ids;
+      }
+      return [];
+    };
+    const hits = [];
+    flat.forEach((k, i) => {
+      if (k.type !== 'arrow') return;
+      for (const a of group(i - 1, -1)) for (const b of group(i + 1, 1)) {
+        if ((a === hint.from && b === hint.to) || (hint.undirected && a === hint.to && b === hint.from)) hits.push(k.line);
+      }
+    });
+    return one(hits.length ? hits[Math.min(hint.n || 0, hits.length - 1)] : null);
+  }
+  return null;
+}
+
 // ---------- GitHub-style page chrome helpers ----------
 
 /**

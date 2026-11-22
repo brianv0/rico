@@ -147,9 +147,9 @@ if (window.DOMPurify) {
 const SANITIZE = { FORBID_TAGS: ['style', 'form', 'textarea', 'select', 'button', 'link', 'meta', 'base', 'iframe', 'object', 'embed'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] };
 const safeHtml = (html) => (window.DOMPurify ? window.DOMPurify.sanitize(html, SANITIZE) : html);
 
-// ```d2 and ```mermaid fences render as diagrams (client-side, optional dependencies loaded on demand);
+// ```d2, ```mermaid and ```dot (graphviz) fences render as diagrams (client-side, optional dependencies loaded on demand);
 // the source stays one click away.
-const LANG_NAME = { d2: 'D2', mermaid: 'Mermaid' };
+const LANG_NAME = { d2: 'D2', mermaid: 'Mermaid', dot: 'Graphviz' };
 const defaultFence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, i, o, e, self) => {
   const t = tokens[i];
@@ -1468,7 +1468,7 @@ $('#cards').addEventListener('click', (e) => {
   if (b) activateAt(b.querySelector('[data-l]') ? b : b);
 });
 
-// ---------- diagrams (D2, Mermaid) ----------
+// ---------- diagrams (D2, Mermaid, Graphviz) ----------
 // Each diagram is drawn inside a sandboxed iframe: no scripts, and a CSP that forbids all network
 // requests, so untrusted diagram source can only draw. The frame is same-origin (and script-free) so
 // we can see which node or edge was clicked and map it to its source line.
@@ -1484,7 +1484,7 @@ function showDiagram(fig, res) {
     frame.setAttribute('sandbox', 'allow-same-origin'); // deliberately NOT allow-scripts
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.title = `${LANG_NAME[fig.dataset.lang]} diagram`;
-    frame.srcdoc = frameDoc(res.svg);
+    frame.srcdoc = frameDoc(res.svg, res.css);
     frame.addEventListener('load', () => wireFrame(fig, frame, res));
     out.append(frame);
     // diagrams are capped in height so one big graph cannot push the document off-screen
@@ -1577,7 +1577,7 @@ function onDiagramClick(fig, hit, frame) {
     const first = hit.lines[0];
     start = Math.max(fi.a, Math.min(fi.b, fi.a + first.s));
     end = Math.max(start, Math.min(fi.b, fi.a + first.e));
-    if (fig.dataset.lang === 'd2' && hit.kind === 'node') { // a container node owns its whole { ... } block, not just its first line
+    if ((fig.dataset.lang === 'd2' && hit.kind === 'node') || (fig.dataset.lang === 'dot' && hit.kind === 'cluster')) { // a container / cluster owns its whole { ... } block, not just its first line
       let depth = 0;
       for (let n = start; n <= fi.b; n++) {
         const l = (state.lines[n - 1] || '').replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '');
