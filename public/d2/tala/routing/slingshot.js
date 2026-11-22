@@ -10,6 +10,7 @@
 import * as geo from '../../geo.js';
 import * as label from '../../label.js';
 import { Node, newEdge } from '../layoutgraph.js';
+import { sortStableFunc } from '../goslices.js';
 import { routeIntersectsNodeGuarded } from './cluster_route_guard.js';
 import { nonNilEquals } from './ovg_edge.js';
 import { newOVGEdge } from './ovg_edge.js';
@@ -682,7 +683,7 @@ export function findSShapedRoute(ctx, order, verticalPref, strongLaunchPref, gEd
     const axes = idealTurnAxes(gSource, gTarget);
     // Prefer anchors closer to the midpoint
     this.work.reserveSort(sAnchorOrder.length);
-    sAnchorOrder.sort((a, b) => {
+    sortStableFunc(sAnchorOrder, (a, b) => {
       let aDistance, bDistance;
       if (isVerticalLaunch) {
         aDistance = Math.abs(a.y - axes[1].val);

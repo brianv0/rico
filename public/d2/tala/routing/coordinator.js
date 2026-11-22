@@ -8,8 +8,8 @@
 //
 // The flavor workers run in parallel in Go and their responses are sorted back to the declared router order before anything looks at
 // them (see "Determinism" in docs/d2-tala-port.md): here they run one after another in that order. A Go panic of a worker (a JS
-// non-GoError exception) is recorded for the coordinator like `runRouteFlavorWorker` does and ends the attempt: every later flavor
-// would be canceled by the coordinator and only the lowest-indexed panic is reported.
+// non-GoError exception) is recorded for the coordinator like `runRouteFlavorWorker` does; every worker still runs and only the
+// lowest-indexed panic is reported.
 
 import * as geo from '../../geo.js';
 import { sortSlice } from '../../gosort.js';
@@ -75,9 +75,8 @@ export function generateRouteFlavorResponsesWith(ctx, routers, straightLineFallb
     for (let i = 0; i < routers.length; i++) {
       const result = runRouteFlavorWorker(workerCtx, i, routers[i], straightLineFallback, worker);
       results.push(result);
-      // A panic invalidates the whole routing attempt: the coordinator cancels the sibling workers and reports the first panic in
-      // router order.
-      if (result.workerPanic !== null) break;
+      // A panic invalidates the whole routing attempt (the coordinator reports the first panic in router order), but every worker is
+      // still drained: Go cancels its siblings, which only matters to workers that look at their context.
     }
     return collectRouteFlavorResponses(ctx, results);
   } finally {

@@ -45,6 +45,7 @@ func XLayoutObserved(ctx context.Context, graph *layoutgraph.Graph, options Layo
 		}
 	}
 	p := newPipeline(workspace, options.Seed, false)
+	XFlags = func() (bool, bool) { return p.forceReroute, p.edgeRoutingComplete } // routing stage checks (overlay/engine/xdump_flags.go)
 	if err := p.xRunAllStages(ctx, observer); err != nil {
 		return nil, err
 	}
