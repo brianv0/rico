@@ -66,8 +66,8 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
     id
     reviews(first:5,states:PENDING){nodes{id databaseId viewerDidAuthor}}
     reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
-      nodes{id isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
-        comments(first:100){nodes{databaseId state lastEditedAt viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
+      nodes{id path line originalLine startLine originalStartLine diffSide startDiffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
+        comments(first:100){nodes{id databaseId state lastEditedAt body createdAt updatedAt url authorAssociation author{login avatarUrl} replyTo{databaseId} viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
 
 /**
@@ -190,6 +190,26 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       if (threadOf.has(c.id)) out.thread = threadOf.get(c.id);
       return out;
     });
+    // GitHub's REST list leaves the viewer's own PENDING review comments out (like the by-id read): add them from GraphQL, so a
+    // pending review started here, on another device or on github.com shows up and survives a reload or a refresh.
+    const haveIds = new Set(rc.map((c) => c.id));
+    for (const t of g?.threads || []) {
+      if (!MD_RE.test(t.path || '')) continue;
+      for (const n of t.comments.nodes) {
+        if (n.state !== 'PENDING' || haveIds.has(n.databaseId)) continue;
+        const out = compact({
+          id: n.databaseId, in_reply_to_id: n.replyTo?.databaseId ?? null, path: t.path, line: t.line, original_line: t.originalLine, start_line: t.startLine, original_start_line: t.originalStartLine,
+          side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, updated_at: n.updatedAt, html_url: n.url, author_association: n.authorAssociation, node_id: n.id,
+        });
+        out.pending = true;
+        out.canUpdate = n.viewerCanUpdate;
+        out.canDelete = n.viewerCanDelete;
+        out.edited = !!n.lastEditedAt;
+        out.reactions = [];
+        if (threadOf.has(n.databaseId)) out.thread = threadOf.get(n.databaseId);
+        comments.push(out);
+      }
+    }
     const prComments = ic.map((c) => ({ ...compactIssue(c), canUpdate: !!viewer && (c.user?.login === viewer), canDelete: !!viewer && (c.user?.login === viewer) }));
     return { comments, prComments, viewer, pendingReview: g?.pending ? { id: g.pending.id, databaseId: g.pending.databaseId } : null, canThread: !!g };
   }

@@ -112,9 +112,9 @@ export async function startFake() {
         const nodes = roots.map((r) => {
           const msgs = state.comments.filter((c) => rootOf(c).id === r.id);
           return {
-            id: 'PRRT_' + r.id, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
+            id: 'PRRT_' + r.id, path: r.path, line: r.line, originalLine: r.original_line ?? r.line, startLine: r.start_line ?? null, originalStartLine: r.original_start_line ?? r.start_line ?? null, diffSide: r.side, startDiffSide: r.start_side ?? null, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
             comments: { nodes: msgs.map((c) => ({
-              databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', lastEditedAt: c.edited_at || null, viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
+              id: 'PRRC_' + c.id, databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', lastEditedAt: c.edited_at || null, body: c.body, createdAt: c.created_at, updatedAt: c.updated_at || c.created_at, url: c.html_url, authorAssociation: c.author_association, author: { login: c.user.login, avatarUrl: c.user.avatar_url }, replyTo: c.in_reply_to_id ? { databaseId: c.in_reply_to_id } : null, viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
               reactionGroups: Object.entries(Object.groupBy(state.reactions.get(c.id) || [], (x) => x.content)).map(([content, list]) => ({ content: Object.entries({ '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' }).find(([k]) => k === content)[1], viewerHasReacted: list.some((x) => x.mine), reactors: { totalCount: list.length } })),
             })) },
           };
@@ -201,7 +201,8 @@ export async function startFake() {
       }
       if (u.pathname === `/repos/acme/docs/compare/${BASE_SHA}...${SHA}`) return json({ merge_base_commit: { sha: MERGE_BASE } });
       if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'GET') {
-        return cached('rc', () => [...state.comments].filter((c) => !c.pending || true).map(withReactions));
+        // (real GitHub leaves a user's unsubmitted review comments out of this list: they are only visible through GraphQL)
+        return cached('rc', () => [...state.comments].filter((c) => !c.pending).map(withReactions));
       }
       if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'POST') {
         if (state.locked) return json({ message: 'Unable to create comment because issue is locked.' }, 403);
