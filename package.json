@@ -8,12 +8,16 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js",
+    "test:d2": "node --test test/d2lib.test.js test/d2svg.test.js test/tala-*.test.js",
     "build": "node scripts/build.mjs",
     "dev:cf": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:stage": "npm run build && wrangler deploy --env stage",
     "e2e": "node e2e/run.mjs",
-    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml"
+    "e2e:live": "node e2e/real/stage.cjs",
+    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml",
+    "deploy:stage:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml --env stage"
   },
   "engines": {
     "node": ">=18"
@@ -31,7 +35,7 @@
     "wrangler": "^4.166.0"
   },
   "optionalDependencies": {
-    "@terrastruct/d2": "0.1.33",
+    "@viz-js/viz": "^3.31.0",
     "mermaid": "11.17.2"
   }
 }

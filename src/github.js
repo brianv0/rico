@@ -66,8 +66,8 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
     id
     reviews(first:5,states:PENDING){nodes{id databaseId viewerDidAuthor}}
     reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
-      nodes{id isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
-        comments(first:100){nodes{databaseId state viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
+      nodes{id path line originalLine startLine originalStartLine diffSide startDiffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
+        comments(first:100){nodes{id databaseId state lastEditedAt body createdAt updatedAt url authorAssociation author{login avatarUrl} replyTo{databaseId} viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
 
 /**
@@ -184,11 +184,32 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       out.canDelete = n ? n.viewerCanDelete : !!viewer && out.user === viewer;
       if (n) {
         out.pending = n.state === 'PENDING';
+        out.edited = !!n.lastEditedAt; // GitHub bumps updated_at when a review is submitted; only a real edit sets lastEditedAt
         out.reactions = n.reactionGroups.filter((r) => r.reactors.totalCount > 0).map((r) => ({ content: REACTION_REST[r.content], count: r.reactors.totalCount, mine: r.viewerHasReacted }));
       }
       if (threadOf.has(c.id)) out.thread = threadOf.get(c.id);
       return out;
     });
+    // GitHub's REST list leaves the viewer's own PENDING review comments out (like the by-id read): add them from GraphQL, so a
+    // pending review started here, on another device or on github.com shows up and survives a reload or a refresh.
+    const haveIds = new Set(rc.map((c) => c.id));
+    for (const t of g?.threads || []) {
+      if (!MD_RE.test(t.path || '')) continue;
+      for (const n of t.comments.nodes) {
+        if (n.state !== 'PENDING' || haveIds.has(n.databaseId)) continue;
+        const out = compact({
+          id: n.databaseId, in_reply_to_id: n.replyTo?.databaseId ?? null, path: t.path, line: t.line, original_line: t.originalLine, start_line: t.startLine, original_start_line: t.originalStartLine,
+          side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, updated_at: n.updatedAt, html_url: n.url, author_association: n.authorAssociation, node_id: n.id,
+        });
+        out.pending = true;
+        out.canUpdate = n.viewerCanUpdate;
+        out.canDelete = n.viewerCanDelete;
+        out.edited = !!n.lastEditedAt;
+        out.reactions = [];
+        if (threadOf.has(n.databaseId)) out.thread = threadOf.get(n.databaseId);
+        comments.push(out);
+      }
+    }
     const prComments = ic.map((c) => ({ ...compactIssue(c), canUpdate: !!viewer && (c.user?.login === viewer), canDelete: !!viewer && (c.user?.login === viewer) }));
     return { comments, prComments, viewer, pendingReview: g?.pending ? { id: g.pending.id, databaseId: g.pending.databaseId } : null, canThread: !!g };
   }
@@ -325,6 +346,12 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   }
   async function apiEdit(b) {
     const { owner, repo } = ref(b);
+    if (b.pending === true) { // pending review comments are hidden from REST (PATCH is a 404): edit them through GraphQL
+      if (typeof b.nodeId !== 'string' || !/^[\w=-]{4,100}$/.test(b.nodeId)) throw new HttpError(400, 'bad node id');
+      const d = await gql('mutation($id:ID!,$b:String!){updatePullRequestReviewComment(input:{pullRequestReviewCommentId:$id,body:$b}){pullRequestReviewComment{databaseId body updatedAt}}}', { id: b.nodeId, b: text(b.text) });
+      const c = d.updatePullRequestReviewComment.pullRequestReviewComment;
+      return { id: c.databaseId, body: c.body, updatedAt: c.updatedAt, edited: true };
+    }
     const out = await ghJson(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${cid(b)}`, { method: 'PATCH', body: { body: text(b.text) } });
     return b.kind === 'issue' ? compactIssue(out) : compact(out);
   }
@@ -368,13 +395,21 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       const d = await gql('mutation($pr:ID!,$sha:GitObjectID){addPullRequestReview(input:{pullRequestId:$pr,commitOID:$sha}){pullRequestReview{id databaseId}}}', { pr: prId, sha: c.commit_id });
       review = d.addPullRequestReview.pullRequestReview;
     }
+    // GitHub hides pending comments from the REST comments endpoints (a read-back by id is a 404), so the comment shown in the
+    // margin is built from what the mutation itself returns.
     const d = await gql(
       `mutation($r:ID!,$path:String!,$line:Int!,$side:DiffSide!,$sl:Int,$ss:DiffSide,$body:String!){
-        addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{id comments(first:1){nodes{databaseId}}}}}`,
+        addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{
+          id path line originalLine startLine originalStartLine diffSide startDiffSide
+          comments(first:1){nodes{id databaseId body path createdAt url authorAssociation author{login avatarUrl}}}}}}`,
       { r: review.id, path: c.path, line: c.line, side: c.side, sl: c.start_line ?? null, ss: c.start_side ?? null, body: c.body },
     );
-    const dbid = d.addPullRequestReviewThread.thread.comments.nodes[0].databaseId;
-    const out = compact(await ghJson(`/repos/${owner}/${repo}/pulls/comments/${dbid}`));
+    const t = d.addPullRequestReviewThread.thread;
+    const n = t.comments.nodes[0];
+    const out = compact({
+      id: n.databaseId, path: n.path || t.path, line: t.line, original_line: t.originalLine, start_line: t.startLine, original_start_line: t.originalStartLine,
+      side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, html_url: n.url, author_association: n.authorAssociation, node_id: n.id,
+    });
     out.pending = true;
     out.canUpdate = out.canDelete = true;
     return { comment: out, review: { id: review.id, databaseId: review.databaseId ?? null } };

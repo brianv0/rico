@@ -1,0 +1,1 @@
+{"name":"Brainfuck","rules":{"root":[["\\[",["t","Keyword"],["push","loop"]],["\\]",["t","Error"],0],["",0,["inc","common"]]],"loop":[["\\[",["t","Keyword"],["push"]],["\\]",["t","Keyword"],["pop",1]],["",0,["inc","common"]]],"common":[["[.,]+",["t","NameTag"],0],["[+-]+",["t","NameBuiltin"],0],["[<>]+",["t","NameVariable"],0],["[^.,+\\-<>\\[\\]]+",["t","Comment"],0]]}}

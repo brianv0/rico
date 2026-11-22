@@ -1,0 +1,45 @@
+name: Live e2e
+# Drives real Chromium against Rico talking to REAL GitHub, on the throwaway test PRs of brianv0/rico (see e2e/real/stage.cjs).
+# After every stage deploy, nightly, and on demand. Needs the repository secret RICO_TEST_TOKEN: a GitHub token with `repo` scope
+# for an account that may comment on brianv0/rico. Everything it posts starts with "REAL-STAGE:" and is deleted again.
+on:
+  workflow_run:
+    workflows: [Deploy stage]
+    types: [completed]
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      write:
+        description: 'Also run the write tests (comments, replies, pending review) on PR #1'
+        type: boolean
+        default: true
+
+concurrency:
+  group: live-e2e   # the write tests share PR #1: never two at once
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Live checks
+        env:
+          GITHUB_TOKEN: ${{ secrets.RICO_TEST_TOKEN }}
+          RICO_WRITE: ${{ github.event_name == 'workflow_dispatch' && inputs.write && '1' || github.event_name != 'workflow_dispatch' && '1' || '0' }}
+        run: npm run e2e:live
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-e2e-screenshots
+          path: e2e/real/fail-*.png

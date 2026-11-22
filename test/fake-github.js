@@ -112,10 +112,10 @@ export async function startFake() {
         const nodes = roots.map((r) => {
           const msgs = state.comments.filter((c) => rootOf(c).id === r.id);
           return {
-            id: 'PRRT_' + r.id, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
+            id: 'PRRT_' + r.id, path: r.path, line: r.line, originalLine: r.original_line ?? r.line, startLine: r.start_line ?? null, originalStartLine: r.original_start_line ?? r.start_line ?? null, diffSide: r.side, startDiffSide: r.start_side ?? null, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
             comments: { nodes: msgs.map((c) => ({
-              databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
-              reactionGroups: Object.entries(Object.groupBy(state.reactions.get(c.id) || [], (x) => x.content)).map(([content, list]) => ({ content: Object.entries({ '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' }).find(([k]) => k === content)[1], viewerHasReacted: list.some((x) => x.mine), reactors: { totalCount: list.length } })),
+              id: 'PRRC_' + c.id, databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', lastEditedAt: c.edited_at || null, body: c.body, createdAt: c.created_at, updatedAt: c.updated_at || c.created_at, url: c.html_url, authorAssociation: c.author_association, author: { login: c.user.login, avatarUrl: c.user.avatar_url }, replyTo: c.in_reply_to_id ? { databaseId: c.in_reply_to_id } : null, viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
+              reactionGroups: Object.entries((state.reactions.get(c.id) || []).reduce((g, x) => { (g[x.content] ||= []).push(x); return g; }, {})).map(([content, list]) => ({ content: Object.entries({ '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' }).find(([k]) => k === content)[1], viewerHasReacted: list.some((x) => x.mine), reactors: { totalCount: list.length } })),
             })) },
           };
         });
@@ -137,11 +137,22 @@ export async function startFake() {
         state.comments.push(c);
         ops.push({ op: 'pending.add', id: c.id, path: v.path, line: v.line, side: v.side, start_line: v.sl, body: v.body });
         bump();
-        return data({ addPullRequestReviewThread: { thread: { id: 'PRRT_' + c.id, comments: { nodes: [{ databaseId: c.id }] } } } });
+        return data({ addPullRequestReviewThread: { thread: {
+          id: 'PRRT_' + c.id, path: c.path, line: c.line, originalLine: c.line, startLine: c.start_line ?? null, originalStartLine: c.start_line ?? null, diffSide: c.side, startDiffSide: c.start_side ?? null,
+          comments: { nodes: [{ id: 'PRRC_' + c.id, databaseId: c.id, body: c.body, path: c.path, createdAt: c.created_at, url: c.html_url, authorAssociation: 'OWNER', author: { login: 'me', avatarUrl: AVATAR } }] },
+        } } });
+      }
+      if (q.includes('updatePullRequestReviewComment')) {
+        const c = state.comments.find((x) => 'PRRC_' + x.id === v.id);
+        if (!c) return err('Could not resolve to a node with the global id of ' + v.id);
+        c.body = v.b; c.updated_at = c.edited_at = new Date().toISOString();
+        ops.push({ op: 'edit', id: c.id, body: v.b, via: 'graphql' });
+        bump();
+        return data({ updatePullRequestReviewComment: { pullRequestReviewComment: { databaseId: c.id, body: c.body, updatedAt: c.updated_at } } });
       }
       if (q.includes('submitPullRequestReview')) {
         if (!state.pending) return err('no pending review');
-        for (const c of state.comments) delete c.pending;
+        for (const c of state.comments) if (c.pending) { delete c.pending; c.updated_at = new Date().toISOString(); } // like GitHub: submitting touches updated_at (not a real edit)
         state.pending = null;
         posted.push({ event: v.e, body: v.b, via: 'graphql' });
         ops.push({ op: 'pending.submit', event: v.e, body: v.b });
@@ -190,7 +201,8 @@ export async function startFake() {
       }
       if (u.pathname === `/repos/acme/docs/compare/${BASE_SHA}...${SHA}`) return json({ merge_base_commit: { sha: MERGE_BASE } });
       if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'GET') {
-        return cached('rc', () => [...state.comments].filter((c) => !c.pending || true).map(withReactions));
+        // (real GitHub leaves a user's unsubmitted review comments out of this list: they are only visible through GraphQL)
+        return cached('rc', () => [...state.comments].filter((c) => !c.pending).map(withReactions));
       }
       if (u.pathname === '/repos/acme/docs/pulls/7/comments' && req.method === 'POST') {
         if (state.locked) return json({ message: 'Unable to create comment because issue is locked.' }, 403);
@@ -208,8 +220,10 @@ export async function startFake() {
       if (m) {
         const c = state.comments.find((x) => x.id === Number(m[1]));
         if (!c) return json({ message: 'Not Found' }, 404);
-        if (req.method === 'GET') return json(withReactions(c));
+        // real GitHub hides unsubmitted (pending) review comments from this endpoint: GET is a 404 (found on staging)
+        if (req.method === 'GET') return c.pending ? json({ message: 'Not Found' }, 404) : json(withReactions(c));
         if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
+        if (req.method === 'PATCH' && c.pending) return json({ message: 'Not Found' }, 404); // REST cannot edit pending comments either: GraphQL only
         if (req.method === 'PATCH') {
           if (!body.body) return json({ message: 'Validation Failed', errors: [{ field: 'body', code: 'missing_field' }] }, 422);
           c.body = body.body; c.updated_at = new Date().toISOString();

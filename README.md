@@ -103,14 +103,17 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   person or an AI agent reading it on GitHub gets the full range. A collapsed `<details>` block under the comment holds the actual selected source lines and
   the commit they are from (each line cut to 240 characters, ranges over 40 lines to their head and tail). The quote is included only when it adds information (a partial line, a diagram, a clamped range, or
   text outside the diff). Long selections keep their head and tail with an ellipsis.
-- **Diagrams (D2 and Mermaid), rendered client-side.** `d2` and `mermaid` code blocks render in the browser
-  (D2 as WASM via `@terrastruct/d2`, Mermaid as plain JS); both are *optional* dependencies loaded on demand,
-  and without them the source is shown with an install hint. Click a **node or edge** to comment on the source
+- **Diagrams (D2, Mermaid and Graphviz), rendered client-side.** `d2`, `mermaid` and `dot` (also `graphviz` / `gv`) code
+  blocks render in the browser: D2 with the JavaScript port in `public/d2/` (see `docs/d2-port.md`), Mermaid as plain JS, Graphviz as WASM via
+  `@viz-js/viz`. Mermaid and Graphviz are *optional* dependencies loaded on demand, and without a renderer the source is
+  shown with an install hint. Click a **node or edge** to comment on the source
   line that defines it (the comment box names the element); click empty space to comment on the whole block;
   open "source" to comment on a specific line. Broken diagrams show their compile errors inline.
   - *Line mapping.* D2: exact, from the compiler's source ranges (a node defined on several lines anchors to its
     first definition and lists the others). Mermaid: from element ids and labels (flowchart nodes and edges,
-    sequence actors and messages); anything it cannot place falls back to the whole block.
+    sequence actors and messages); anything it cannot place falls back to the whole block. Graphviz: from the node names,
+    `a -> b` / `a -- b` pairs (chains, `{a b} -> c` groups, ports, repeated edges by order) and `cluster_` subgraphs,
+    matched against statement-level tokens only, so a label or comment that mentions a name is never mistaken for it.
   - *Safety.* Diagram source is untrusted. Each diagram is drawn in a sandboxed `iframe` with **no scripts** and a
     CSP that blocks **all network requests**, so a `javascript:` link, an `onclick`, or an `icon:` URL pointing at
     another host can do nothing (tested, including that the CSP blocks the icon fetch).
@@ -120,8 +123,8 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   are anchored to. Hover a thread to highlight its text; click highlighted text to jump to the thread; reply
   from the margin. Outdated threads are labelled. Your unposted drafts appear there too, dashed.
 - Comments live on GitHub (single or pending); only the review summary, "viewed" marks and unsent text are kept in `localStorage`.
-- **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; D2's WASM
-  renderer and its ELK layout worker are the only eval-shaped exceptions), `X-Frame-Options: DENY` and
+- **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; Graphviz's WASM
+  renderer is the only eval-shaped exception in use; `'unsafe-eval'` and `blob:` workers are still allowed from the old WASM D2 build), `X-Frame-Options: DENY` and
   `X-Content-Type-Options: nosniff`. A sanitizer regression cannot run script in the page, and a remote
   site cannot frame the app to clickjack a review. `.` and `..` are never accepted as owner/repo, since
   fetch would collapse them out of the `/repos/{owner}/{repo}/` API path.
@@ -200,6 +203,14 @@ local server and the Worker (`src/worker.js`).
    npm install && npm run deploy
    ```
 
+**Staging.** `https://stage.ricorico.dev` is a separate Worker (`rico-stage`, the `[env.stage]` block in `wrangler.toml`)
+with its own KV namespace (`stage-SESSIONS`), its own GitHub OAuth app (callback `https://stage.ricorico.dev/auth/callback`),
+`GITHUB_CLIENT_ID`, and secrets (`npx wrangler secret put GITHUB_CLIENT_SECRET --env stage`, same for `SESSION_SECRET`).
+The **`stage` branch** deploys it: every push to `stage` runs `.github/workflows/deploy-stage.yml` (tests, then
+`npm run deploy:stage`), using the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. To try a change
+on stage, merge or push it to `stage`; `main` stays production. By hand: `npm run deploy:stage`, or
+`npm run deploy:stage:embed` where the Workers Assets upload cannot be made.
+
 **Fallback deploy (no Workers Assets).** `npm run deploy:embed` deploys the same Worker with the static app embedded in
 the script (`scripts/build-embed.mjs`, `src/worker-embed.js`, `wrangler.embed.toml`; about 7 MB gzipped, so it needs a paid
 Workers plan). Use it where the Workers Assets upload cannot be made, for example behind an API proxy that replaces the
@@ -221,3 +232,15 @@ Never give `PREVIEW_TOKEN` access to private repositories: its responses are sha
 
 `npm run dev:cf` runs the Worker locally (`wrangler dev`, with the same variables in a `.dev.vars` file). Changing
 `SESSION_SECRET` signs everyone out. Locally, `npm start` is unchanged and uses your own token.
+
+## Tests
+
+- `npm test` — unit and server tests (fast). `npm run test:d2` — the D2 port's own suites (slow).
+- `npm run e2e` — real Chromium against a fake GitHub (`e2e/run.mjs`); runs on every pull request.
+- `npm run e2e:live` — real Chromium against **real GitHub** on the throwaway test PRs of `brianv0/rico`
+  (#1 prose and threads, #5 Mermaid, #6 D2, #8 Graphviz). Read-only by default; `RICO_WRITE=1` also posts comments,
+  a reply, an edit, resolve/reopen and a pending review on PR #1, every body prefixed `REAL-STAGE:`, with a cleanup pass
+  before and after that deletes them and discards any pending review. A *submitted* review cannot be deleted on GitHub,
+  so submitting is not part of it. Targets: `GITHUB_TOKEN=… npm run e2e:live` starts a local server; `RICO_URL=https://stage.ricorico.dev`
+  tests a deployment with a saved sign-in (`npm run e2e:live -- --login` once). `.github/workflows/live-e2e.yml` runs it after each
+  stage deploy and nightly (secret `RICO_TEST_TOKEN`).

@@ -3,3 +3,6 @@ e2e/*.png
 e2e/desktop/out/
 node_modules
 dist-embed/
+.claude/worktrees/
+e2e/real/.auth.json
+e2e/real/fail-*.png

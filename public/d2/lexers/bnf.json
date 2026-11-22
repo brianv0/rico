@@ -1,0 +1,1 @@
+{"name":"BNF","rules":{"root":[["(<)([ -;=?-~]+)(>)",["g",[["t","Punctuation"],["t","NameClass"],["t","Punctuation"]]],0],["::=",["t","Operator"],0],["[^<>:]+",["t","Text"],0],[".",["t","Text"],0]]}}

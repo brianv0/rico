@@ -147,9 +147,9 @@ if (window.DOMPurify) {
 const SANITIZE = { FORBID_TAGS: ['style', 'form', 'textarea', 'select', 'button', 'link', 'meta', 'base', 'iframe', 'object', 'embed'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] };
 const safeHtml = (html) => (window.DOMPurify ? window.DOMPurify.sanitize(html, SANITIZE) : html);
 
-// ```d2 and ```mermaid fences render as diagrams (client-side, optional dependencies loaded on demand);
+// ```d2, ```mermaid and ```dot (graphviz) fences render as diagrams (client-side, optional dependencies loaded on demand);
 // the source stays one click away.
-const LANG_NAME = { d2: 'D2', mermaid: 'Mermaid' };
+const LANG_NAME = { d2: 'D2', mermaid: 'Mermaid', dot: 'Graphviz' };
 const defaultFence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, i, o, e, self) => {
   const t = tokens[i];
@@ -918,7 +918,7 @@ function msgEl(c, th, rerender) {
   const when = el('a', null, c.posting ? 'posting…' : `commented ${ago(c.createdAt)}`);
   if (!c.posting && /^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; when.title = 'Link to this comment on GitHub'; }
   who.append(avatarEl(c.user, c.avatar), el('b', null, c.user), when);
-  if (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000) who.append(el('span', 'edited', 'edited'));
+  if (c.edited ?? (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000)) who.append(el('span', 'edited', 'edited'));
   if (ASSOC[c.assoc]) who.append(el('span', 'badge', ASSOC[c.assoc]));
   if (c.pending) who.append(el('span', 'badge', 'Pending'));
   const text = el('div', 'text markdown-body');
@@ -947,8 +947,8 @@ function msgEl(c, th, rerender) {
           if (!ta.value.trim()) return;
           save1.disabled = true;
           try {
-            const res = await apiPost('/api/comment/edit', { ...prRef(), kind: th.kind, commentId: c.id, text: ta.value });
-            c.body = res.body; c.updatedAt = res.updatedAt;
+            const res = await apiPost('/api/comment/edit', { ...prRef(), kind: th.kind, commentId: c.id, text: ta.value, pending: !!c.pending, nodeId: c.nodeId || null });
+            c.body = res.body; c.updatedAt = res.updatedAt; c.edited = true;
             rerender();
           } catch (e) { showErr(err, e); save1.disabled = false; }
         });
@@ -1468,7 +1468,7 @@ $('#cards').addEventListener('click', (e) => {
   if (b) activateAt(b.querySelector('[data-l]') ? b : b);
 });
 
-// ---------- diagrams (D2, Mermaid) ----------
+// ---------- diagrams (D2, Mermaid, Graphviz) ----------
 // Each diagram is drawn inside a sandboxed iframe: no scripts, and a CSP that forbids all network
 // requests, so untrusted diagram source can only draw. The frame is same-origin (and script-free) so
 // we can see which node or edge was clicked and map it to its source line.
@@ -1484,7 +1484,7 @@ function showDiagram(fig, res) {
     frame.setAttribute('sandbox', 'allow-same-origin'); // deliberately NOT allow-scripts
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.title = `${LANG_NAME[fig.dataset.lang]} diagram`;
-    frame.srcdoc = frameDoc(res.svg);
+    frame.srcdoc = frameDoc(res.svg, res.css, res.fontSrc);
     frame.addEventListener('load', () => wireFrame(fig, frame, res));
     out.append(frame);
     // diagrams are capped in height so one big graph cannot push the document off-screen
@@ -1577,7 +1577,7 @@ function onDiagramClick(fig, hit, frame) {
     const first = hit.lines[0];
     start = Math.max(fi.a, Math.min(fi.b, fi.a + first.s));
     end = Math.max(start, Math.min(fi.b, fi.a + first.e));
-    if (fig.dataset.lang === 'd2' && hit.kind === 'node') { // a container node owns its whole { ... } block, not just its first line
+    if ((fig.dataset.lang === 'd2' && hit.kind === 'node') || (fig.dataset.lang === 'dot' && hit.kind === 'cluster')) { // a container / cluster owns its whole { ... } block, not just its first line
       let depth = 0;
       for (let n = start; n <= fi.b; n++) {
         const l = (state.lines[n - 1] || '').replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '');
@@ -1773,7 +1773,11 @@ function showSelbar(sel, pt) {
   selbar.hidden = false;
   const w = selbar.offsetWidth;
   selbar.style.top = (pt.y - wrap.top + 12) + 'px';
-  selbar.style.left = Math.max(8, Math.min(pt.x - wrap.left - w / 2, wrap.width - w - 8)) + 'px';
+  // centred on the release point, but kept over the text column: never out over the comment cards
+  const dr = (cur && cur.doc ? cur.doc : docwrap).getBoundingClientRect();
+  const lo = Math.max(8, dr.left - wrap.left);
+  const hi = Math.max(lo, Math.min(dr.right - wrap.left, wrap.width) - w - 8);
+  selbar.style.left = Math.max(lo, Math.min(pt.x - wrap.left - w / 2, hi)) + 'px';
 }
 function hideSelbar() { selbar.hidden = true; state.sel = null; }
 
@@ -1936,7 +1940,11 @@ function onSelect(pt) {
   if (sel) showSelbar(sel, pt); else hideSelbar();
 }
 
-$('#cards').addEventListener('mouseup', (e) => { const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
+// Only a gesture that STARTED in the document text can make a selection pill. A click on a comment card, "▼ 1 below",
+// a button, etc. must not re-show it at the click point just because an old selection is still active.
+let downInDoc = false;
+$('#cards').addEventListener('mousedown', (e) => { downInDoc = !!(e.target.closest && e.target.closest('.rico-doc')); }, true);
+$('#cards').addEventListener('mouseup', (e) => { if (!downInDoc) return; const pt = { x: e.clientX, y: e.clientY }; setTimeout(() => onSelect(pt), 0); });
 $('#cards').addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') setTimeout(onSelect, 0); });
 
 // Unsent text in the comment box survives a reload (or a sign-in round trip): everything but the live Range is saved.

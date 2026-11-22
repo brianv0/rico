@@ -2,9 +2,9 @@
 // Web-standard APIs only: no Node built-ins.
 
 // Backstop headers for every response: the page renders untrusted PR content through DOMPurify, and
-// this CSP contains any future sanitizer regression. 'wasm-unsafe-eval' is D2's WASM renderer and
-// 'unsafe-eval' its ELK layout engine (evaluated inside D2's blob: worker — inline script injection
-// stays blocked). The srcdoc diagram frames inherit this policy, so style/img/font-src cover what
+// this CSP contains any future sanitizer regression. 'wasm-unsafe-eval' is Graphviz's WASM renderer
+// (@viz-js/viz). 'unsafe-eval' and blob: workers were for the WASM D2 build, which is no longer shipped
+// (D2 is the JavaScript port now); they can probably go, but that wants its own test pass. The srcdoc diagram frames inherit this policy, so style/img/font-src cover what
 // frameDoc uses. 'self' (not 'none') in frame-ancestors keeps our own frames working while blocking
 // cross-origin clickjacking. Cloudflare Web Analytics (the beacon Cloudflare injects on ricorico.dev) may load its script
 // from static.cloudflareinsights.com and report to cloudflareinsights.com; nothing else from outside.

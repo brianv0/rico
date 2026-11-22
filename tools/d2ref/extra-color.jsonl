@@ -1,0 +1,16 @@
+{"text":"lab(50 40 30)"}
+{"text":"lab(50% 40% -30%)"}
+{"text":"lch(70 30 0.5turn / 20%)"}
+{"text":"lab(1 2)"}
+{"text":"rgb(1 2)"}
+{"text":"rgb(1,2,3,x)"}
+{"text":"foo(1,2,3)"}
+{"text":"foo(1 2 3 4)"}
+{"text":"linear-gradient(red, blue)"}
+{"text":"radial-gradient(red)"}
+{"text":"rgb(1;2;3)"}
+{"text":"hsl(1,2,3,)"}
+{"text":"#12345"}
+{"text":"#1234567"}
+{"text":"#+12"}
+{"text":"rgb(//1,,2,3)"}

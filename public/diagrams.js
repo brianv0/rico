@@ -1,10 +1,11 @@
-// Client-side diagram rendering (D2 via WASM, Mermaid via plain JS) and the mapping from a clicked
-// element back to the source line that defines it. Both renderers are optional dependencies,
+// Client-side diagram rendering (D2 via WASM, Mermaid via plain JS, Graphviz/DOT via WASM) and the mapping from a
+// clicked element back to the source line that defines it. The renderers are optional dependencies,
 // loaded on demand; if one is missing the caller shows the source instead.
-import { d2LineMaps, decodeD2Class, findMermaidLines } from './lib.js';
+import { d2LineMaps, decodeD2Class, findMermaidLines, findDotLines } from './lib.js';
 
 export const diagramLang = (info) => {
   const l = String(info || '').trim().split(/\s+/)[0].toLowerCase();
+  if (l === 'dot' || l === 'graphviz' || l === 'gv') return 'dot'; // GitHub highlights ```dot; ```graphviz and ```gv are the common aliases
   return l === 'd2' || l === 'mermaid' ? l : null;
 };
 
@@ -16,35 +17,56 @@ const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof mat
  * The document shown inside the diagram's sandboxed iframe. The frame has no scripts (sandbox), and
  * this CSP forbids every network request, so untrusted diagram source cannot run code or phone home.
  */
-export const frameDoc = (svg) => '<!doctype html><meta charset="utf-8">'
-  + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
+// The diagram's own size: the width of the outer <svg>'s viewBox. Without a width/height attribute a bare SVG stretches to the
+// whole frame, so a small diagram came out blown up (and cropped by the height cap): cap it at its natural width.
+export const naturalWidth = (svg) => {
+  const m = /<svg\b[^>]*?\bviewBox\s*=\s*["']\s*-?[\d.]+[\s,]+-?[\d.]+[\s,]+([\d.]+)[\s,]+[\d.]+\s*["']/i.exec(String(svg));
+  const w = m ? Number(m[1]) : 0;
+  return w > 0 ? Math.ceil(w) : 0;
+};
+
+export const frameDoc = (svg, css = '', fontSrc = '') => '<!doctype html><meta charset="utf-8">'
+  // An iframe whose colour scheme differs from its embedder gets an opaque white canvas (a white strip, light-grey lines on
+  // white in dark mode). Declaring the scheme the page is using keeps it transparent.
+  + `<meta name="color-scheme" content="${prefersDark() ? 'dark' : 'light'}">`
+  + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:${fontSrc ? ' ' + fontSrc : ''}">`
   + '<style>html,body{margin:0;background:transparent}body{display:flex;justify-content:center}'
-  + 'svg{max-width:100%;height:auto;cursor:pointer}</style>' // links are neutralised by the capture-phase click handler, not by CSS
+  + `svg{max-width:100%;height:auto;cursor:pointer}${naturalWidth(svg) ? `body>svg{max-width:min(100%,${naturalWidth(svg)}px)}` : ''}${css}</style>` // links are neutralised by the capture-phase click handler, not by CSS
   + `<body>${svg}</body>`;
 
 // ---------------- D2 ----------------
-let d2Promise = null;
-function d2Errors(e) {
-  try {
-    const list = JSON.parse(e.message || String(e));
-    if (Array.isArray(list)) return list.map((x) => String(x.errmsg || x).replace(/^index:/, 'line '));
-  } catch { /* not JSON */ }
-  return [String(e.message || e)];
+// D2 is drawn by the JavaScript port in public/d2/ (see docs/d2-port.md): no WASM download, no worker, and the default layout is
+// ready in tens of milliseconds. (The WASM build, @terrastruct/d2, is no longer shipped.)
+let d2jsPromise = null;
+
+function loadD2js() {
+  return (d2jsPromise ||= (async () => {
+    const [lib, svg] = await Promise.all([import('/d2/d2lib.js'), import('/d2/d2svg.js')]);
+    await lib.init({ markdownit: window.markdownit });
+    return { lib, svg };
+  })().catch((e) => { d2jsPromise = null; throw e; }));
 }
 
+const d2Errs = (err) => (Array.isArray(err.errs) && err.errs.length ? err.errs : String(err.message || err).split('\n').filter(Boolean)).map((x) => `line ${String(x.errmsg || x.message || x).replace(/^(Error: |index:)/, '')}`); // the port's ParseError holds one Error per problem
+const d2Theme = (ro) => (forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
+
 async function renderD2(source) {
-  let d2;
-  try { d2 = await (d2Promise ||= import('/vendor/d2.js').then((m) => new m.D2())); } catch {
-    d2Promise = null;
-    throw fail(['Install the optional dependency: npm install @terrastruct/d2'], true);
+  let port;
+  try { port = await loadD2js(); } catch (e) {
+    console.warn('D2 renderer failed to load:', e);
+    throw fail(['The D2 renderer (public/d2/) could not be loaded'], true);
   }
+  const ro = {};
   let r;
-  try { r = await d2.compile(source); } catch (e) { throw fail(d2Errors(e)); }
-  const ro = r.renderOptions || {};
-  const svg = await d2.render(r.diagram, forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
-  const maps = d2LineMaps(r.diagram, r.graph);
+  try { r = await port.lib.compile(source, {}, ro); } catch (e) { throw fail([`D2 could not render this diagram: ${String(e.message || e).split('\n')[0]}`]); }
+  if (r.err) throw fail(d2Errs(r.err)); // a compile error of the diagram itself
+  // fonts: the SVG points at the cached same-origin TTFs instead of carrying base64 subsets; the frame's CSP allows exactly that origin
+  const svg = await port.svg.renderAsync(r.diagram, { ...d2Theme(ro), fonts: 'external', fontBaseURL: `${location.origin}/d2/fonts/` });
+  const out = { svg, diagram: r.diagram, graph: r.graph, fontSrc: location.origin };
+  const maps = d2LineMaps(out.diagram, out.graph);
   return {
-    svg,
+    svg: out.svg,
+    fontSrc: out.fontSrc,
     // walk up from the clicked element to the group D2 tagged with the shape / connection id
     resolve(target) {
       for (let el = target; el && el.nodeType === 1 && el.tagName.toLowerCase() !== 'svg'; el = el.parentElement) {
@@ -137,7 +159,52 @@ async function renderMermaid(source) {
   };
 }
 
+// ---------------- Graphviz (DOT) ----------------
+let vizPromise = null;
+
+// Graphviz draws black lines and text on an opaque white polygon. In the dark theme the colours are inverted (hue kept) and the
+// background dropped so the diagram sits on the page like the others.
+const dotCss = () => 'g.graph>polygon{fill:transparent!important;stroke:transparent!important}' + (prefersDark() ? 'svg{filter:invert(.92) hue-rotate(180deg)}' : '');
+
+async function renderDot(source) {
+  let viz;
+  try { viz = await (vizPromise ||= import('/vendor/viz.js').then((m) => m.instance())); } catch {
+    vizPromise = null;
+    throw fail(['Install the optional dependency: npm install @viz-js/viz'], true);
+  }
+  let r;
+  try { r = viz.render(source, { format: 'svg', engine: 'dot' }); } catch (e) { throw fail([String(e.message || e)]); }
+  if (r.status !== 'success' || !r.output) {
+    const errs = (r.errors || []).filter((x) => x.level !== 'warning').map((x) => String(x.message || x).trim().replace(/\s*\n\s*/g, ' '));
+    throw fail(errs.length ? errs : ['Graphviz could not render this diagram']);
+  }
+  const hit = (el, h) => { const lines = findDotLines(source, h); return lines ? { el, kind: h.kind, label: h.label, lines: [lines] } : null; };
+  const titleOf = (g) => g.querySelector(':scope > title')?.textContent ?? '';
+  // "a:p1:n->b:p2" / "a--b": drop ports, split on the arrow
+  const ends = (t) => { const m = /^(.*?)(->|--)(.*)$/s.exec(t); return m ? { from: m[1].split(':')[0], to: m[3].split(':')[0], undirected: m[2] === '--' } : null; };
+  return {
+    svg: r.output,
+    css: dotCss(),
+    resolve(target) {
+      const g = target.closest ? target.closest('g.node, g.edge, g.cluster') : null;
+      if (!g) return null;
+      const t = titleOf(g);
+      if (g.classList.contains('node')) return hit(g, { kind: 'node', id: t, label: t });
+      if (g.classList.contains('cluster')) return hit(g, { kind: 'cluster', id: t, label: t.replace(/^cluster_?/, '') || t });
+      const e = ends(t);
+      if (!e) return null;
+      let n = 0; // the nth edge between the same pair
+      for (const o of g.ownerDocument.querySelectorAll('g.edge')) {
+        if (o === g) break;
+        const x = ends(titleOf(o));
+        if (x && x.from === e.from && x.to === e.to) n++;
+      }
+      return hit(g, { kind: 'edge', from: e.from, to: e.to, undirected: e.undirected, n, label: `${e.from} ${e.undirected ? '–' : '→'} ${e.to}` });
+    },
+  };
+}
+
 /** Render a diagram. Throws an Error with `.messages` (and `.unavailable` if the renderer is not installed). */
 export function renderDiagram(lang, source) {
-  return lang === 'd2' ? renderD2(source) : renderMermaid(source);
+  return lang === 'd2' ? renderD2(source) : lang === 'dot' ? renderDot(source) : renderMermaid(source);
 }

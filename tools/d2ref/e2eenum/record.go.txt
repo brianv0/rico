@@ -1,0 +1,9 @@
+
+// recordCase writes the inputs of a testCase that run() would compile (see tools/d2ref/e2eenum). It uses log/slog's JSON handler
+// because an overlay cannot add imports that the original package does not have.
+func recordCase(t *testing.T, tc testCase) {
+	f, _ := os.OpenFile(os.Getenv("E2E_OUT"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	defer f.Close()
+	slog.New(slog.NewJSONHandler(f, nil)).Info("case", "name", strings.TrimPrefix(t.Name(), "TestE2E/"), "text", tc.script, "mtexts", tc.mtexts,
+		"themeID", tc.themeID, "expErr", tc.expErr, "dagreFeatureError", tc.dagreFeatureError, "elkFeatureError", tc.elkFeatureError, "justDagre", tc.justDagre)
+}

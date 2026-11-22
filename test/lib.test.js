@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -480,4 +480,44 @@ test('mapPosition: linear between threads, 1:1 outside, monotonic, never stalls 
   assert.equal(positionSlope(pts, 150), 3);
   assert.ok(positionSlope([{ d: 0, m: 5 }, { d: 100, m: 5 }], 50) > 0, 'a flat stretch still lets the wheel move');
   assert.equal(mapPosition([], 42), 42);
+});
+
+test('findDotLines: nodes, edges (incl. groups, ports, repeats), clusters; attribute text and comments never match', () => {
+  const src = [
+    'digraph G {', // 0
+    '  rankdir=LR; // a -> z',
+    '  a [label="b -> x"];',
+    '  "my node" -> b -> c;',
+    '  a -> b [label=a];',
+    '  subgraph cluster_x { label=Q; b; c }',
+    '  {a b} -> d;',
+    '  p:n -> q;',
+    '  /* a -> q */ a -> b;',
+    '}',
+  ].join('\n');
+  assert.deepEqual(findDotLines(src, { kind: 'node', id: 'a' }), { s: 2, e: 2 }); // the declaration, not an edge or a label
+  assert.deepEqual(findDotLines(src, { kind: 'node', id: 'my node' }), { s: 3, e: 3 });
+  assert.deepEqual(findDotLines(src, { kind: 'node', id: 'd' }), { s: 6, e: 6 });
+  assert.equal(findDotLines(src, { kind: 'node', id: 'x' }), null); // only inside a label
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'b', to: 'c', n: 0 }), { s: 3, e: 3 }); // a chain
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'b', to: 'd', n: 0 }), { s: 6, e: 6 }); // a { a b } group
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'p', to: 'q', n: 0 }), { s: 7, e: 7 }); // ports dropped
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'a', to: 'b', n: 0 }), { s: 4, e: 4 }); // repeated edges: the nth statement
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'a', to: 'b', n: 1 }), { s: 8, e: 8 }); // (a comment in front does not count)
+  assert.deepEqual(findDotLines(src, { kind: 'edge', from: 'a', to: 'd', n: 0 }), { s: 6, e: 6 });
+  assert.deepEqual(findDotLines(src, { kind: 'cluster', id: 'cluster_x' }), { s: 5, e: 5 });
+  assert.equal(findDotLines(src, { kind: 'edge', from: 'q', to: 'a', n: 0 }), null);
+  assert.deepEqual(findDotLines('graph { a -- b }', { kind: 'edge', from: 'b', to: 'a', undirected: true, n: 0 }), { s: 0, e: 0 });
+});
+
+test('dotTokens: quoted ids, escapes, HTML labels and comments', () => {
+  const t = dotTokens('a -> "b\\"c" /* x\ny */ <<b>x</b>>\n# z\nd');
+  assert.deepEqual(t.map((k) => [k.t, k.line]), [['a', 0], ['->', 0], ['b"c', 0], ['<b>x</b>', 1], ['d', 3]]);
+});
+
+test('parseD2Range accepts the WASM string and the JS port\'s Range object (its toJSON is that string)', () => {
+  const str = 'index,6:0:102-6:23:125';
+  assert.deepEqual(parseD2Range(str), { s: 6, e: 6 });
+  assert.deepEqual(parseD2Range({ toJSON: () => str, toString: () => '7:1' }), { s: 6, e: 6 });
+  assert.equal(parseD2Range(null), null);
 });
