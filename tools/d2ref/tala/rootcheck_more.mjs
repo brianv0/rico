@@ -9,7 +9,7 @@ import { background, withCancel } from '../../../public/d2/tala/context.js';
 import { registerPackage } from '../../../public/d2/tala/stagepkgs.js';
 import * as engine from '../../../public/d2/tala/engine.js';
 import * as result from '../../../public/d2/tala/result.js';
-import { runGo, loadCases } from './rootcheck.mjs';
+import { runGo, loadCases } from './rootlib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -29,8 +29,9 @@ function rng(seed) {
   };
 }
 
+const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
 function firstDiff(a, b, p = '$') {
-  if (JSON.stringify(a) === JSON.stringify(b)) return null;
+  if (JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b))) return null;
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${p}.${k}`); if (d) return d; }
   }
@@ -208,7 +209,9 @@ async function validate(file, flags) {
     const want = goOut[k];
     if (want.panic) { skipped++; continue; }
     const got = jsRootCheck(ctx, c);
-    const d = firstDiff(got, bigjson.plain(want));
+    // Go names an ARBITRARY missing edge (it ranges over a map): with several edges missing the ID is not comparable
+    const unstable = (o) => (c.mutation === 'drop-all-edges' ? JSON.parse(JSON.stringify(o).replace(/missing edge ID \d+/g, 'missing edge ID N')) : o);
+    const d = firstDiff(unstable(got), unstable(bigjson.plain(want)));
     kinds[c.mutation] ||= { n: 0, fail: 0 };
     kinds[c.mutation].n++;
     if (want.inputErr || want.resultErr) unmarshalSame += d ? 0 : 1;
@@ -243,7 +246,7 @@ function jsRootCheck(ctx, c) {
   const out = {};
   out.completed = run(() => result.validateCompletedGraph(ctx, resultGraph));
   out.topology = run(() => { seq = result.validateLayoutResultTopology(ctx, inputGraph, resultGraph); });
-  out.metadata = run(() => result.validateLayoutResultMetadata(ctx, inputGraph, resultGraph, seq));
+  out.metadata = run(() => result.validateLayoutResultMetadata(ctx, inputGraph, resultGraph, seq ?? new Set()));
   out.evaluate = run(() => result.evaluateSeedResult(ctx, { graph: inputGraph, bindings: null }, resultGraph));
   return out;
 }
@@ -269,6 +272,7 @@ export async function run(mode, file, flags) {
   if (mode === 'validate') return validate(file, flags);
   if (mode === 'score') return score();
   if (mode === 'driver') return (await import('./rootdriver.mjs')).driver(file, flags);
+  if (mode === 'wiring') return (await import('./rootwiring.mjs')).wiring(file, flags);
   if (mode === 'compound') return (await import('./rootdriver.mjs')).compound(file, flags);
   console.error('usage: rootcheck.mjs replay|validate|score|driver|compound ...');
   process.exit(2);

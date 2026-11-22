@@ -197,7 +197,7 @@ export function goFloat(f) {
   return (neg ? '-' : '') + plain(f);
 }
 
-/** fmt's %v / %g for float64 (shortest repr, exponent if exp < -4 || exp >= 21). */
+/** fmt's %v / %g for float64 (shortest repr, exponent if exp < -4 || exp >= 6: Go prints 1e+06 and 1.23456789e+08; the threshold 21 is JSON's/JS's, not fmt's). */
 export function goV(f) {
   if (Number.isNaN(f)) return 'NaN';
   if (f === Infinity) return '+Inf';
@@ -207,7 +207,7 @@ export function goV(f) {
   if (a === 0) return neg ? '-0' : '0';
   // decimal exponent of the leading digit
   const e = Number(a.toExponential().split('e')[1]);
-  if (e < -4 || e >= 21) {
+  if (e < -4 || e >= 6) {
     const [mant, ex] = a.toExponential().split('e');
     const exn = Number(ex);
     return (neg ? '-' : '') + mant + 'e' + (exn < 0 ? '-' : '+') + String(Math.abs(exn)).padStart(2, '0');

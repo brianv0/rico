@@ -16,7 +16,7 @@ import * as lg from '../../../public/d2/tala/layoutgraph.js';
 import { background, withCancel } from '../../../public/d2/tala/context.js';
 import { registerPackage } from '../../../public/d2/tala/stagepkgs.js';
 import * as engine from '../../../public/d2/tala/engine.js';
-import { runGo, loadCases } from './rootcheck.mjs';
+import { runGo, loadCases } from './rootlib.mjs';
 
 function rng(seed) {
   let a = seed >>> 0;

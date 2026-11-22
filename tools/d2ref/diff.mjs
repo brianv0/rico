@@ -32,6 +32,7 @@ import { graphMethods } from './graphcheck.mjs';
 import { dimsCheck } from './dimscheck.mjs';
 import * as bigjson from '../../public/d2/tala/bigjson.js';
 import * as talacheck from './talacheck.mjs';
+import * as enginecheck from './tala/enginecheck.mjs';
 import * as t1check from './tala/t1check.mjs';
 import * as pkgcheck from './tala/pkgcheck.mjs';
 import * as hierarchycheck from './tala/hierarchycheck.mjs';
@@ -45,6 +46,7 @@ await loadMetrics();
 const ruler = newRuler();
 await initD2();
 await loadLayout('elk');
+await loadLayout('tala'); // layout 'tala' (public/d2/tala/layout.js): the full pipeline needs the placement and routing stages (see docs/d2-tala-port.md)
 await loadLatex(); // vendor/mathjax.js (the browser loads it only when a diagram has a LaTeX label)
 
 // measure: input lines {text, fontFamily?, monoFamily?, fontSize, bold?, italic?, language?, markdown?} (see measurecorpus.mjs)
@@ -101,9 +103,9 @@ const STAGES = {
   talarand: talacheck.randStage,
   talaops: talacheck.opsStage,
   talanodeshape: talacheck.nodeshapeStage,
-  talascores: talacheck.scoresStage,
-  talastages: talacheck.stagesStage,
-  talafstages: talacheck.fstagesStage,
+  talascores: enginecheck.scoresStage, // the full JS pipeline against Go's per-seed dumps (tala/enginecheck.mjs; deferred while stages are not ported)
+  talastages: enginecheck.stagesStage,
+  talafstages: enginecheck.fstagesStage,
   ...t1check.STAGES,
   talapack: pkgcheck.packStage,
   talaplace: pkgcheck.placeStage,
@@ -144,7 +146,7 @@ const STAGES = {
   svgfullnofonts: (c, want, flags) => svgFullCheck(c, want, { nofonts: true, flags }),
   // d2ref's `layout` mode: {diagram, err} from d2lib.Compile with the dagre layout.
   layout: (c) => {
-    const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', elkOpts: c.elkopts, measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
+    const r = d2compile(c.text, { utf16: c.utf16, fs: c.fs && { [c.path]: c.text, ...c.fs }, inputPath: c.path, layout: c.layout || 'dagre', elkOpts: c.elkopts, talaOpts: c.seeds ? { 'tala-seeds': c.seeds } : undefined, measuredTexts: c.mtexts, ...(c.themeID != null ? {} : {}) }, c.themeID != null ? { themeID: c.themeID } : {});
     return { diagram: r.diagram, err: r.err ? r.err.message : null };
   },
   // d2ref's `graph` mode: {graph, config, err} from d2compiler.Compile, err as its text.
@@ -257,7 +259,7 @@ async function e2e(file, flags) {
   const tolv = Number(flags.includes('--tol') ? flags[flags.indexOf('--tol') + 1] : 0);
   for (const c of cases) {
     const gp = path.join(src, 'e2etests/testdata', c.name, `${engine}/board.exp.json`);
-    const copts = { utf16: false, layout: engine, ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined };
+    const copts = { utf16: false, layout: engine, ruler: c.mtexts ? null : undefined, measuredTexts: c.mtexts || undefined, talaOpts: engine === 'tala' ? { 'tala-seeds': [1] } : undefined }; // D2's e2e tests run TALA with Seeds {1}
     const r = d2compile(c.text, copts, c.themeID != null ? { themeID: c.themeID } : {});
     if (c.expErr) { if (r.err && r.err.message === c.expErr) errSame++; else bad.push({ name: c.name, path: '$err', got: r.err && r.err.message, want: c.expErr }); continue; }
     if ((engine === 'dagre' ? c.dagreFeatureError : engine === 'elk' ? c.elkFeatureError || c.justDagre : false) || !fs.existsSync(gp)) { noGolden++; continue; }
