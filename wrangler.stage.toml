@@ -1,0 +1,28 @@
+# Staging: the embedded-app Worker as "rico-stage" at https://stage.ricorico.dev, with its own KV namespace and its own
+# secrets (set on that Worker). npm run deploy:stage
+name = "rico-stage"
+main = "src/worker-embed.js"
+compatibility_date = "2025-01-01"
+
+# Served at https://stage.ricorico.dev
+routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
+
+# Keep variables set in the Cloudflare dashboard (such as GITHUB_CLIENT_ID) when deploying from here.
+keep_vars = true
+
+[vars]
+# GITHUB_CLIENT_ID is set on the rico-stage Worker (dashboard); keep_vars preserves it. The OAuth app needs
+# https://stage.ricorico.dev/auth/callback among its redirect URIs.
+# "repo" is needed to comment on private repositories; use "public_repo" to limit Rico to public ones.
+OAUTH_SCOPE = "repo"
+
+# Secrets (never commit them):
+#   npx wrangler secret put GITHUB_CLIENT_SECRET
+#   npx wrangler secret put SESSION_SECRET     # any long random string, e.g. `openssl rand -base64 32`
+
+# Optional, recommended: keep the encrypted session in KV instead of entirely in the cookie. The key is split
+# between SESSION_SECRET (server) and a random half that only the cookie holds, and signing out revokes the session.
+#   npx wrangler kv namespace create SESSIONS     (then paste the id below and uncomment)
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "752131a96ec94725bd79ceb2461921bd"  # stage-SESSIONS
