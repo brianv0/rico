@@ -35,12 +35,13 @@ id = "4cc5499ef6ed4dc5bc4ba5eff5c02ed3"
 # It needs its own GitHub OAuth app (callback https://stage.ricorico.dev/auth/callback) and its own secrets:
 #   npx wrangler secret put GITHUB_CLIENT_SECRET --env stage
 #   npx wrangler secret put SESSION_SECRET --env stage
-# Set GITHUB_CLIENT_ID for it in the dashboard (Workers > rico-stage > Settings > Variables) or in [env.stage.vars].
+# GITHUB_CLIENT_ID for the stage OAuth app is in [env.stage.vars] below.
 [env.stage]
 name = "rico-stage"
 routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
 
 [env.stage.vars]
+GITHUB_CLIENT_ID = "Ov23lijOuGwLW5Cqcg9L"   # the stage OAuth app (callback https://stage.ricorico.dev/auth/callback)
 OAUTH_SCOPE = "repo"
 
 [[env.stage.kv_namespaces]]

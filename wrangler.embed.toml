@@ -32,6 +32,7 @@ name = "rico-stage"
 routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
 
 [env.stage.vars]
+GITHUB_CLIENT_ID = "Ov23lijOuGwLW5Cqcg9L"   # the stage OAuth app (callback https://stage.ricorico.dev/auth/callback)
 OAUTH_SCOPE = "repo"
 
 [[env.stage.kv_namespaces]]
