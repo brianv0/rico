@@ -67,7 +67,7 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
     reviews(first:5,states:PENDING){nodes{id databaseId viewerDidAuthor}}
     reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
       nodes{id isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
-        comments(first:100){nodes{databaseId state viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
+        comments(first:100){nodes{databaseId state lastEditedAt viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
 
 /**
@@ -184,6 +184,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       out.canDelete = n ? n.viewerCanDelete : !!viewer && out.user === viewer;
       if (n) {
         out.pending = n.state === 'PENDING';
+        out.edited = !!n.lastEditedAt; // GitHub bumps updated_at when a review is submitted; only a real edit sets lastEditedAt
         out.reactions = n.reactionGroups.filter((r) => r.reactors.totalCount > 0).map((r) => ({ content: REACTION_REST[r.content], count: r.reactors.totalCount, mine: r.viewerHasReacted }));
       }
       if (threadOf.has(c.id)) out.thread = threadOf.get(c.id);
@@ -325,6 +326,12 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   }
   async function apiEdit(b) {
     const { owner, repo } = ref(b);
+    if (b.pending === true) { // pending review comments are hidden from REST (PATCH is a 404): edit them through GraphQL
+      if (typeof b.nodeId !== 'string' || !/^[\w=-]{4,100}$/.test(b.nodeId)) throw new HttpError(400, 'bad node id');
+      const d = await gql('mutation($id:ID!,$b:String!){updatePullRequestReviewComment(input:{pullRequestReviewCommentId:$id,body:$b}){pullRequestReviewComment{databaseId body updatedAt}}}', { id: b.nodeId, b: text(b.text) });
+      const c = d.updatePullRequestReviewComment.pullRequestReviewComment;
+      return { id: c.databaseId, body: c.body, updatedAt: c.updatedAt, edited: true };
+    }
     const out = await ghJson(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${cid(b)}`, { method: 'PATCH', body: { body: text(b.text) } });
     return b.kind === 'issue' ? compactIssue(out) : compact(out);
   }
@@ -374,14 +381,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       `mutation($r:ID!,$path:String!,$line:Int!,$side:DiffSide!,$sl:Int,$ss:DiffSide,$body:String!){
         addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{
           id path line originalLine startLine originalStartLine diffSide startDiffSide
-          comments(first:1){nodes{databaseId body path createdAt url authorAssociation author{login avatarUrl}}}}}}`,
+          comments(first:1){nodes{id databaseId body path createdAt url authorAssociation author{login avatarUrl}}}}}}`,
       { r: review.id, path: c.path, line: c.line, side: c.side, sl: c.start_line ?? null, ss: c.start_side ?? null, body: c.body },
     );
     const t = d.addPullRequestReviewThread.thread;
     const n = t.comments.nodes[0];
     const out = compact({
       id: n.databaseId, path: n.path || t.path, line: t.line, original_line: t.originalLine, start_line: t.startLine, original_start_line: t.originalStartLine,
-      side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, html_url: n.url, author_association: n.authorAssociation,
+      side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, html_url: n.url, author_association: n.authorAssociation, node_id: n.id,
     });
     out.pending = true;
     out.canUpdate = out.canDelete = true;

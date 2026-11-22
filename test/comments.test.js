@@ -219,3 +219,28 @@ test('GET /api/comments: ETag round trip costs a 304 per resource when nothing c
   assert.equal(moved.headSha, 'ffff0000aaaa');
   assert.equal((await get('/api/comments?owner=acme&repo=docs&number=x')).status, 400);
 });
+
+test('pending comments: edited through GraphQL (REST 404s on them); submitting is not an edit; a real edit is', async () => {
+  const { post, get, fake, R } = await setup();
+  const a = await post('/api/pending/add', { ...R, comment: line({ body: 'first draft' }) });
+  const c = a.json.comment;
+  assert.ok(c.nodeId && c.nodeId.startsWith('PRRC_'), 'the new comment carries its node id: ' + c.nodeId);
+  const e = await post('/api/comment/edit', { ...R, kind: 'review', commentId: c.id, text: 'second draft', pending: true, nodeId: c.nodeId });
+  assert.equal(e.status, 200);
+  assert.equal(e.json.body, 'second draft');
+  assert.deepEqual(fake.ops.at(-1), { op: 'edit', id: c.id, body: 'second draft', via: 'graphql' });
+  const bad = await post('/api/comment/edit', { ...R, kind: 'review', commentId: c.id, text: 'x', pending: true });
+  assert.equal(bad.status, 400, 'a pending edit needs the node id');
+  const viaRest = await post('/api/comment/edit', { ...R, kind: 'review', commentId: c.id, text: 'x' });
+  assert.equal(viaRest.status, 404, 'the REST path really is a 404 for pending comments');
+  // submit: the comment is posted; GitHub touches updated_at, but that is not an edit...
+  await post('/api/pending/finish', { ...R, event: 'COMMENT', body: '' });
+  const mine = (await get('/api/pr?ref=acme/docs%237')).json.comments.find((x) => x.id === c.id);
+  assert.equal(mine.pending, false);
+  assert.equal(mine.edited, true, 'it WAS edited before submit (lastEditedAt is set)');
+  const b = await post('/api/pending/add', { ...R, comment: line({ body: 'never edited' }) });
+  await post('/api/pending/finish', { ...R, event: 'COMMENT', body: '' });
+  const untouched = (await get('/api/pr?ref=acme/docs%237')).json.comments.find((x) => x.id === b.json.comment.id);
+  assert.equal(untouched.edited, false, 'submitting alone must not show "edited"');
+  assert.notEqual(untouched.updatedAt, untouched.createdAt, 'even though updated_at moved');
+});

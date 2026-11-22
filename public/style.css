@@ -166,9 +166,9 @@ textarea { resize: vertical; padding: 8px 12px; }
 .file-body { display: flex; align-items: flex-start; gap: 28px; padding: 24px 24px 24px 32px; }
 .file-body .load-more { margin: 8px auto; }
 .rico-doc { position: relative; flex: 1 1 0; min-width: 0; max-width: 920px; font-size: 16px; }
-/* The comment column takes the room the text column (max 920px) leaves, between 300 and 560px: wider when the file tree is
-   collapsed or the window is large. The percentage is of the file body's content width. */
-.rico-margin { position: relative; flex: 0 0 clamp(300px, calc(100% - 948px), 560px); width: clamp(300px, calc(100% - 948px), 560px); }
+/* The comment column is about a third of the file body (340 to 560px), so it is roomier when the file tree is collapsed or the
+   window is wide; the text column takes the rest, up to 920px. The percentage is of the file body's content width. */
+.rico-margin { position: relative; flex: 0 0 clamp(340px, 32%, 560px); width: clamp(340px, 32%, 560px); }
 .file-card.src .file-body { display: none; }
 .rico-src { display: none; }
 .file-card.src .rico-src { display: block; }

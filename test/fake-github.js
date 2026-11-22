@@ -114,7 +114,7 @@ export async function startFake() {
           return {
             id: 'PRRT_' + r.id, isResolved: state.resolved.has(r.id), isOutdated: r.line == null, viewerCanResolve: true, viewerCanUnresolve: true, viewerCanReply: !state.locked,
             comments: { nodes: msgs.map((c) => ({
-              databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
+              databaseId: c.id, state: c.pending ? 'PENDING' : 'SUBMITTED', lastEditedAt: c.edited_at || null, viewerCanUpdate: c.user.login === 'me', viewerCanDelete: c.user.login === 'me', viewerCanReact: true,
               reactionGroups: Object.entries(Object.groupBy(state.reactions.get(c.id) || [], (x) => x.content)).map(([content, list]) => ({ content: Object.entries({ '+1': 'THUMBS_UP', '-1': 'THUMBS_DOWN', laugh: 'LAUGH', hooray: 'HOORAY', confused: 'CONFUSED', heart: 'HEART', rocket: 'ROCKET', eyes: 'EYES' }).find(([k]) => k === content)[1], viewerHasReacted: list.some((x) => x.mine), reactors: { totalCount: list.length } })),
             })) },
           };
@@ -139,12 +139,20 @@ export async function startFake() {
         bump();
         return data({ addPullRequestReviewThread: { thread: {
           id: 'PRRT_' + c.id, path: c.path, line: c.line, originalLine: c.line, startLine: c.start_line ?? null, originalStartLine: c.start_line ?? null, diffSide: c.side, startDiffSide: c.start_side ?? null,
-          comments: { nodes: [{ databaseId: c.id, body: c.body, path: c.path, createdAt: c.created_at, url: c.html_url, authorAssociation: 'OWNER', author: { login: 'me', avatarUrl: AVATAR } }] },
+          comments: { nodes: [{ id: 'PRRC_' + c.id, databaseId: c.id, body: c.body, path: c.path, createdAt: c.created_at, url: c.html_url, authorAssociation: 'OWNER', author: { login: 'me', avatarUrl: AVATAR } }] },
         } } });
+      }
+      if (q.includes('updatePullRequestReviewComment')) {
+        const c = state.comments.find((x) => 'PRRC_' + x.id === v.id);
+        if (!c) return err('Could not resolve to a node with the global id of ' + v.id);
+        c.body = v.b; c.updated_at = c.edited_at = new Date().toISOString();
+        ops.push({ op: 'edit', id: c.id, body: v.b, via: 'graphql' });
+        bump();
+        return data({ updatePullRequestReviewComment: { pullRequestReviewComment: { databaseId: c.id, body: c.body, updatedAt: c.updated_at } } });
       }
       if (q.includes('submitPullRequestReview')) {
         if (!state.pending) return err('no pending review');
-        for (const c of state.comments) delete c.pending;
+        for (const c of state.comments) if (c.pending) { delete c.pending; c.updated_at = new Date().toISOString(); } // like GitHub: submitting touches updated_at (not a real edit)
         state.pending = null;
         posted.push({ event: v.e, body: v.b, via: 'graphql' });
         ops.push({ op: 'pending.submit', event: v.e, body: v.b });
@@ -214,6 +222,7 @@ export async function startFake() {
         // real GitHub hides unsubmitted (pending) review comments from this endpoint: GET is a 404 (found on staging)
         if (req.method === 'GET') return c.pending ? json({ message: 'Not Found' }, 404) : json(withReactions(c));
         if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
+        if (req.method === 'PATCH' && c.pending) return json({ message: 'Not Found' }, 404); // REST cannot edit pending comments either: GraphQL only
         if (req.method === 'PATCH') {
           if (!body.body) return json({ message: 'Validation Failed', errors: [{ field: 'body', code: 'missing_field' }] }, 422);
           c.body = body.body; c.updated_at = new Date().toISOString();

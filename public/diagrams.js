@@ -17,6 +17,9 @@ const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof mat
  * this CSP forbids every network request, so untrusted diagram source cannot run code or phone home.
  */
 export const frameDoc = (svg) => '<!doctype html><meta charset="utf-8">'
+  // An iframe whose colour scheme differs from its embedder gets an opaque white canvas (a white strip, light-grey lines on
+  // white in dark mode). Declaring the scheme the page is using keeps it transparent.
+  + `<meta name="color-scheme" content="${prefersDark() ? 'dark' : 'light'}">`
   + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
   + '<style>html,body{margin:0;background:transparent}body{display:flex;justify-content:center}'
   + 'svg{max-width:100%;height:auto;cursor:pointer}</style>' // links are neutralised by the capture-phase click handler, not by CSS

@@ -918,7 +918,7 @@ function msgEl(c, th, rerender) {
   const when = el('a', null, c.posting ? 'posting…' : `commented ${ago(c.createdAt)}`);
   if (!c.posting && /^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; when.title = 'Link to this comment on GitHub'; }
   who.append(avatarEl(c.user, c.avatar), el('b', null, c.user), when);
-  if (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000) who.append(el('span', 'edited', 'edited'));
+  if (c.edited ?? (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000)) who.append(el('span', 'edited', 'edited'));
   if (ASSOC[c.assoc]) who.append(el('span', 'badge', ASSOC[c.assoc]));
   if (c.pending) who.append(el('span', 'badge', 'Pending'));
   const text = el('div', 'text markdown-body');
@@ -947,8 +947,8 @@ function msgEl(c, th, rerender) {
           if (!ta.value.trim()) return;
           save1.disabled = true;
           try {
-            const res = await apiPost('/api/comment/edit', { ...prRef(), kind: th.kind, commentId: c.id, text: ta.value });
-            c.body = res.body; c.updatedAt = res.updatedAt;
+            const res = await apiPost('/api/comment/edit', { ...prRef(), kind: th.kind, commentId: c.id, text: ta.value, pending: !!c.pending, nodeId: c.nodeId || null });
+            c.body = res.body; c.updatedAt = res.updatedAt; c.edited = true;
             rerender();
           } catch (e) { showErr(err, e); save1.disabled = false; }
         });

@@ -136,7 +136,8 @@ test('without any token, API calls fail with a helpful 401', async () => {
 test('GET /api/pr includes markdown review comments in compact form', async () => {
   const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
   assert.deepEqual(j.comments.map((c) => c.id), [101, 102, 103, 104, 105, 301, 302]); // src/x.js dropped
-  const { canUpdate, canDelete, pending, reactions, nodeId, thread, updatedAt, ...base } = j.comments[0];
+  const { canUpdate, canDelete, pending, edited, reactions, nodeId, thread, updatedAt, ...base } = j.comments[0];
+  assert.equal(edited, false);
   assert.deepEqual({ canUpdate, canDelete, pending, reactions, nodeId, thread: thread.id }, { canUpdate: false, canDelete: false, pending: false, reactions: [], nodeId: 'PRRC_101', thread: 'PRRT_101' });
   assert.deepEqual(base, {
     id: 101, replyTo: null, path: 'docs/plan.md', line: 6, originalLine: 6, startLine: 3, originalStartLine: 3,
