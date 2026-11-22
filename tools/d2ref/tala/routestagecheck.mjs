@@ -115,7 +115,7 @@ export function checkCase(c) {
   try { g = loadGraph(c); } catch (e) { if (msg(e) === null) throw e; return `load: ${msg(e)}`; }
   let err = null;
   const changedGo = firstDiff(normalize(c.graph), c.args.expect.graph) !== null;
-  stats.byKind[c.kind].changed = (stats.byKind[c.kind].changed ?? 0) + (changedGo ? 1 : 0);
+  if (stats.byKind[c.kind]) stats.byKind[c.kind].changed = (stats.byKind[c.kind].changed ?? 0) + (changedGo ? 1 : 0);
   try { if (!process.env.ROUTECHECK_NOOP) STAGES[c.kind](g, c.args); } catch (e) { if (msg(e) === null) { e.message = `${c.name}: ${e.message}`; throw e; } err = msg(e); }
   const want = c.args.expect;
   if (err !== (want.err ?? null)) return `error: JS ${err} / Go ${want.err}`;

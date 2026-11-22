@@ -10,7 +10,7 @@ needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelge
 **T1 (`loops`, `grouping`, `proximity`, `trees`): done** (section "T1" at the end). Not started: everything from `hierarchy` up (plan below).
 
 **Status (T1, `routing`):** the **core** of `internal/routing` is ported and verified (OVG, edge router, slingshot, guards; section "Routing core" below): `public/d2/tala/routing/`,
-`routing/core.js` is the API boundary to the stage half, which is not ported yet.
+`routing/core.js` is the API boundary to the stage half. **The stage half is ported too** (section "Routing stages" below): the pipeline's routing stage functions are `routing/index.js`.
 
 **Status (T1, `packing`, `labeling`, `quality`): done**, see "Packing, labeling and quality (T1)" at the end: ported line for line and identical to Go on
 every stage and function input of the harness (below), including work units. Plan rows 7, 8 and 9 are done.
@@ -36,6 +36,7 @@ the other packages from `loops` up are ported by other agents (plan below).
 | `internal/trees` | `tala/trees.js` | 2707 (2340) | `t1diff stages` 3 (`PreprocessTrees`); `talat1ops` op `trees` (Preprocess + Place as placement calls them): see T1 |
 | `slices.SortFunc`, `SortStableFunc`, `cmp.Compare` | `tala/goslices.js` | n/a | `talat1ops` op `slices`: 2,300 arrays |
 | `internal/routing` **core** (OVG, router, slingshot, guards: about 9.9k of the 15.7k lines) | `tala/routing/*.js` (`core.js`) | about 9900 | `tools/d2ref/tala/routingcheck.mjs`: 6328 recorded `RouteGraph` calls identical (corpus x 3 seeds, e2e, fixtures, 2 fuzz families, `considerNodeLabels` variants), 11/11 golden OVGs, stage 30 on 1865 graphs (section "Routing core") |
+| `internal/routing` **stage half** (coordinator rest, graph_stage, standalone_router, postprocess, balance*, nudge, shortcut, swap_ports, edge_simplify, atomic stages: about 7k) | `tala/routing/{route_stage_atomic,coordinator,graph_stage,standalone_router,postprocess,balance_route_guard,balance_crossings,port_interior_balance,nudge_channels,shortcut_routes,swap_ports,edge_simplify,trace_stage,index}.js` | about 7000 | `routestagecheck.mjs`: stages 21-22, 24-31, 34, 35 and `RouteEdges` in isolation (Go's graph before and after each, deep state, flags): 88380/88380 stage cases over corpus, e2e, fixtures and 3 fuzz families; work limits, rollback, cancellation (section "Routing stages") |
 | `internal/packing` (`binpack.go`, `guard.go`, `routed_container.go`, `combine*.go`, `snapshot.go`) | `tala/packing.js` | 3059 (1552) | `talapack`: BinPack stages 18 and 32 of the corpus and fixtures with deep state 5880/5880 identical (graph and work units), fuzz programs 9684/9684, direct cases (work limits used-1..0, containers as root, canceled context, mutated graphs) 4737/4737; `talacombine` (CombineSubgraphs of split subgraphs with random offsets and obstacles) 6726/6726 |
 | `internal/labeling` | `tala/labeling.js` | 2080 (681) | `talaplace`: PlaceLabels stage 33 2940/2940 identical (positions, percentages, work units), fuzz programs 4842/4842, direct: Place, PlaceNewEdges, Initialize, PositionArrowheadLabel, limits and cancellation 8825/8825; the Go tests that need no fixtures are ported (`test/tala-pkg.test.js`) |
 | `internal/quality` | `tala/quality.js` | 1271 (389) | `talaquality`: EvaluateWithArea and Inspect on graphs after stages 17, 24, 32, 33, 36 14126/14126 (+574 Go panics skipped), fuzz programs 17004/17004 (+7206 Go panics skipped), direct 2455/2455 (+231 skipped) (penalty, area, every metric, work units, limits); `pkgscores.mjs`: the per-seed `scores` dump of the whole corpus 2859/2859 and the seed selection 953/953; `talascore` (Score.Compare incl. NaN, Inf, negative areas) |
@@ -254,7 +255,7 @@ goes into the same directory, importing `./core.js`.
 | `coordinator.go` (the part the router calls) | `route_line.js` | `GenerateRouteResponse`, the flavor names, `routeLine`/`routeLineGuarded`/`routeLineChecked`, `edgeCanOverlapEdges`, `findOverlappingEdges`, `sourceAndTargetClusterNodes`, `maxSideLength`, `hasSharpAngleToBorder` |
 | `route_search_guard.go`, `route_stage_guard.go` (guards), `work.go`, `tuning.go` | `route_search_guard.js`, `route_stage_guard.js`, `route_limits.js`, `work.js`, `tuning.js` | `RouteSearchWorkGuard`, `RouteWorkGuard`, the aggregate-work context, `stableSortRouteValues`; the limit constants are gathered in `route_limits.js` (a leaf module: breaks import cycles) |
 | `standalone_route_guard.go`, `cluster_route_guard.go`, `cost.go`, `geometry.go`, `turns.go`, `filter.go`, `trace.go`, `snapshot.go` | `standalone_route_guard.js`, `cluster_route_guard.js`, `cost.js`, `geometry.js`, `turns.js`, `filter.js`, `trace.js`, `snapshot.js` | guarded helpers, `traceToShapeBorder` |
-| **not ported (the stage half)** | | `coordinator.go` (flavor workers, `finalizeSelectedRoutes`, `reorderSelectedRoutes`, `routeEdgesWithResourceGuards`, `routeAdditionalEdgesWithResourceLimits`, `routeSentinelEdge`, `routeInSShape`, `StraightEdgesFallback`, `ReorderDuplicates`, `Crosshatch`), `graph_stage.go`, `standalone_router.go` (`RouteEdges`), `postprocess.go`, `nudge_channels.go`, `shortcut_routes.go`, `swap_ports.go`, `edge_simplify.go`, `balance_crossings.go`, `port_interior_balance.go`, `balance_route_guard.go`, `trace.go`'s two stage entry points, and from `route_stage_guard.go` the atomic-stage machinery (`captureRouteMutations`, `validateRouteStageGeometry`, `routeStageGraphBoundingBox`, `runAtomicRouteStage*`; `snapshot.js` has the snapshot types they use) |
+| **the stage half** (ported later, see "Routing stages") | `route_stage_atomic.js`, `coordinator.js`, `graph_stage.js`, `standalone_router.js`, `postprocess.js`, `balance_route_guard.js`, `balance_crossings.js`, `port_interior_balance.js`, `nudge_channels.js`, `shortcut_routes.js`, `swap_ports.js`, `edge_simplify.js`, `trace_stage.js`, `index.js` | |
 
 **API for the stage half.** `buildOVGFromGraphWithGuard(g, nearbyNodes, ovgGuard)` (or `...WithLimits(ctx, g, nearby, limits)`), `defaultOVGBuildLimits()`,
 `newOVGBuildGuard(ctx, limits)`; `newOVGEdgeRouterWithWorkLimit(ctx, flavor, ovg, g, existingRoutes, edges, workLimit)` -> router; `router.generateRoutes(workerCtx,
@@ -333,6 +334,63 @@ The corpus check (1370 calls, Go run and JS replay) takes about 150 s on a share
 - Not verified by the call replay (ported line for line, exercised by later stages): `considerNodeLabels` outside the `routinglabels` mode, `tryStraightEdgeFallbackGuarded`,
   `reorderDuplicatesInEdgesGuarded`, `traceToShapeBorderGuarded` (the stage-30 check covers `traceToShapeBorder`), the unguarded branches of `routeLineChecked`, `snapshot.js`,
   `makeLoopRoute`, `treeEdgePath`, `OVG.unmarshalJSON`.
+## Routing stages (`public/d2/tala/routing/`, the second half of `internal/routing`)
+
+`routing/index.js` re-exports `core.js` and the stage files; `stagepkgs.js` resolves the engine's stage functions from it by name: `routeGraph`, `routeGraphWithWorkLimit`
+(stages 21 and 24), `crosshatch` (22), `simplifyEdgeRoutes` (25), `swapAllEdgePorts` (26), `straightEdgesFallback` (27), `balanceEdgeSegments` (28),
+`fixClusterEdgeBranching` (29), `traceEdgesToShapeBorder` (30), `reorderDuplicates` (31), `nudgeEdgeChannels` (34), `shortcutEdgeRoutes` (35), `routeEdges` (D2's router API).
+Every post-processing stage runs in `runAtomicRouteStage` (`route_stage_atomic.js`): validation, a snapshot of everything the stage can touch, rollback on any error or panic
+(the snapshot restores the cost caches, cell size, node positions and graph pointers, every edge). The `*WithLimit` variants take an explicit aggregate work limit (the Go
+tests' injection points). One JS file per Go file group (sizes gzipped: see the final report of the port); Go names in camelCase, errors thrown as `GoError`.
+
+- Flavor workers (`coordinator.js`): Go runs the three flavors as goroutines and sorts the responses back to the declared order; here they run one after another in that order
+  (all of them, even after a panic; the first panic in router order is reported). Selection compares the distances in the fixed flavor order.
+- Maps keyed by Go structs: `lockedEdgeSegments` (`map[EdgeSegment]bool`, key = the two point pointers and the edge) is keyed by object identity (`segmentKey` in `postprocess.js`),
+  `map[geo.Point]` is `PointMap`, `segmentRanges` (`map[Range]`) is keyed by the two floats. Go's random range orders (orientation map of SwapEdgePorts, cluster map of
+  FixClusterEdgeBranching, `best` proposal map of the nudge pass) are insertion order here: the results do not depend on them (the stage check agrees on every input).
+- `math.Hypot` is Go's algorithm (`placementcost._internals.goHypot`); on 2M random pairs it equals V8's `Math.hypot`, which `quality.js` and `packing.js` use.
+- Core fixes found by the stage check: `snapshotPointer(null)` had no `restore` (an optional label that was nil crashed a rollback); the `TopDownLeftRight`/cluster/anchor sorts of
+  the core now use `goslices.sortStableFunc` (the TopDownLeftRight comparator is not a strict weak order for distinct nodes at the same position).
+- `routeAdditionalEdges` passes an empty array where Go has a nil `nearbyNodes`; `n.portOwners()` is a Map (Go ranges over its keys).
+- Spare slice capacity: Go's snapshot charges `cap(edge.Points)`; JS charges the length, so the aggregate work of a JS stage may be lower than Go's when routes have spare capacity.
+
+### How the stages are checked (`tools/d2ref/tala/routestagecheck.mjs`)
+
+Go side (new files only): `xdump/routestage_xdump.go` (modes `routecases`, `routestage`), `overlay/routing/xdump_stages.go` (export shims: every stage with an explicit limit,
+`XRouteEdges`), `overlay/engine/xdump_flags.go` (+ one line in `engine_xdump.go`: the pipeline flags `forceReroute`/`edgeRoutingComplete`), `overlay/layoutgraph.routecheck.go`
+(margin/padding setters). `routecases` records for every one of the stages above Go's graph after stage k-1 with the deep state of `pkg_xdump.go` (`takeSnap`: margins, paddings, loop
+offsets, nears, each node's own edge order, label/icon `positionFixed`, spare capacity) and the pipeline flags, plus Go's graph and deep state after stage k; for the final graph of
+every seed it also records five `RouteEdges` selections (all edges, the first, every second, every third from the second, the last; routes kept or removed).
+
+```bash
+export TALA_REF=/tmp/tala-ref-routing; tools/d2ref/tala/setup.sh
+cd tools/d2ref
+node tala/routestagecheck.mjs check tala-corpus.jsonl --seeds 1,2,3     # also tala-e2e.jsonl, tala-fixtures.jsonl, tala-routingfuzz.jsonl, fuzzlayout/fuzzgrid programs
+node tala/routestagecheck.mjs check <cases> --save f.jsonl; node tala/routestagecheck.mjs replay f.jsonl     # no Go for the replay
+node tala/routestagecheck.mjs limits f.jsonl --every 7     # work-limit boundary, rollback after every failure, canceled context, against Go
+node --test ../../test/tala-routing-stages.test.js         # 17 recorded Go stage runs, no Go needed
+```
+
+**Results (graph and deep state identical to Go; `identical/total`):**
+
+| input | stage cases | identical |
+|---|---|---|
+| D2 corpus, 1077 inputs, seeds 1,2,3 (1042 stage-capable runs: 3123 runs of each stage, 6006 `RouteEdges` selections) | 43482 | 43482 |
+| e2e cases with goldens, 309 inputs, seed 1 | 5329 | 5329 |
+| graph fixtures of `internal/testdata`, 115, seed 123 | 1953 | 1953 |
+| `routingfuzz.mjs` 400 programs, seeds 1,2 | 13600 | 13600 |
+| `fuzzlayout.mjs` 700 (seed 11), seeds 1,2 | 24008 | 24008 |
+| `fuzzgrid.mjs` 250, seeds 1,2 | 3008 | 3008 |
+
+The stages really change things (in the corpus: EdgeRouting 1329 of 3123 graphs, StraightEdgesFallback 1163, BalanceEdgeSegments 932, TraceEdgesToShapeBorder 110, Nudge 8, Swap 10, Crosshatch 6,
+Simplify 1, FixClusterEdgeBranching 1; a no-op JS stage fails the check). Work limits (corpus sample, 193 stage graphs): the minimal successful limit and the error text below it equal
+Go's in 190, 2 more differ only by spare capacity, 1 EdgeRouting case differs because Go's own OVG-build work counter is random from run to run (the same graph needs 11475..13231 in Go, JS 13231);
+rollback after every failed limit is exact and the canceled-context errors are identical in all 193. `routingcheck.mjs` (the core) still identical after the sort change.
+ReorderDuplicates and ShortcutEdgeRoutes rarely change anything in the corpora (3 and 5 graphs in the fuzz families) but are exercised on every graph.
+
+**Not checked against Go:** the cancel-after-N-polls behavior of the Go tests (the number of `ctx.Err()` polls differs by design: `cachedContextErr` polls every time), exhaustion of the
+default 1e9-order budgets, the panic path of a flavor worker (unit-tested in Go only), `StraightEdgesFallback` rollback after a mid-run error.
+
 ## hierarchy and placementcost (T1)
 
 `public/d2/tala/hierarchy.js` (discovery, eligibility, layered placement, crossing minimization, sifting, Brandes-Kopf alignment, compound

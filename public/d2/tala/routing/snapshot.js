@@ -11,7 +11,7 @@
 
 /** snapshotPointer(pointer): `pointer` is an object, null, or (for *string, *int fields) a primitive. */
 export function snapshotPointer(pointer) {
-  if (pointer === null || pointer === undefined) return { pointer: null, value: null };
+  if (pointer === null || pointer === undefined) return { pointer: null, value: null, restore() { return null; } };
   if (typeof pointer !== 'object') return { pointer, value: pointer, primitive: true, restore() { return this.pointer; } };
   return { pointer, value: copyOwn(pointer), restore() { Object.assign(this.pointer, this.value); return this.pointer; } };
 }

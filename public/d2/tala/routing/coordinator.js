@@ -346,7 +346,7 @@ export function routeAdditionalEdgesWithResourceLimits(ctx, g, edges, limits, se
   const newEdges = new Set();
   for (const e of edges) newEdges.add(e);
 
-  const ovg = buildOVGFromGraphWithLimits(ctx, g, null, limits);
+  const ovg = buildOVGFromGraphWithLimits(ctx, g, [], limits);
   const guard = ovg.buildGuard;
 
   const existingRoutes = [];
