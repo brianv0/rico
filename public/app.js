@@ -232,8 +232,10 @@ async function showWho() {
       const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
       a.href = signinUrl();
     } else if (res.ok && me.hosted) {
-      who.innerHTML = `${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : ''}<span>${esc(me.login)}</span>`;
-      const out = who.appendChild(el('button', 'btn', 'Sign out'));
+      // just the avatar; who you are and Sign out are in its menu
+      who.innerHTML = `<details class="menu" id="account"><summary aria-label="Account: ${esc(me.login)}" title="${esc(me.login)}">${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : `<span class="btn">${esc(me.login)}</span>`}</summary><div class="menu-pop"><div class="menu-head">Signed in as <b>${esc(me.login)}</b></div></div></details>`;
+      const out = who.querySelector('.menu-pop').appendChild(el('button', 'menu-item'));
+      out.innerHTML = `${icon('sign-out')} Sign out`;
       out.type = 'button';
       out.addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }); location.reload(); });
     }
@@ -2386,6 +2388,17 @@ function setupTheme() {
   applyThemeSheets();
 }
 setupTheme();
+// the header's icon buttons, and its menus: one open at a time, closed by a click elsewhere or Escape
+$('#load button').innerHTML = icon('arrow-right');
+$('#settings > summary').innerHTML = icon('gear');
+document.addEventListener('click', (e) => { for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false; });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  for (const m of document.querySelectorAll('details.menu[open]')) { m.open = false; m.querySelector('summary').focus(); }
+});
+document.addEventListener('toggle', (e) => {
+  if (e.target.matches?.('details.menu') && e.target.open) for (const m of document.querySelectorAll('details.menu[open]')) if (m !== e.target) m.open = false;
+}, true);
 const MM = { auto: 'Comments: auto', aligned: 'Comments: aligned', sync: 'Comments: synced' };
 const labelMargin = () => { $('#mmode').textContent = MM[marginMode]; };
 $('#mmode').title = 'Comments column: auto switches to a synced, sticky column when the comments outgrow the document; aligned keeps each next to its text';

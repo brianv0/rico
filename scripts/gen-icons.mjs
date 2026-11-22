@@ -11,6 +11,7 @@ const NAMES = [
   'check', 'comment', 'comment-discussion', 'git-pull-request', 'git-pull-request-draft', 'git-merge', 'git-pull-request-closed',
   'triangle-down', 'plus', 'x', 'sidebar-expand', 'sidebar-collapse', 'filter', 'kebab-horizontal', 'link', 'info', 'light-bulb', 'report',
   'alert', 'stop', 'diff-added', 'diff-modified', 'diff-removed', 'diff-renamed', 'unfold', 'file-code', 'check-circle-fill', 'dot-fill', 'git-commit',
+  'gear', 'arrow-right', 'sign-out',
 ];
 const out = {};
 for (const n of NAMES) {

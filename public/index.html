@@ -21,11 +21,16 @@
       <input id="pr" type="text" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pr-list" aria-label="Pull request" placeholder="https://github.com/owner/repo/pull/123  or  owner/repo#123">
       <ul id="pr-list" role="listbox" aria-label="Pull request suggestions" hidden></ul>
     </div>
-    <button type="submit" class="btn">Load PR</button>
+    <button type="submit" class="btn btn-icon" aria-label="Load PR" title="Load PR"></button>
   </form>
   <div id="status" role="status"></div>
-  <button id="mmode" class="btn" type="button"></button>
-  <button id="theme" class="btn" type="button" title="Colour theme: follow the system, or force light or dark"></button>
+  <details id="settings" class="menu">
+    <summary class="btn btn-icon" aria-label="Settings" title="Settings"></summary>
+    <div class="menu-pop">
+      <button id="mmode" class="menu-item" type="button"></button>
+      <button id="theme" class="menu-item" type="button" title="Colour theme: follow the system, or force light or dark"></button>
+    </div>
+  </details>
   <div id="who"></div>
 </header>
 
