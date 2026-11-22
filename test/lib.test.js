@@ -367,10 +367,11 @@ test('prPath / parsePrPath round-trip a linkable PR location, with an optional c
   const { prPath, parsePrPath } = await import('../public/lib.js');
   const pr = { owner: 'acme', repo: 'docs', number: 7 };
   assert.equal(prPath(pr), '/github.com/acme/docs/7');
-  assert.equal(prPath(pr, 'abcdef1234567890'), '/github.com/acme/docs/7@abcdef1');
-  assert.deepEqual(parsePrPath('/github.com/acme/docs/7@abcdef1'), { instance: 'github.com', owner: 'acme', repo: 'docs', number: 7, sha: 'abcdef1' });
+  assert.equal(prPath(pr, 'abcdef1234567890'), '/github.com/acme/docs/7/abcdef1'); // the commit is its own path segment, no '@'
+  assert.deepEqual(parsePrPath('/github.com/acme/docs/7/abcdef1'), { instance: 'github.com', owner: 'acme', repo: 'docs', number: 7, sha: 'abcdef1' });
   assert.deepEqual(parsePrPath('/ghe.corp.com:8443/o/r/12/'), { instance: 'ghe.corp.com:8443', owner: 'o', repo: 'r', number: 12, sha: '' });
-  // Cloudflare's asset server redirects '@' to '%40': both spellings name the same commit
+  // Older shared links still work: the '@' form, and the '%40' Cloudflare's asset server redirected it to
+  assert.deepEqual(parsePrPath('/github.com/acme/docs/7@abcdef1'), { instance: 'github.com', owner: 'acme', repo: 'docs', number: 7, sha: 'abcdef1' });
   assert.deepEqual(parsePrPath('/github.com/brianv0/rico/2%40033896c'), { instance: 'github.com', owner: 'brianv0', repo: 'rico', number: 2, sha: '033896c' });
   assert.equal(parsePrPath('/'), null);
   assert.equal(parsePrPath('/vendor/x.js'), null);

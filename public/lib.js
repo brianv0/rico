@@ -17,17 +17,18 @@ export function previewLines(text, head = 5, tail = 5) {
   return { head: lines.slice(0, head), omitted: lines.length - head - tail, tail: lines.slice(-tail) };
 }
 
-/** The shareable page path for a PR: /github.com/owner/repo/7 or /github.com/owner/repo/7@abc1234 (the head commit). */
+/** The shareable page path for a PR: /github.com/owner/repo/7 or /github.com/owner/repo/7/abc1234 (the head commit). */
 export function prPath({ owner, repo, number }, sha = '', instance = 'github.com') {
-  return `/${instance}/${owner}/${repo}/${number}${sha ? '@' + String(sha).slice(0, 7) : ''}`;
+  return `/${instance}/${owner}/${repo}/${number}${sha ? '/' + String(sha).slice(0, 7) : ''}`;
 }
 
 /**
  * Inverse of prPath. -> {instance, owner, repo, number, sha} | null
- * Accepts the '@' percent-encoded too: some servers (Cloudflare's static assets) redirect /…/7@abc to /…/7%40abc.
+ * The commit is a plain path segment (/…/7/abc1234); the older '@' form (/…/7@abc1234), and its percent-encoding
+ * '%40' that some static hosts (Cloudflare's assets) redirect to, are still accepted so shared links keep working.
  */
 export function parsePrPath(pathname) {
-  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:@([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || '').replace(/%40/gi, '@'));
+  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:[@/]([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || '').replace(/%40/gi, '@'));
   if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null; // dot segments, as in parsePrRef
   return { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], number: Number(m[4]), sha: m[5] || '' };
 }
