@@ -4,7 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
-import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff } from './lib.js';
+import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
 // The page shows every changed markdown file as a card (like GitHub). All the selection / anchoring /
@@ -545,6 +545,7 @@ async function loadView(v) {
         } catch { /* a bonus: without the old file the Source diff still shows removals */ }
       }
       v.doc.textContent = '';
+      v.text = text;
       v.loaded = true;
       withView(v, () => renderDoc(text));
       new ResizeObserver(() => { cancelAnimationFrame(v.raf); v.raf = requestAnimationFrame(() => withView(v, layoutMargin)); }).observe(v.doc);
@@ -724,10 +725,50 @@ function renderRemoved(v) {
     const clones = mine.map((l) => placeRemoved(v, old, l.e, target, prev, run.afterNew));
     // word-level marks: pair the removed blocks with the changed new blocks that follow, by position within the run
     if (ti >= 0) {
-      const added = newLeaves.slice(ti).filter((l) => { for (let n = l.b.s; n <= l.b.e; n++) if (v.diff.added.has(n)) return true; return false; });
-      clones.forEach((c, i) => { if (c && added[i]) markWords(c, added[i].e); });
+      const added = []; // the changed blocks that follow the removal directly: a removal and an addition elsewhere are not one edit
+      for (const l of newLeaves.slice(ti)) { let ch = false; for (let n = l.b.s; n <= l.b.e && !ch; n++) ch = v.diff.added.has(n); if (!ch) break; added.push(l); }
+      clones.forEach((c, i) => { if (c && added[i] && !(mergeWordsOn && mergeWords(c, added[i].e))) markWords(c, added[i].e); });
     }
   }
+}
+
+// GitHub-style merged paragraph: the new block keeps its place, and the words that were removed are shown inline (struck
+// through) where they used to be, next to the inserted ones (underlined). The old block stays in the document, collapsed
+// (.away), as the anchor for comments on old lines. Selection code reads three kinds of text inside such a block:
+// unchanged and inserted words are the new file (RIGHT), words inside .wdel are the old file (LEFT).
+let mergeWordsOn = (() => { try { return localStorage.getItem('rico:merge') !== 'off'; } catch { return true; } })();
+function mergeWords(oldEl, newEl) {
+  const tag = oldEl.tagName;
+  if (tag !== newEl.tagName || !/^(P|H[1-6]|LI)$/.test(tag) || newEl.querySelector('ul,ol') || oldEl.querySelector('ul,ol') || newEl.querySelector('.wdel')) return false;
+  const oldText = oldEl.textContent;
+  const newText = newEl.textContent;
+  const { groups, same } = diffGroups(oldText, newText, 3);
+  if (!same || !groups.length) return false; // nothing in common: it is a rewrite, keep the two whole blocks
+  wrapRanges(newEl, groups.filter((g) => g.ins).map((g) => g.ins), 'wa');
+  for (const g of groups.filter((x) => x.del).reverse()) insertDeleted(newEl, g.at, oldText.slice(g.del[0], g.del[1]).replace(/\s+/g, ' '), newText);
+  newEl.classList.add('wmerge');
+  newEl.dataset.lo = oldEl.dataset.l;
+  oldEl.closest('.rm').classList.add('away');
+  return true;
+}
+
+function insertDeleted(root, at, text, newText) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('.wdel') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  let ref = null;
+  for (let n = w.nextNode(), pos = 0; n; n = w.nextNode()) {
+    const end = pos + n.data.length;
+    if (at >= pos && at < end) { ref = at > pos ? n.splitText(at - pos) : n; break; }
+    pos = end;
+  }
+  let anchor = ref;
+  while (anchor && anchor.parentNode !== root && !anchor.previousSibling && anchor.parentNode.classList.contains('wa')) anchor = anchor.parentNode; // before the insertion, not inside it
+  const insHere = !!(anchor && anchor.classList && anchor.classList.contains('wa'));
+  const d = el('del', 'wdel', text);
+  const frag = document.createDocumentFragment();
+  if (at > 0 && !/\s/.test(newText[at - 1])) frag.append(' ');
+  frag.append(d);
+  if (at < newText.length && !/\s/.test(newText[at]) && !insHere) frag.append(' ');
+  (anchor ? anchor.parentNode : root).insertBefore(frag, anchor || null);
 }
 
 // Wrap the words that differ between a removed block and its new counterpart (text nodes only: the text and data-l stay the same).
@@ -1649,6 +1690,7 @@ function spanNodes(range) {
   const out = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     if (!range.intersectsNode(n)) continue;
+    if (n.parentElement && n.parentElement.closest('.away')) continue; // a collapsed old block: its words are shown inline in the merged paragraph
     let s = n === range.startContainer ? range.startOffset : 0;
     let e = n === range.endContainer ? range.endOffset : n.data.length;
     while (s < e && /\s/.test(n.data[s])) s++;
@@ -1662,9 +1704,33 @@ function textSpan(range) {
   return all.length ? { first: all[0], last: all[all.length - 1] } : null;
 }
 
+const inDel = (n) => !!(n.parentElement && n.parentElement.closest('.wdel'));
+// The words of a merged paragraph as one file reads them (skip = what the other file adds), up to a text position.
+function kindText(block, stop, stopOffset, skip) {
+  const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let out = '';
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    if (n.parentElement.closest(skip)) continue;
+    if (n === stop) return out + n.data.slice(0, stopOffset);
+    out += n.data;
+  }
+  return out;
+}
+
 function lineAt(node, offset, which) {
   const block = node.parentElement && node.parentElement.closest('[data-l]');
   if (!block || !doc.contains(block)) return null;
+  if (block.classList.contains('wmerge')) { // a merged paragraph: removed words count in the old file, the rest in the new one
+    const old = inDel(node);
+    const [a, z] = (old ? block.dataset.lo : block.dataset.l).split('-').map(Number);
+    const lines = old ? (cur.oldLines || []) : state.lines;
+    const skip = old ? '.wa' : '.wdel';
+    const before = kindText(block, node, offset, skip);
+    return locateLine(lines, trimBlock(lines, a, z), {
+      which, fence: false, renderedTotal: wordCount(kindText(block, null, 0, skip)), wordsBefore: wordCount(before),
+      midWord: which === 'start' && /\S$/.test(before) && /\S/.test(node.data[offset] || ''), newlinesBefore: 0,
+    });
+  }
   const bounds = blockLines(block);
   const lines = linesOf(block); // removed blocks are numbered in the old file
   if (block.dataset.k === 'diagram' && !node.parentElement.closest('.dia-src pre code')) return which === 'start' ? bounds.s : bounds.e;
@@ -1694,7 +1760,7 @@ function fenceInfo(b, lines = state.lines) {
 // The relevant parts of a selection, one segment per block it touches, in order.
 // Prose is the selected text; code (fences, indented code, D2) is the source lines themselves.
 function segmentsFor(range, opts = {}) {
-  const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]') && range.intersectsNode(e));
+  const leaves = [...doc.querySelectorAll('[data-l]')].filter((e) => !e.querySelector('[data-l]') && !e.closest('.away') && range.intersectsNode(e));
   const segs = [];
   for (const el of leaves) {
     const r = document.createRange();
@@ -1703,6 +1769,15 @@ function segmentsFor(range, opts = {}) {
     if (range.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(range.endContainer, range.endOffset);
     const k = el.dataset.k;
     const lines = linesOf(el);
+    if (el.classList.contains('wmerge')) { // merged paragraph: the words kept or inserted are the quote; removed words are quoted as a diff when mixed
+      const sp = spanNodes(r);
+      const join = (xs) => xs.map((x) => x.node.data.slice(x.s, x.e)).join(' ').replace(/\s+/g, ' ').trim();
+      const delText = join(sp.filter((x) => inDel(x.node)));
+      const newText = join(sp.filter((x) => !inDel(x.node)));
+      if (newText) segs.push({ kind: 'text', text: newText });
+      if (delText) segs.push(opts.mixed ? { kind: 'code', lang: 'diff', text: `- ${delText}` } : { kind: 'text', text: delText });
+      continue;
+    }
     if (opts.mixed && isRemoved(el)) { // the selection spans removed and kept text: show what was removed as a diff
       const b = blockLines(el);
       segs.push({ kind: 'code', lang: 'diff', text: lines.slice(b.s - 1, b.e).map((l) => `- ${l}`).join('\n') });
@@ -1752,7 +1827,7 @@ function finishSelection(start, end, segments, range, opts = {}) {
 // A selection is anchored to ONE side of the diff. Inside removed text it is a LEFT (old-file) comment; anything that
 // includes kept or added text anchors to the new-file lines it covers, and removed text in between is quoted as a diff.
 function describeSelection(range) {
-  const sideOf = (n) => { const b = n.parentElement && n.parentElement.closest('[data-l]'); return b && doc.contains(b) ? (isRemoved(b) ? 'LEFT' : 'RIGHT') : null; };
+  const sideOf = (n) => { const b = n.parentElement && n.parentElement.closest('[data-l]'); return b && doc.contains(b) ? (isRemoved(b) || inDel(n) ? 'LEFT' : 'RIGHT') : null; };
   const mapped = spanNodes(range).filter((x) => sideOf(x.node));
   if (!mapped.length) return null;
   const right = mapped.filter((x) => sideOf(x.node) === 'RIGHT');
@@ -2315,4 +2390,15 @@ renderPanel();
 showWho();
 
 // test hook
-window.__rico = { setMarginMode: (m) => { marginMode = m; try { localStorage.setItem('rico:margin', m); } catch { /* ignore */ } layoutAll(); labelMargin(); }, setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
+const setMergeWords = (on) => {
+  mergeWordsOn = on;
+  try { localStorage.setItem('rico:merge', on ? 'on' : 'off'); } catch { /* ignore */ }
+  const b = $('#merge-toggle');
+  if (b) b.setAttribute('aria-pressed', String(on));
+  hideComposer();
+  for (const v of views.values()) if (v.loaded && v.mode !== 'source') { v.doc.textContent = ''; withView(v, () => renderDoc(v.text)); }
+  afterChange();
+};
+$('#merge-toggle')?.addEventListener('click', () => setMergeWords(!mergeWordsOn));
+$('#merge-toggle')?.setAttribute('aria-pressed', String(mergeWordsOn));
+window.__rico = { setMergeWords, setMarginMode: (m) => { marginMode = m; try { localStorage.setItem('rico:margin', m); } catch { /* ignore */ } layoutAll(); labelMargin(); }, setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
