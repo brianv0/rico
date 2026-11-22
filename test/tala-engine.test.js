@@ -274,6 +274,27 @@ test('result validation: the messages of result_validate.go', () => {
   assert.ok(Number.isFinite(evaluated.score.penalty) && evaluated.score.area >= 0);
 });
 
+// ---- cancellation in the root package: the messages of layout.go and patch.go ----------------------------------------------------------------
+
+test('root package: entry checks and the cancellation messages of Layout, the patch commits and RouteEdges', async () => {
+  const [c, cancel] = context.withCancel(ctx());
+  cancel();
+  const g = { root: {}, data: null };
+  assert.throws(() => talaLayout.layout(null, g, null), /^GoError: TALA layout requires a context$|TALA layout requires a context/);
+  assert.throws(() => talaLayout.layout(c, g, null), (e) => e === context.Canceled);
+  assert.throws(() => talaLayout.layout(ctx(), { root: null }, null), /tala requires a D2 graph with a root object/);
+  assert.throws(() => talaLayout.layout(ctx(), null, null), /tala requires a D2 graph with a root object/);
+  const patch = await import('../public/d2/tala/patch.js');
+  assert.throws(() => patch.commitLayoutPatch(c, {}), (e) => e.message === 'tala layout stopped before commit: context canceled' && e.cause === context.Canceled);
+  assert.throws(() => patch.commitRoutePatch(c, {}), (e) => e.message === 'tala edge routing canceled before commit: context canceled');
+  assert.throws(() => patch.applySeedResult(c, g, {}), (e) => e.message === 'TALA layout canceled before apply: context canceled');
+  assert.throws(() => patch.applySeedResult(ctx(), g, { graph: null }), /TALA evaluated seed is empty/);
+  assert.throws(() => patch.applySeedResult(ctx(), g, { graph: lg.newGraph(), bindings: { objectIDs: null, edgeIDs: new Map(), edgeDestinations: new Map() } }), /TALA evaluated seed has no D2 bindings/);
+  assert.equal(patch.preferContextError(c, 'edge routing', errorsNew('x')).message, 'tala edge routing stopped: context canceled');
+  assert.equal(patch.preferContextError(ctx(), 'edge routing', errorsNew('x')).message, 'x');
+  assert.throws(() => talaLayout.routeEdges(null, g, []), /TALA edge routing requires a context/);
+});
+
 // ---- a recorded set of Go traces (tools/d2ref/tala/rootfixture.mjs) -------------------------------------------------------------------------
 
 const fixturePath = new URL('./fixtures/tala-root-replay.json', import.meta.url);

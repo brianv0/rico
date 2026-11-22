@@ -14,6 +14,8 @@ needs), `graphjson`, `limits`, `invariant`, `typedpool`, `graphbounds`, `labelge
 
 **Status (T1, `packing`, `labeling`, `quality`): done**, see "Packing, labeling and quality (T1)" at the end: ported line for line and identical to Go on
 every stage and function input of the harness (below), including work units. Plan rows 7, 8 and 9 are done.
+**T2 (`engine` and the root package, plan rows 12 and 13): done except the full pipeline run**, which needs the `placement` and `routing` stage modules still in other branches (section "Engine and root (T2)" at the end:
+`layout: 'tala'` is wired into `d2lib.js`, the pipeline names its missing stage functions with a `NotPorted` error and lights up when they land).
 **T1 (parallel ports, per package, each in its own branch): `hierarchy` and `placementcost` done** (section "hierarchy and placementcost" below);
 the other packages from `loops` up are ported by other agents (plan below).
 
@@ -39,6 +41,8 @@ the other packages from `loops` up are ported by other agents (plan below).
 | `internal/quality` | `tala/quality.js` | 1271 (389) | `talaquality`: EvaluateWithArea and Inspect on graphs after stages 17, 24, 32, 33, 36 14126/14126 (+574 Go panics skipped), fuzz programs 17004/17004 (+7206 Go panics skipped), direct 2455/2455 (+231 skipped) (penalty, area, every metric, work units, limits); `pkgscores.mjs`: the per-seed `scores` dump of the whole corpus 2859/2859 and the seed selection 953/953; `talascore` (Score.Compare incl. NaN, Inf, negative areas) |
 | `internal/hierarchy` | `tala/hierarchy.js`, `hierarchyrank.js` | 4003 (4955) | `talahierrank` 8000 DAGs x 6 work limits, `talahiersimple` 24815, `talahierstage` 13929 stage inputs + 3965 with budgets and failing contexts + 4512 place/assign on later stages, `talahiercompound` 4998: all identical, see "hierarchy and placementcost" |
 | `internal/placementcost` | `tala/placementcost.js` | 3002 (1747) | `talapcscore` 37651/37651 stage graphs (every function, with and without edge abductions, polls), `talapcunit` 20000 hypot pairs, worker counts, compass tables: see below |
+| `internal/engine` (`pipeline.go`, `compound_candidate.go`) | `tala/engine.js` (+ `stagepkgs.js`) | 737 (3200) | the 37-stage plan, the driver (`runAllStages`, `runLayout`, `Layout`), the stage methods of the ported packages and `CompoundCandidate`: `rootcheck.mjs driver` 1281/1281 scripted runs, `wiring` 18753/18753 + 2214/2214 + 690/690 stage runs, `compound` 1494/1494; the stages of placement and routing are looked up by name (`NotPorted` until merged) |
+| root (`layout.go`, `result.go`, `result_validate.go`, `patch.go`, `RouteEdges`) | `tala/layout.js`, `result.js`, `patch.js` (+ `d2talalayout.js`: the adapter half) | about 1550 (3800) | `rootcheck.mjs replay`: corpus 1077/1077 and the 309 e2e cases (309/309 also against D2's own goldens) with Go's pipeline outputs, `validate` 17276/17276 error injections, `score` 3600/3600 |
 
 ## Running it
 
@@ -447,8 +451,8 @@ what to compare against Go; every stage below is checked with the same pattern: 
 | 9 | `quality` | 1271 | `Graph.area`, `validatePositionedGraphSelection`, `countSegmentCrossings`, labeling | labeling | `scores` per seed (`penalty`, `area`): exact float equality needed for seed selection | the score decides which seed is printed: port early after labeling and diff on `scores` |
 | 10 | `placement` (prescale, prepare, stress init, sized/sizeless optimizers, swap, transpose, align, gap normalization, equidistance, symmetry, dejitter, node placement, pad, normalize) | 9437 | everything: transactions, costs, `abductEdges`, nears, hubs, trees, clusters, loops | grouping, labeling, loops, packing, placementcost, proximity, trees, rand (`Float64` temperature noise, own `rand.New(rand.NewSource(seed))`) | `stages` 0 (`Prescale`) to 17, 19-20 (`CleanupStuff`, `Rescale`), 23 (`Dejitter`), 36 (`Normalize`) | the largest package; split by stage (placement is stages 7-17 of the pipeline: see the list below); the randomized optimizers make any one wrong draw diverge everything after it, so diff after every stage |
 | 11 | `routing` (OVG visibility graph, edge router with flavors, postprocessing, nudging, shortcuts, swap ports, slingshot, tunnels, tree routes) | 15715 | `Graph` costs (`turnCost`, `crossingCost`, `nonCenterPortCost`), ports, `PortEdges`, `graphbounds`, hierarchy, loops, quality | graphbounds, hierarchy, labeling, loops, nodeshape, quality | `stages` 21 (`EdgeRouting`) .. 36 (`Normalize`), and `ovg` fixtures of `testdata/ovg` (`exp` OVG JSON per case) | the biggest; flavors run in parallel in Go but are independent (see Determinism); priority queue tie-breaks and `sort.Slice` calls must use `gosort.js`; budget `routeWorkGuard`. **Core done (T1)**, see "Routing core"; the stage half remains |
-| 12 | `engine` (pipeline, `CompoundCandidate`) | 737 | all | all above | `fstages` against `graph.exp.json` (seed 123), `scores` | `pipeline.go` is a flat list of 37 stages: port early as the skeleton with each stage a no-op and fill in |
-| 13 | root: `Layout`, result validation, patch (`layout.go`, `result.go`, `result_validate.go`, `patch.go`, `RouteEdges`) | about 1500 | adapter bindings | engine | `layout` stage against `tala/e2egolden.mjs` goldens (309) and `diff.mjs layout` with `layout: 'tala'` | the adapter half is done (`d2talalayout.js`): `translateGraph`, the seed plan, the validations shared with the result |
+| 12 | `engine` (pipeline, `CompoundCandidate`) **(done, T2; the full run needs placement and routing)** | 737 | all | all above | `fstages` against `graph.exp.json` (seed 123), `scores` | `pipeline.go` is a flat list of 37 stages: port early as the skeleton with each stage a no-op and fill in |
+| 13 | root: `Layout`, result validation, patch (`layout.go`, `result.go`, `result_validate.go`, `patch.go`, `RouteEdges`) **(done, T2)** | about 1500 | adapter bindings | engine | `layout` stage against `tala/e2egolden.mjs` goldens (309) and `diff.mjs layout` with `layout: 'tala'` | the adapter half is done (`d2talalayout.js`): `translateGraph`, the seed plan, the validations shared with the result |
 
 Pipeline stage indexes (`defaultPipelineStages`, the `index` of `xdump stages`): 0 Prescale, 1 PreprocessSequences, 2 Preprocess, 3 PreprocessTrees, 4 PreprocessHierarchies,
 5 PreprocessClusters, 6 PreprocessHubs, 7 NodePlacement, 8 SwapStuff, 9 Transpose, 10 AlignAxes, 11 GapNormalization, 12 AlignAxes, 13 OptimizeClusters, 14 AlignAxes,
@@ -643,3 +647,96 @@ with active clusters, which is the only place cluster edge labels exist), set ra
   boxes branch of the unrouted candidate loop, `clusterNodeBoundingBoxPlacement` with outside labels and icons on cluster members. These are ported by reading only.
 - **Plan corrections**: `validatePositionedGraphSelection` and `countSegmentCrossings` live in `layoutgraph` (T0 had them); `quality` only calls them. `labeling.Initialize` is called by placement's `Prepare` (stage 2), not by the label stage, so the
   `positionFixed` flags of stage 33 depend on the deep state above. `CombineSubgraphs` is used by node placement (stage 7), not by BinPack: it is checked directly (with `SplitSubgraphs` of T0), and the placement agent will exercise it again.
+
+## Engine and root (T2)
+
+`public/d2/tala/engine.js` (`internal/engine`: `pipeline.go`, `compound_candidate.go`), `layout.js` (`layout.go` and `RouteEdges` of `adapter.go`), `result.js` (`result.go`,
+`result_validate.go`), `patch.js` (`patch.go`), `stagepkgs.js` (not a Go file: the name-based lookup of the stage functions below). Gzipped: 6.0 + 3.7 + 4.8 + 2.8 + 2.0 KB (16.5 KB as one
+stream); with the adapter half (`d2talalayout.js`, 9.3 KB) the whole root package is 26 KB. `d2lib.js` loads `tala/layout.js` lazily, like ELK: `layout: 'tala'` (or
+`vars: {d2-config: {layout-engine: tala}}`), `await loadLayout('tala')` before `compileSync`, `compile` does it itself. Options: the diagram's `tala-seeds` data (takes precedence) or
+`compileOpts.talaOpts = {'tala-seeds': [1, 2, 3]}` (the plugin's JSON); default seeds 1, 2, 3. The edge router of a TALA compile is `routeEdges` (what `d2wasm` gives as `RouterResolver`).
+
+### What the engine needs from `placement` and `routing` (the contract for the two concurrent ports)
+
+`engine.js` calls the stage functions as `stageFn(pkg, camelCaseGoName)` (`stagepkgs.js`). It registers grouping, hierarchy, labeling, packing, proximity and trees itself; for `placement` and
+`routing` it tries these modules at import time (top-level await, a missing module is skipped, any other error in an existing one is thrown): `./placement.js`, `./placement/index.js`,
+`./placement/stages.js` and `./routing/index.js`, `./routing/stages.js`, `./routing/routing.js`, `./routing/graph_stage.js`, `./routing/standalone_router.js`, `./routing/coordinator.js`
+(`STAGE_MODULES` in `stagepkgs.js`: the first module that defines a name wins; **edit that list if the modules have other names, or call `registerPackage('placement', namespace)`**).
+A name that no module defines throws `NotPorted` (`e.pkg`, `e.fn`, `e.stage = {index, name}`; message `TALA placement.prescale is not ported (pipeline stage 0 Prescale)`). It is not a Go error:
+`layout`'s recover sites (`runLocalSeed`, `considerSeedCandidate`, `recoverAsError`) let it through, so it reaches `compile`'s `err` unchanged. Names and signatures (Go's, errors are thrown):
+
+| Go | JS name | returns |
+|---|---|---|
+| `placement.Prescale(g)`, `Prepare(g)`, `Pad(g)`, `Normalize(g)` | `prescale`, `prepare`, `pad`, `normalize` `(g)` | |
+| `placement.Place(ctx, g, seed)` | `place(ctx, g, seed)` with `seed` a BigInt | |
+| `placement.Swap`, `TransposeAll`, `Align`, `BalanceSymmetry` `(ctx, g)` | `swap`, `transposeAll`, `align`, `balanceSymmetry` | |
+| `placement.NormalizeGaps`, `OptimizeClusters`, `Equidistance`, `Dejitter` `(ctx, g)` | `normalizeGaps`, `optimizeClusters`, `equidistance`, `dejitter` | the Go `bool` (changed; `dejitter`: force reroute) |
+| `routing.RouteGraph(ctx, g, options)`, `RouteGraphWithWorkLimit(ctx, g, options, limit)` | `routeGraph`, `routeGraphWithWorkLimit` | the Go `bool` (routing complete) |
+| `routing.GraphRouteOptions` | `{forceReroute, routesPreviouslyCompleted, observer, completionObserver}` | `observer.subgraphRouted(ovg)`, `completionObserver.routingCompleted()` |
+| `routing.SimplifyEdgeRoutes`, `ShortcutEdgeRoutes`, `StraightEdgesFallback`, `TraceEdgesToShapeBorder`, `BalanceEdgeSegments`, `NudgeEdgeChannels`, `FixClusterEdgeBranching`, `ReorderDuplicates`, `SwapAllEdgePorts`, `Crosshatch` `(ctx, g)` | camelCase of the Go name | |
+| `routing.RouteEdges(ctx, g, edges)` | `routeEdges(ctx, talaGraph, talaEdges)` | mutates the edges (routes, label positions, `isCurve`) |
+
+When both packages exist the pipeline runs by itself. `engine.js` also exports `Pipeline`, `newPipeline`, `runLayout(ctx, graph, options, {storeSnapshots, measureStageDurations}, validate)` (a failed
+run carries its pipeline in `e.pipeline`, Go returns it next to the error), `compoundCandidate`, `compoundCrossAxisDetours`, `reroutePlaced`, `defaultPipelineStages` (the 37 `{name, run}` entries,
+frozen array; the entries are mutable so tools can wrap `run`, see `tools/d2ref/tala/enginecheck.mjs` `observeStages`) and `layout(ctx, graph, {seed})` (Go's `engine.Layout`). Stage durations are milliseconds.
+`layout.js` exports `layout(ctx, d2graph, opts)`, `defaultLayout(g)`, `layoutWithOptions(g, opts)`, `hydrateOpts(json)`, `routeEdges`, `routeEdgesDefault`, `coordinateLocalSeeds`, `considerSeedCandidate`,
+`runSeed`, `runLocalSeeds`; `result.js` `evaluateSeedResult`, `LayoutScore`, the validators; `patch.js` `applySeedResult`, `buildLayoutPatch`, `buildRoutePatch`, the commit functions.
+
+### How to run the checks
+
+```bash
+export TALA_REF=/tmp/tala-ref-engine; tools/d2ref/tala/setup.sh        # own copy of the Go harness (it also installs root_trace.go, overlay/engine/xdump_drive.go, xdump/root_engine_xdump.go)
+cd tools/d2ref
+node tala/rootcheck.mjs replay tala-corpus.jsonl [--golden]   # Go's whole compile (xdump roottrace) against the JS root package fed with Go's pipeline outputs; tala-e2e.jsonl --golden also checks D2's goldens
+node tala/rootcheck.mjs validate tala-corpus.jsonl --bases 400 --per 40 --seed 3 --cache /tmp/rootcheck-bases-corpus.json   # error injection into the result validation (also tala-e2e.jsonl)
+node tala/rootcheck.mjs score                                  # layoutScore.compare on NaN/Inf/negative values
+node tala/rootcheck.mjs driver tala-fixtures.jsonl --per 6     # the pipeline driver with scripted stage bodies (errors, cancellation, overflow, timing, empty graph)
+node tala/rootcheck.mjs wiring tala-corpus.jsonl --seeds 1,2,3 # the engine's stage methods for stages 1, 3, 4, 5, 6, 19 on Go's previous-stage graphs, one pipeline object per run
+node tala/hiergen.mjs compound; node tala/rootcheck.mjs compound tala-compound.jsonl   # CompoundCandidate up to its routing trial
+node tala/rootfixture.mjs                                      # regenerates test/fixtures/tala-root-replay.json (recorded Go traces for test/tala-engine.test.js)
+node --test test/tala-engine.test.js                           # 16 unit tests, no Go needed (ports of the Go tests of the stage plan, timing, observer, seed selection, optional candidates)
+# THE FULL PIPELINE (needs placement and routing merged; the deferred counts of these commands then become identical counts):
+node diff.mjs talafstages tala-fixtures.jsonl                  # the 115 fixtures through the JS pipeline, seed 123: every stage graph, final graph, penalty, area (Go: xdump fstages)
+node diff.mjs talascores tala-corpus.jsonl                     # per seed penalty/area, selection, compound, final graph; talastages adds the graph after every stage (heavy: use --only or a sample file)
+node diff.mjs layout tala-corpus.jsonl                         # the whole compile, 1077 cases (the corpus cases carry layout: 'tala'; the 5 TALA errors must error identically; 188 D2 compile errors)
+node diff.mjs e2e e2e.jsonl --layout tala --src <D2 source>    # D2's 309 e2e TALA goldens (seeds [1] as the e2e tests run)
+```
+
+`diff.mjs layout|e2e` pass the case's `seeds` as `talaOpts` and load `tala/layout.js` (`await loadLayout('tala')`); `talascores/talastages/talafstages` defer a case (`notported: placement.prescale`) while a stage is missing.
+`node tala/rootcheck.mjs replay tala-e2e.jsonl --golden` is the harness-side twin of the golden check and is already green with Go's pipeline outputs standing in for the missing stages.
+
+### The Go side (new files only)
+
+`root_trace.go` (installed as `xdump_trace.go` in the root package): `XTraceLayout` is `Layout` with the seeds one after another through the real `layoutPlan`, `newSeedInput`, `runSeed`, `evaluateSeedResult`,
+`coordinateLocalSeeds` (one worker), `considerSeedCandidate`, `engine.CompoundCandidate` and `applySeedResult` (so error texts and the patched D2 graph are the real ones), recording per seed the graph the engine
+produced (even when its evaluation failed), the score and the error; `XTraceRouteEdges` is `RouteEdges` with a callback; `XResultCheck` runs the validators. `overlay/engine/xdump_drive.go`:
+`XInstallScript` replaces the `run` of every `defaultPipelineStages` entry by a scripted stub so the real `Layout`/`runLayout` driver runs with scripted stage bodies; `XCompoundTrace` is the decision
+part of `CompoundCandidate`. Modes (`xdump/root_engine_xdump.go`): `roottrace`, `rootcheck`, `rootscore`, `enginestages`, `enginedrive`, `enginecompound` (headers in the file). `XTraceLayout` and
+`XTraceRouteEdges` copy `Layout` (about 25 lines) and `RouteEdges` (about 45): keep them equal.
+
+### Results (identical to Go in every comparison; nothing is tolerated)
+
+| check | inputs | identical |
+|---|---|---|
+| `replay` (patched diagram and error text of the whole compile; every seed's graph is validated and scored by JS and the score is compared bit for bit, selection and compound decision compared) | D2 corpus (1077 cases, seeds 1,2,3: 1042 layout calls, 3126 seeds, 3 seed errors, 18 router calls, compound kept 5 / rejected 7; 193 Go errors = 188 compile + the 5 TALA ones) | 1077/1077, 0 score, selection or compound mismatches |
+| same, `--golden` | the 309 e2e cases (seed 1: 369 layout calls, 16 router calls, compound kept 4 / rejected 7) | 309/309, and 309/309 against D2's own `tala/board.exp.json` goldens (shapes, routes, label positions) |
+| `validate`: error injection (93 mutators: every field the metadata check binds, every range check, missing/extra/duplicate/renamed nodes and edges, containers, directions, styles, arrowhead labels, input-side changes) | 120 + 400 recorded (input, result) pairs of the e2e and corpus layouts | 4571/4571 and 12705/12705 (122 distinct error messages; about 1800 mutants are rejected by `graphjson.Unmarshal` alike on both sides) |
+| `score` | `layoutScore.compare` on 12 x 12 x 5 x 5 value combinations (NaN, +-Inf, negative, zero) | 3600/3600 |
+| `driver`: real `Layout`/`runLayout` with scripted stage bodies, the graph each stage is entered with, error text, final graph, timing slots | 115 fixtures x (5 fixed + 6 random scripts) + 40 defective + 2 empty graphs: 1307 runs (26 unmarshal errors alike) | 1281/1281 (outcomes: ok, scripted errors, `X: context canceled` per stage, `Autolayout: context canceled`, `CloneGraph: context canceled`, the `Dimensions w:N, h:N reached after stage` invariant) |
+| `wiring`: the stage methods of stages 1, 3, 4, 5, 6, 19 (graph and deep state) | corpus (3126 Go runs), e2e (369), fixtures (115) | 18753/18753, 2214/2214, 690/690 |
+| `compound`: `CompoundCandidate` up to its routing trial (the decision, the detour counts) | 1494 graphs with 3 to 64 top-level containers (stages 20 and 36 of the corpus; Go reasons: 972 no container, 396 PlaceCompound changed nothing, 84 routed, 24 worse alignment, 18 size) | 1494/1494 |
+| `test/tala-engine.test.js` | the stage plan, timing, observer, selection, candidates, validation messages, cancellation messages, 8 recorded Go traces, and the whole root package on a pipeline with stand-in placement/routing | 16/16 |
+
+Also: `diff.mjs layout|graph|svg corpus.jsonl` (dagre) 1077/1077, 1077/1077, 886/886 and `diff.mjs e2e e2e.jsonl` 321/321 after the `goV` fix below; `npm test` passes.
+
+### Findings and deviations
+
+- **`gomath.goV` was wrong for 1e6 <= |x| < 1e21.** Measured with Go 1.27: `fmt.Sprintf("%v", 5e9)` is `5e+09`, `1e6` is `1e+06`, `123456789.0` is `1.23456789e+08`, `999999` and `100000` stay plain: the shortest `%v` switches to the exponent form at `exp >= 6` (the threshold 21 is JavaScript's and `encoding/json`'s). `goV` used 21; it is fixed in `public/d2/gomath.js`. It showed up in the validation messages (`node width is outside the supported range: 5e+09`); `lib/svg` path commands use `%v` too, so SVGs with coordinates over a million now agree with Go (none of the corpora has one).
+- **Go-unstable: `result is missing edge ID N`.** `validateTopology` and `validateLayoutResultMetadata` range over a map of the expected edges, so with several edges missing Go names an arbitrary one (a different ID per run); JS names the first in graph order. `validate`'s `drop-all-edges` mutator compares the message with the ID blanked. Unreachable in production (only consumed sequence edges may be missing, and then none is reported).
+- **`LayoutScore.compare` vs `quality.Score.compare`** are two copies in Go (`result.go`, `quality/score.go`) with the same rules; `result.js` ports the first (`goslices.compare` is `cmp.Compare`).
+- **Seeds run sequentially**, in index order, and all of them run even when the first fails (Go runs them all too); a seed error is `seed N: <error>` and the failures of all seeds are joined by `errors.Join` (newline) in `all TALA seed attempts failed: ...`. A JS panic (TypeError) inside a seed is Go's `TALA seed layout failed due to an internal invariant`.
+- **The patch sets `graph.edges` to `null` when no edge remains** (Go: a nil slice, which prints as `null` in the graph JSON); the D2 graph's other nil-vs-empty cases are the layout stages' own.
+- **The router of a TALA compile.** Go's `d2lib.Compile` has no router of its own for TALA; `d2wasm` (and the tests) pass `RouterResolver -> d2talalayout.RouteEdges`. `d2lib.js` does the same when the layout is 'tala' and no `routerResolver` is given. The router calls are replayed in `rootcheck.mjs replay` through a stand-in for `routing.RouteEdges` that copies Go's routed edges (18 corpus and 16 e2e calls).
+- **Not exercised by any input** (read against the Go source only): exhaustion of the 1e9-unit transaction budget inside the driver (the budget is a constant of `limits`; the guard itself is checked by its own tests), `storeSnapshots` (the OVG round trip is in the routing core's checks), and the `NotPorted` path of `compoundCandidate` (the unit test registers a stand-in).
+- **The routing core's `slices.SortStableFunc` comparators** (`ovg_edge_router.js`, `slingshot.js`) were reviewed, not changed: the Go comparators are strict weak orders of float keys (the `TopDownLeftRight` one only degenerates for overlapping nodes at identical positions), for which `Array.prototype.sort` (stable) is the same function as Go's stable sort; the `sort.Slice` calls use `gosort.js`. The routing task owns those files.
+- **404s until the stage modules land**: `stagepkgs.js` imports the candidate module names; in a browser each missing one is a failed module fetch (silently skipped) until the files exist. Once `placement` and `routing` are merged, shrink `STAGE_MODULES` to the real file names.
