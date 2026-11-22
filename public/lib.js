@@ -649,6 +649,42 @@ export function oldToNewMap(rows) {
   return m;
 }
 
+// ---------- word-level diff inside a changed paragraph ----------
+
+/**
+ * Word diff of an old and a new text. Returns the character ranges that differ, [start, end) in each string:
+ * {del: ranges in `a` (removed words), add: ranges in `b` (inserted words), same: unchanged word count}.
+ * Words are runs of letters/digits (with ' and -); every other non-space character is its own token, so a changed
+ * comma shows up on its own. Ranges separated only by whitespace are merged into one.
+ */
+export function wordDiff(a, b) {
+  const toks = (s) => [...String(s).matchAll(/[\p{L}\p{N}_]+(?:['\u2019-][\p{L}\p{N}_]+)*|[^\s]/gu)].map((m) => ({ t: m[0], s: m.index, e: m.index + m[0].length }));
+  const x = toks(a);
+  const y = toks(b);
+  const w = y.length + 1;
+  const L = new Uint32Array((x.length + 1) * w); // LCS lengths of suffixes
+  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) L[i * w + j] = x[i].t === y[j].t ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+  const dx = new Set(x.map((_, i) => i));
+  const dy = new Set(y.map((_, i) => i));
+  let same = 0;
+  for (let i = 0, j = 0; i < x.length && j < y.length;) {
+    if (x[i].t === y[j].t) { dx.delete(i); dy.delete(j); same++; i++; j++; }
+    else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) i++;
+    else j++;
+  }
+  const ranges = (tk, gone, text) => {
+    const out = [];
+    tk.forEach((t, i) => {
+      if (!gone.has(i)) return;
+      const last = out[out.length - 1];
+      if (last && !/\S/.test(text.slice(last[1], t.s))) last[1] = t.e;
+      else out.push([t.s, t.e]);
+    });
+    return out;
+  };
+  return { del: ranges(x, dx, String(a)), add: ranges(y, dy, String(b)), same };
+}
+
 // ---------- synced margin: text position -> margin position ----------
 
 /**

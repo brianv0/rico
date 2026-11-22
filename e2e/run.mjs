@@ -596,6 +596,39 @@ await step('removed sections: a selection across kept and removed text anchors t
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((t) => /should stay/.test(t.innerText) && !t.classList.contains('local')));
   await deleteMine(page.locator('#margin .thread', { hasText: 'The removed paragraph should stay' }));
 });
+// ---- word-level marks inside changed paragraphs: they must not change what selection and comments anchor to ----
+const pend = () => page.evaluate(() => { const p = window.__rico.state.pending; return p && { side: p.side, start: p.start, end: p.end, mixed: !!p.touchesRemoved }; });
+await step('word marks: only the changed words are marked, text and line mapping are untouched', async () => {
+  const r = await page.evaluate(() => {
+    const t = (c) => [...document.querySelectorAll('#doc ' + c)].map((e) => e.textContent);
+    const rm = [...document.querySelectorAll('#doc p.rm, #doc .rm > p')].find((e) => /closing/.test(e.textContent));
+    const nw = [...document.querySelectorAll('#doc p')].find((e) => /^New wording/.test(e.textContent));
+    return { wd: t('.wd'), wa: t('.wa'), rmText: rm.textContent, rmL: rm.dataset.l, nwText: nw.textContent, nwL: nw.dataset.l, nwMarks: nw.querySelectorAll('.wd').length, rmDeco: getComputedStyle(rm.querySelector('.wd')).textDecorationLine, nwDeco: getComputedStyle(nw.querySelector('.wa')).textDecorationLine };
+  });
+  assert.deepEqual(r.wd, ['removed', 'Old', 'old']); assert.deepEqual(r.wa, ['added', 'New', 'fresh']);
+  assert.equal(r.rmText, 'Old wording of the closing paragraph.'); assert.equal(r.nwText, 'New wording of the closing paragraph.');
+  assert.equal(r.rmL, '16-16'); assert.equal(r.nwL, '14-14');
+  assert.equal(r.nwMarks, 0); assert.equal(r.rmDeco, 'line-through'); assert.equal(r.nwDeco, 'underline');
+});
+await step('word marks: selecting across struck words still anchors to the OLD line (LEFT)', async () => {
+  await drag('Old wording', 'closing paragraph');
+  assert.deepEqual(await pend(), { side: 'LEFT', start: 16, end: 16, mixed: false });
+  await page.keyboard.press('Escape');
+});
+await step('word marks: selecting across inserted words still anchors to the new line (RIGHT)', async () => {
+  await drag('New wording', 'New wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
+  assert.equal(await page.locator('#c-qinc').isChecked(), false);
+  await page.keyboard.press('Escape');
+});
+await step('word marks: a selection from the struck words into the inserted ones follows the mixed rule', async () => {
+  await drag('Old wording', 'New wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: true });
+  const q = await page.locator('#c-qtext').inputValue();
+  assert.match(q, /```diff\n- Old wording of the closing paragraph\.\n```/);
+  assert.match(q, /> New wording/);
+  await page.keyboard.press('Escape');
+});
 await step('removed sections: removed list items and table rows are commentable on their old lines', async () => {
   const r = await page.evaluate(() => {
     const R = window.__rico;

@@ -4,7 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
-import { patchHunkRanges, patchDeletions, oldToNewMap } from './lib.js';
+import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
 // The page shows every changed markdown file as a card (like GitHub). All the selection / anchoring /
@@ -721,7 +721,41 @@ function renderRemoved(v) {
     const ti = newLeaves.findIndex((l) => l.b.e >= run.afterNew + 1); // the first block that comes after the removal
     const target = ti >= 0 ? newLeaves[ti] : null;
     const prev = ti > 0 ? newLeaves[ti - 1] : ti < 0 ? newLeaves[newLeaves.length - 1] || null : null;
-    for (const l of mine) placeRemoved(v, old, l.e, target, prev, run.afterNew);
+    const clones = mine.map((l) => placeRemoved(v, old, l.e, target, prev, run.afterNew));
+    // word-level marks: pair the removed blocks with the changed new blocks that follow, by position within the run
+    if (ti >= 0) {
+      const added = newLeaves.slice(ti).filter((l) => { for (let n = l.b.s; n <= l.b.e; n++) if (v.diff.added.has(n)) return true; return false; });
+      clones.forEach((c, i) => { if (c && added[i]) markWords(c, added[i].e); });
+    }
+  }
+}
+
+// Wrap the words that differ between a removed block and its new counterpart (text nodes only: the text and data-l stay the same).
+function markWords(oldEl, newEl) {
+  if (oldEl.tagName !== newEl.tagName || /^(PRE|FIGURE|TABLE|UL|OL)$/.test(oldEl.tagName)) return;
+  const d = wordDiff(oldEl.textContent, newEl.textContent);
+  if (!d.same || (!d.del.length && !d.add.length)) return; // nothing in common: it is a rewrite, keep the whole-block marks
+  wrapRanges(oldEl, d.del, 'wd');
+  wrapRanges(newEl, d.add, 'wa');
+}
+
+function wrapRanges(root, ranges, cls) {
+  if (!ranges.length) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = w.nextNode(), pos = 0; n; n = w.nextNode()) { nodes.push({ n, s: pos }); pos += n.data.length; }
+  for (const { n, s } of nodes.reverse()) { // back to front, so splitting a node never shifts the ones still to do
+    const e = s + n.data.length;
+    for (const [a, z] of [...ranges].reverse()) {
+      const from = Math.max(a, s) - s;
+      const to = Math.min(z, e) - s;
+      if (from >= to) continue;
+      const mid = n.splitText(from);
+      mid.splitText(to - from);
+      const span = el('span', cls);
+      mid.replaceWith(span);
+      span.append(mid);
+    }
   }
 }
 
@@ -741,8 +775,8 @@ function placeRemoved(v, oldRoot, L, target, prev, afterNew) {
   if (!isDia && (kind === 'LI' || kind === 'TR')) { // an item or a row goes back inside its list or table
     clone.classList.add('rm');
     clone.title = 'Removed in this PR';
-    if (target && target.e.tagName === kind && target.e.parentNode) { target.e.parentNode.insertBefore(clone, target.e); return; }
-    if (prev && prev.e.tagName === kind && prev.b.e === afterNew && prev.e.parentNode) { prev.e.parentNode.insertBefore(clone, prev.e.nextSibling); return; }
+    if (target && target.e.tagName === kind && target.e.parentNode) { target.e.parentNode.insertBefore(clone, target.e); return clone; }
+    if (prev && prev.e.tagName === kind && prev.b.e === afterNew && prev.e.parentNode) { prev.e.parentNode.insertBefore(clone, prev.e.nextSibling); return clone; }
   }
   let inner = clone; // otherwise a standalone block, wrapped in clones of its old ancestors (list, table, blockquote…)
   if (!isDia) for (let a = L.parentElement; a && a !== oldRoot; a = a.parentElement) { const c = a.cloneNode(false); c.append(inner); inner = c; }
@@ -752,6 +786,7 @@ function placeRemoved(v, oldRoot, L, target, prev, afterNew) {
   let top = target && target.e;
   while (top && top.parentNode !== v.doc) top = top.parentNode;
   v.doc.insertBefore(wrap, top || null);
+  return clone;
 }
 
 function renderDoc(text) {

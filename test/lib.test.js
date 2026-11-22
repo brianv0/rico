@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap, wordDiff,
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -480,4 +480,19 @@ test('mapPosition: linear between threads, 1:1 outside, monotonic, never stalls 
   assert.equal(positionSlope(pts, 150), 3);
   assert.ok(positionSlope([{ d: 0, m: 5 }, { d: 100, m: 5 }], 50) > 0, 'a flat stretch still lets the wheel move');
   assert.equal(mapPosition([], 42), 42);
+});
+
+test('wordDiff: marks only the changed words, as ranges in each text', () => {
+  const sl = (s, rs) => rs.map(([a, z]) => s.slice(a, z));
+  const a = 'together and why they are shaped';
+  const b = 'together, why they are shaped, and which trade-offs we accepted';
+  const d = wordDiff(a, b);
+  assert.deepEqual(sl(a, d.del), ['and']);
+  assert.deepEqual(sl(b, d.add), [',', ', and which trade-offs we accepted']);
+  assert.equal(wordDiff('same text', 'same text').del.length + wordDiff('same text', 'same text').add.length, 0);
+  assert.deepEqual(sl('a b c', wordDiff('a b c', 'a c').del), ['b']); // pure deletion
+  assert.deepEqual(sl('a c d', wordDiff('a c', 'a c d').add), ['d']); // pure insertion
+  assert.deepEqual(wordDiff('old words', 'new text').same, 0); // nothing in common: the caller keeps whole-block marks
+  const r = wordDiff('call `foo()` now', 'call `bar()` now'); // inline code and punctuation are tokens too
+  assert.deepEqual([sl('call `foo()` now', r.del), sl('call `bar()` now', r.add)], [['foo'], ['bar']]);
 });

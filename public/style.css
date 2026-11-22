@@ -191,6 +191,9 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body li.rm { margin: 2px 0 2px -8px; padding: 0 8px; }
 .markdown-body tr.rm td, .markdown-body tr.rm th { background: color-mix(in srgb, var(--danger) 18%, var(--bg)); }
 .markdown-body .rm [data-l]::before { display: none; }
+/* word-level marks inside a changed paragraph: not colour alone (strikethrough / underline), like GitHub's rich diff */
+.markdown-body .wd { background: color-mix(in srgb, var(--danger) 30%, transparent); text-decoration: line-through; border-radius: 2px; }
+.markdown-body .wa { background: color-mix(in srgb, var(--chg) 28%, transparent); text-decoration: underline; border-radius: 2px; }
 .markdown-body [data-l].gone.has-t, .markdown-body [data-l].gone.has-c { box-shadow: 0 0 0 3px var(--mark); }
 
 /* GitHub-flavoured markdown details */
