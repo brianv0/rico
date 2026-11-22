@@ -1,0 +1,402 @@
+{"from": "extra:spread-1-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0]"}
+{"from": "extra:spread-1-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-1-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}]"}
+{"from": "extra:spread-2-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1]"}
+{"from": "extra:spread-2-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1]"}
+{"from": "extra:spread-2-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-2-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}]"}
+{"from": "extra:spread-3-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2]"}
+{"from": "extra:spread-3-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2]"}
+{"from": "extra:spread-3-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2]"}
+{"from": "extra:spread-3-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-3-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}]"}
+{"from": "extra:spread-4-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3]"}
+{"from": "extra:spread-4-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3]"}
+{"from": "extra:spread-4-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3]"}
+{"from": "extra:spread-4-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3]"}
+{"from": "extra:spread-4-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-4-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}]"}
+{"from": "extra:spread-5-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3; e4]"}
+{"from": "extra:spread-5-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3; e4]"}
+{"from": "extra:spread-5-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3; e4]"}
+{"from": "extra:spread-5-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}; e4]"}
+{"from": "extra:spread-5-5-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-5-5-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; ...${a}]"}
+{"from": "extra:spread-6-0-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-0-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [...${a}; e0; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-1-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; ...${a}; e1; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-2-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; ...${a}; e2; e3; e4; e5]"}
+{"from": "extra:spread-6-3-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-3-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; ...${a}; e3; e4; e5]"}
+{"from": "extra:spread-6-4-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-4-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; ...${a}; e4; e5]"}
+{"from": "extra:spread-6-5-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-5-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; ...${a}; e5]"}
+{"from": "extra:spread-6-6-0", "path": "index.d2", "text": "vars: { a: [] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-1", "path": "index.d2", "text": "vars: { a: [v0] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-2", "path": "index.d2", "text": "vars: { a: [v0; v1] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-3", "path": "index.d2", "text": "vars: { a: [v0; v1; v2] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread-6-6-4", "path": "index.d2", "text": "vars: { a: [v0; v1; v2; v3] }\nx: [e0; e1; e2; e3; e4; e5; ...${a}]"}
+{"from": "extra:spread2", "path": "index.d2", "text": "vars: { a: [1;2] }\nx: { y: [...${a}; 3] }\nz: [...${a}]"}
+{"from": "extra:subst-array", "path": "index.d2", "text": "vars: { a: x }\nb: [${a}; ${a}-1; \"q ${a}\"]"}
+{"from": "extra:import-key-missing", "path": "index.d2", "text": "x: @foo.a.b", "fs": {"foo.d2": "a: 1"}}
+{"from": "extra:import-key-missing2", "path": "index.d2", "text": "x: @foo.a", "fs": {"foo.d2": "b: 1"}}
+{"from": "extra:import-missing", "path": "index.d2", "text": "x: @foo", "fs": {}}
+{"from": "extra:cyclic", "path": "index.d2", "text": "x: @a", "fs": {"a.d2": "y: @b", "b.d2": "z: @a"}}
+{"from": "extra:cyclic-self", "path": "index.d2", "text": "x: @a", "fs": {"a.d2": "y: @a"}}
+{"from": "extra:import-links", "path": "index.d2", "text": "...@a\nq", "fs": {"a.d2": "y -> z: hi\nlink: https://x.com\nicon: ./i.svg\nk.link: layers.b\nlayers: { b: { m } }"}}
+{"from": "extra:import-sub", "path": "index.d2", "text": "i: @sub/a", "fs": {"sub/a.d2": "a.icon: ./icon.png\na.link: layers.x\nb.link: http://example.com/x\nc.icon: /abs/i.png\nd.link: _.layers.x\nlayers: { x: { y } }"}}
+{"from": "extra:import-sub2", "path": "index.d2", "text": "i: { ...@sub/a }", "fs": {"sub/a.d2": "a.icon: ./icon.png\na.link: layers.x\nb.link: mailto:a@b.c\nc.icon: %zz\nd.icon: https://a/b\nlayers: { x: { y } }"}}
+{"from": "extra:import-vars", "path": "index.d2", "text": "vars: { v: 1 }\n...@a\nx: ${v}", "fs": {"a.d2": "vars: { w: ${v} }\nq: ${w}"}}
+{"from": "extra:import-overlay", "path": "index.d2", "text": "a: @x\na.b: 2", "fs": {"x.d2": "b: 1\nc -> d"}}
+{"from": "extra:import-existing-edges", "path": "index.d2", "text": "a -> b\na: @x", "fs": {"x.d2": "b: 1\nc -> d"}}
+{"from": "extra:import-array", "path": "index.d2", "text": "x: [@a; ...@b; 3]", "fs": {"a.d2": "[1;2]", "b.d2": "[4;5]"}}
+{"from": "extra:import-array2", "path": "index.d2", "text": "x: [@a; ...@b; 3]", "fs": {"a.d2": "k: 1", "b.d2": "k: [4;5]"}}
+{"from": "extra:triple-glob-import", "path": "index.d2", "text": "***.style.opacity: 0.5\nlayers: { a: { x -> y } ; b: @b }", "fs": {"b.d2": "z"}}
+{"from": "extra:steps-scen", "path": "index.d2", "text": "steps: { 1: { a }; 2: { b } }\nscenarios: { s: @s }", "fs": {"s.d2": "c"}}
+{"from": "extra:md-subst", "path": "index.d2", "text": "x: |md\n  hello ${n} `${n}`\n\n  ```\n  ${n}\n  ```\n\n      ${n}\n  ${n}\n|\nvars: { n: world }"}
+{"from": "extra:md-subst2", "path": "index.d2", "text": "vars: { n: world; m: { o: deep } }\nx: |md hello ${n} ${m.o} |\ny: |go ${n} |"}
+{"from": "extra:md-subst3", "path": "index.d2", "text": "vars: { n: world }\nx: |md\n  *${n}* ${n}${n}\n  `a ${n}` ``b ${n}`` ${n}\n|"}
+{"from": "extra:unicode-fold", "path": "index.d2", "text": "\u0130CON: x\nstyle: { Opacity: 1 }\n\u0130con: y\nicon: z\n*\u0130*.k: 1"}
+{"from": "extra:unicode-fold2", "path": "index.d2", "text": "\u015eHAPE: x\nShape: y\n\u0130: 1\n\u015f: 2\n*\u015f*.a"}
+{"from": "extra:globs", "path": "index.d2", "text": "a.b.c\n**.d\n***.e"}
+{"from": "extra:glob-edges", "path": "index.d2", "text": "a.b\nc.d\n(**.b -> *.d)[*].style.stroke: red"}
+{"from": "extra:filters", "path": "index.d2", "text": "a: { b; c }\n*: { &leaf: true; style.fill: red }\n**: { &level: 1; x }"}
+{"from": "extra:edge-suspend", "path": "index.d2", "text": "a; b; c -> d\n(* -> *)[*]: x\n(a -> b)[0]: null\n(c -> d)[0]: suspend"}
+{"from": "extra:suspend", "path": "index.d2", "text": "a: suspend\nb: unsuspend\nc -> d: {&src: c}\n*.style.fill: red\nx: null"}
+{"from": "extra:edge-idx-err", "path": "index.d2", "text": "a; b; a -> b\n(a -> b)[5]: x"}
+{"from": "extra:underscore", "path": "index.d2", "text": "a: { b -> c }\n_.x"}
+{"from": "extra:underscore2", "path": "index.d2", "text": "a: { b: { _.c; _._.d; (_.x -> _.y) } }"}
+{"from": "extra:underscore3", "path": "index.d2", "text": "a: { b: { c -> _.d } }\nx: { y: { (z -> _._.q) } }"}
+{"from": "extra:config-ok", "path": "index.d2", "text": "vars: { d2-config: { theme-id: 4; sketch: true; pad: 10 } }\nx"}
+{"from": "extra:config-bad", "path": "index.d2", "text": "vars: { d2-config: { theme-id: 999; sketch: maybe; pad: x; bad: 1; theme-overrides: 1; data }}"}
+{"from": "extra:config-nested", "path": "index.d2", "text": "x: { vars: { d2-config: { sketch: true } } }"}
+{"from": "extra:undefined", "path": "index.d2", "text": "x: ${undefined}\ny: \"${undefined}\"\nz: [${u}]"}
+{"from": "extra:vars-composite", "path": "index.d2", "text": "vars: { m: { a: 1; b: 2 } ; arr: [1;2] }\nx: ${m}\ny: \"${m}\"\nz: ${m}-a\nq: { ...${m} }\nr: ${arr}\ns: { ...${arr} }\nt: [...${m}]"}
+{"from": "extra:vars-edge", "path": "index.d2", "text": "vars: { m: { a -> b } }\nx -> y: ${m}\nq: { ...${m} }\nz -> w: ${arr}\nvars2: 1"}
+{"from": "extra:vars-self", "path": "index.d2", "text": "vars: { x: ${x}-b; y: ${z} }\nhi: { vars: { x: ${x}-c }; yo: ${x} }"}
+{"from": "extra:links", "path": "index.d2", "text": "a.link: layers.x.y\nlayers: { x: { b.link: _.layers.x; y: { c.link: _._.layers.x ; d.link: nope; e.link: layers.k } } }"}
+{"from": "extra:links2", "path": "index.d2", "text": "x: { y: { link: layers.a } }\nlayers: { a: { z.link: _.layers.b }; b: {} }"}
+{"from": "extra:classes", "path": "index.d2", "text": "classes: { c: { style.fill: red } }\nlayers: { a: { classes: { d: { style.stroke: blue } }; x.class: c }; b: { x } }\nscenarios: { s: { y } }"}
+{"from": "extra:board-edge", "path": "index.d2", "text": "layers: { a: { b } }\nlayers.a.c -> layers.a.b\nx -> layers"}
+{"from": "extra:steps", "path": "index.d2", "text": "steps: { 1: { a }; 2: { b }; 3: { c: { d } } }"}
+{"from": "extra:scenarios", "path": "index.d2", "text": "scenarios: { a: { x }; b: { y } }\nx"}
+{"from": "extra:edge-stuff", "path": "index.d2", "text": "a -> b: { style.opacity: 0.4 ; source-arrowhead: { shape: diamond }; label: hi}\n(a -> b)[0].style.stroke: red\n(a -> b)[0]: null"}
+{"from": "extra:shape-glob", "path": "index.d2", "text": "x: { shape: sql_table; *: { a } ; b: int }\ny: { shape: class; *.z: 1; m: x }\nx.*.c: 2"}
+{"from": "extra:quote-format", "path": "index.d2", "text": "a: 'it''s'\nb: \"q\\\"x\"\nc: |md\n  x\n|\n(a -> b)[0]: |go x |"}
+{"from": "extra:import-empty", "path": "index.d2", "text": "a: @", "fs": {}}
+{"from": "extra:import-paths", "path": "index.d2", "text": "a: @./x\nb: @../y\nc: @/abs/z", "fs": {"x.d2": "q", "y.d2": "r"}}
+{"from": "extra:import-ext", "path": "index.d2", "text": "a: @x.d2.y", "fs": {"x.d2": "y: 1"}}
+{"from": "extra:case", "path": "index.d2", "text": "a.b.c: 1\na.b.c: 2\na.B.c: 3\nA: 4\na -> b -> c\n(a -> b)[0]: x\n(A -> B)[1]: y"}
+{"from": "extra:array-index", "path": "index.d2", "text": "x: [a; b; c]\nx.y: 1\nx -> y"}
+{"from": "extra:array-comment", "path": "index.d2", "text": "x: [\n  \"\"\" block \"\"\"\n  a\n  # c\n  [1;2]\n  {k: v}\n]"}
+{"from": "extra:edge-in-map", "path": "index.d2", "text": "a: {\n  b\n  c\n}\n(a.b -> a.c)[*]: x\na.(b -> c)[0]: y\na.(b -> c): z"}
+{"from": "extra:chain", "path": "index.d2", "text": "(a -> b -> c)[*].style.stroke: red\na.b.(x -> y)\n(a.b -> a.c)"}
+{"from":"extra:g-legend","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a: Thing { style.fill: red }\n    b: Other\n    a -> b: link\n    c: hidden { style.opacity: 0 }\n  }\n}\nx -> y"}
+{"from":"extra:g-legend-label","path":"x.d2","text":"vars: {\n  d2-legend: Key {\n    a\n  }\n}\nx"}
+{"from":"extra:g-legend-empty","path":"x.d2","text":"vars: {\n  d2-legend: {\n  }\n}\nx"}
+{"from":"extra:g-legend-edges-only","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a -> b\n  }\n}\nx"}
+{"from":"extra:g-legend-opacity-bad","path":"x.d2","text":"vars: {\n  d2-legend: {\n    a: { style.opacity: 0.0 }\n    b: { style.opacity: 0.5 }\n  }\n}"}
+{"from":"extra:g-config-all","path":"x.d2","text":"vars: {\n  d2-config: {\n    sketch: true\n    theme-id: 4\n    dark-theme-id: 200\n    pad: 10\n    layout-engine: elk\n    center: true\n    theme-overrides: { N1: \"#fff\"; B1: red }\n    dark-theme-overrides: { n2: blue }\n    data: { a: b; c: [1; 2; x]; d: [] }\n  }\n}\nx"}
+{"from":"extra:g-config-bad-theme-code","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: { Z9: red; N1: notacolor; %d: red }\n  }\n}\nx"}
+{"from":"extra:g-config-bad-bool","path":"x.d2","text":"vars: {\n  d2-config: {\n    sketch: maybe\n    theme-id: abc\n    pad: 99999999999999999999\n    center: 1\n  }\n}\nx"}
+{"from":"extra:g-config-data-null","path":"x.d2","text":"vars: {\n  d2-config: {\n    data: { a: null; b: [null; 1] }\n  }\n}\nx"}
+{"from":"extra:g-config-empty-overrides","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: {}\n  }\n}\nx"}
+{"from":"extra:g-config-aa-ab","path":"x.d2","text":"vars: {\n  d2-config: {\n    theme-overrides: { aa2: red; AA4: \"#123\"; Aa5: blue; ab4: green; AB5: pink; b6: black; N7: white }\n  }\n}"}
+{"from":"extra:g-link-board","path":"x.d2","text":"x: { link: layers.l1 }\nlayers: { l1: { y } }"}
+{"from":"extra:g-link-board-root","path":"x.d2","text":"x: { link: root.layers.l1 }\nlayers: { l1: { y: { link: root } } }"}
+{"from":"extra:g-link-self","path":"x.d2","text":"layers: { l1: { y: { link: root.layers.l1 } } }"}
+{"from":"extra:g-link-missing","path":"x.d2","text":"x: { link: root.layers.nope }"}
+{"from":"extra:g-link-remote","path":"x.d2","text":"x: { link: https://example.com }\ny: { link: /abs/path }\nz: { link: mailto:a@b.c }\nw: { link: \"http&colon;//x.com\" }\nv: { link: \"&#104;ttp://x.com\" }"}
+{"from":"extra:g-link-label-url","path":"x.d2","text":"x: https://example.com { link: https://example.org }"}
+{"from":"extra:g-link-tooltip-url","path":"x.d2","text":"x: { link: https://example.org; tooltip: https://example.com }"}
+{"from":"extra:g-link-label-url-relative","path":"x.d2","text":"x: /a/b { link: foo }"}
+{"from":"extra:g-link-bad-key","path":"x.d2","text":"x: { link: \"a b: c\" }"}
+{"from":"extra:g-icon-ok","path":"x.d2","text":"x: { icon: https://icons.terrastruct.com/a%2Fb.svg }\ny: { icon: ./local.png; icon.near: outside-top-left }\nz: { icon: \"https://u:p@h/é?q#f g\" }"}
+{"from":"extra:g-icon-bad","path":"x.d2","text":"x: { icon: \"::????:::%%orange\" }\ny: { icon: \"http://[::1\" }\nz: { icon: \"a b:c\" }\nw: { icon: \"%zz\" }"}
+{"from":"extra:g-icon-style","path":"x.d2","text":"x: { icon: a.png; icon.style.opacity: 0.5; icon.style.bogus: 1 }"}
+{"from":"extra:g-icon-style-empty","path":"x.d2","text":"x: { icon: a.png; icon: { style: {} } }"}
+{"from":"extra:g-image-shape","path":"x.d2","text":"x: { shape: image; icon: a.png }\ny: { shape: image }\nz: { shape: image; icon: b.png; q }"}
+{"from":"extra:g-near-const","path":"x.d2","text":"a: { near: top-left }\nb: { near: bottom-center }\nc: { near: center-center }"}
+{"from":"extra:g-near-obj","path":"x.d2","text":"a: { near: b }\nb\nc: { near: c }\nd: { near: d.e; e }\nf: { near: f.g }\nf.g"}
+{"from":"extra:g-near-nested-const","path":"x.d2","text":"a: { b: { near: top-left } }"}
+{"from":"extra:g-near-chain","path":"x.d2","text":"a: { near: b }\nb: { near: top-left }"}
+{"from":"extra:g-near-bad","path":"x.d2","text":"a: { near: \"x y:\" }\nb: { near: nowhere }"}
+{"from":"extra:g-near-edge-enter","path":"x.d2","text":"a: { near: top-left; b }\na -> a.b\nc: { near: top-right; d }\nc.d -> c"}
+{"from":"extra:g-near-seq","path":"x.d2","text":"sq: { shape: sequence_diagram; a; b }\nx: { near: sq.a }"}
+{"from":"extra:g-near-grid","path":"x.d2","text":"g: { grid-rows: 2; a; b }\nx: { near: g.a }"}
+{"from":"extra:g-label-near","path":"x.d2","text":"a: hi { label.near: outside-top-center }\nb: { label: hi; label.near: border-left-top }\nc: { label.near: nope }\nd: { label.near: null }\ne: { label: { near: top-left } }\nf: { label: { foo: bar } }"}
+{"from":"extra:g-label-near-edges","path":"x.d2","text":"a -> b: x { label.near: top-left }"}
+{"from":"extra:g-tooltip-near","path":"x.d2","text":"a: { tooltip: hi; tooltip.near: top-left }\nb: { tooltip: hi; tooltip.near: center-center }\nc: { tooltip: hi; tooltip.near: null }"}
+{"from":"extra:g-icon-near","path":"x.d2","text":"a: { icon: x.png; icon.near: outside-left-top }\nb: { icon: x.png; icon.near: bad }"}
+{"from":"extra:g-tooltip-md","path":"x.d2","text":"a: { tooltip: \"# hi <b>x</b>\" }\nb: { tooltip: \"<br>\" }\nc: { tooltip: \"<p>unclosed\" }"}
+{"from":"extra:g-md-ok","path":"x.d2","text":"a: |md\n  # Title\n  - one\n  - two\n  **bold** `code`\n|"}
+{"from":"extra:g-md-html","path":"x.d2","text":"a: |md\n  <div>x</div>\n  <b>x</i>\n|"}
+{"from":"extra:g-md-html2","path":"x.d2","text":"a: |md\n  <br>\n|\nb: |md\n  <img src=\"x\">\n|\nc: |md\n  &nbsp;\n|\nd: |md\n  <p>unclosed\n|\ne: |md\n  </div>\n  <p>\n|"}
+{"from":"extra:g-md-empty","path":"x.d2","text":"a: |md\n  \n|"}
+{"from":"extra:g-md-edge","path":"x.d2","text":"a -> b: |md\n  # hi\n|"}
+{"from":"extra:g-md-entities","path":"x.d2","text":"a: |md\n  &copy; &foo; &#0; &#x110000; &\n|"}
+{"from":"extra:g-md-table","path":"x.d2","text":"a: |md\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n|"}
+{"from":"extra:g-md-code-fence","path":"x.d2","text":"a: |md\n  ```go\n  x := 1 < 2\n  ```\n|"}
+{"from":"extra:g-md-alias","path":"x.d2","text":"a: |markdown\n  hi\n|\nb: |tex\n  x^2\n|\nc: |js\n  var x\n|\nd: |go\n  x := 1\n|"}
+{"from":"extra:g-code-shapes","path":"x.d2","text":"a: |python\n  print(1)\n|\nb: |ts\n  let x\n|\nc: |rb\n  puts 1\n|\nd: |latex\n  x\n|\ne: |\n  plain\n|"}
+{"from":"extra:g-text-shape","path":"x.d2","text":"a: { shape: text; label: }\nb: { shape: text }\nc: { shape: text; label: hi }\nd: |md\n  x\n|"}
+{"from":"extra:g-class-basic","path":"x.d2","text":"c: {\n  shape: class\n  +name: string\n  -age: int\n  #id\n  run(): void\n  -stop(a; b): bool\n  +go()\n  field: \"\" {style.underline: true}\n  f(): \"\" {style.underline: true}\n}"}
+{"from":"extra:g-class-children","path":"x.d2","text":"c: {\n  shape: class\n  a.b: x\n}"}
+{"from":"extra:g-class-edge","path":"x.d2","text":"c: {shape: class; a; b}\nd\nc.a -> d\nd -> c.b\nc -> d"}
+{"from":"extra:g-class-label","path":"x.d2","text":"c: Title {\n  shape: class\n  a: int\n}"}
+{"from":"extra:g-class-style","path":"x.d2","text":"c: {\n  shape: class\n  a\n  style.font-size: 12\n}"}
+{"from":"extra:g-sql-basic","path":"x.d2","text":"t: {\n  shape: sql_table\n  id: int {constraint: primary_key}\n  name: varchar(20) {constraint: [unique; not_null]}\n  other: int {constraint: foreign_key}\n  x: {constraint: null}\n}"}
+{"from":"extra:g-sql-edges","path":"x.d2","text":"a: {shape: sql_table; id: int; b_id: int}\nb: {shape: sql_table; id: int}\na.b_id -> b.id\nb.id -> a.id\na.b_id -> a.id\na -> b\nb.id -> c"}
+{"from":"extra:g-sql-children","path":"x.d2","text":"t: {\n  shape: sql_table\n  a.b: int\n}"}
+{"from":"extra:g-sql-label-newline","path":"x.d2","text":"t: \"a\\nb\" {\n  shape: sql_table\n  a: int\n}"}
+{"from":"extra:g-sql-constraint-nonsql","path":"x.d2","text":"a: { constraint: primary_key }\nb: { shape: sql_table; c: int { constraint: [x; y] } }"}
+{"from":"extra:g-sql-constraint-composite","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: { x: y } } }"}
+{"from":"extra:g-sql-constraint-nonstring","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: 5 } }"}
+{"from":"extra:g-seq-basic","path":"x.d2","text":"sq: {\n  shape: sequence_diagram\n  a -> b: hi\n  b -> a: yo\n  a.t1 -> b.t2\n  grp: { a -> b }\n  note: hello\n}"}
+{"from":"extra:g-seq-span","path":"x.d2","text":"sq: {\n  shape: sequence_diagram\n  a: { x: { y } }\n  a.x -> b\n}"}
+{"from":"extra:g-seq-near","path":"x.d2","text":"sq: {shape: sequence_diagram; a; b}\nsq -> sq.a\nsq.a -> sq"}
+{"from":"extra:g-seq-pos","path":"x.d2","text":"sq: {shape: sequence_diagram; a: {top: 1}; b}"}
+{"from":"extra:g-seq-image","path":"x.d2","text":"sq: {shape: sequence_diagram; a: {shape: image; icon: x.png; b}}"}
+{"from":"extra:g-grid","path":"x.d2","text":"g: { grid-rows: 2; grid-columns: 3; grid-gap: 4; vertical-gap: 5; horizontal-gap: 6; a; b; c }"}
+{"from":"extra:g-grid-bad","path":"x.d2","text":"g: { grid-rows: -1; grid-columns: x; grid-gap: -2; vertical-gap: 1.5; horizontal-gap: \"\" }"}
+{"from":"extra:g-grid-edges","path":"x.d2","text":"g: { grid-rows: 1; a; b }\ng -> g.a\ng.a -> g\ng.a -> g.a.x\nx -> g.a"}
+{"from":"extra:g-grid-pos","path":"x.d2","text":"g: { grid-rows: 1; a: {top: 1; left: 2} }\nh: { shape: hierarchy; b: {left: 1} }"}
+{"from":"extra:g-pos-bad","path":"x.d2","text":"a: { top: -1; left: x }\nb: { top: 5; left: 6 }"}
+{"from":"extra:g-width-height","path":"x.d2","text":"a: { width: 10; height: 20 }\nb: { width: x }\nc: { shape: circle; width: 10; height: 20 }\nd: { shape: square; height: 5; width: 6 }\ne: { shape: circle; height: 5; width: 5 }"}
+{"from":"extra:g-width-int-overflow","path":"x.d2","text":"a: { width: 99999999999999999999 }\nb: { width: -5 }\nc: { width: +5 }\nd: { width: 1_000 }"}
+{"from":"extra:g-direction","path":"x.d2","text":"direction: right\na: { direction: UP }\nb: { direction: diagonal }\nc: { direction: left }"}
+{"from":"extra:g-shapes","path":"x.d2","text":"a: { shape: circle }\nb: { shape: Oval }\nc: { shape: nonsense }\nd: { shape: triangle }\ne: { shape: CODE }\nf: { shape: c4-person }\ng: { shape: stored_data }\nh: { shape: hierarchy }\ni: { shape: \"\" }"}
+{"from":"extra:g-shape-arrowhead","path":"x.d2","text":"a: { shape: diamond }\na -> b: { target-arrowhead: { shape: triangle } }\nc: { shape: triangle }"}
+{"from":"extra:g-shape-composite","path":"x.d2","text":"a: { shape: { x: y } }"}
+{"from":"extra:g-shape-case","path":"x.d2","text":"a: { Shape: circle }\nb: { SHAPE: oval }"}
+{"from":"extra:g-style-all","path":"x.d2","text":"a: { style: { opacity: 0.5; stroke: red; fill: \"#fff\"; fill-pattern: dots; stroke-width: 3; stroke-dash: 2; border-radius: 5; shadow: true; 3d: true; multiple: true; font: mono; font-size: 20; font-color: blue; animated: true; bold: true; italic: true; underline: true; filled: true; double-border: true; text-transform: uppercase } }"}
+{"from":"extra:g-style-bad","path":"x.d2","text":"a: { style: { opacity: 2; stroke: nocolor; fill: nope; fill-pattern: xx; stroke-width: 20; stroke-dash: 11; border-radius: -1; shadow: x; 3d: y; multiple: z; font: Comic; font-size: 7; font-color: bad; animated: q; bold: q; italic: q; underline: q; filled: q; double-border: q; text-transform: weird } }"}
+{"from":"extra:g-style-font-percent","path":"x.d2","text":"a: { style.font: \"%d\" }\nb: { style.font: \"100%\" }\nc: { style.font: \"50% off\" }\nd: { style.font: \"%[1]d %v %!\" }"}
+{"from":"extra:g-style-opacity-forms","path":"x.d2","text":"a: { style.opacity: nan }\nb: { style.opacity: inf }\nc: { style.opacity: 0x1p-1 }\nd: { style.opacity: 1e-1 }\ne: { style.opacity: 1_0 }\nf: { style.opacity: .5 }\ng: { style.opacity: -0 }"}
+{"from":"extra:g-style-3d","path":"x.d2","text":"a: { shape: circle; style.3d: true }\nb: { shape: hexagon; style.3d: true }\nc: { style.3d: true }\nd: { shape: oval; style.double-border: true }\ne: { shape: cloud; style.double-border: true }"}
+{"from":"extra:g-style-keyword-top","path":"x.d2","text":"a: { opacity: 0.5 }\nb: { fill: red }\nc: { Stroke: red }"}
+{"from":"extra:g-style-empty","path":"x.d2","text":"a: { style: {} }\nb: { style }\nc: { style: 5 }"}
+{"from":"extra:g-style-nonprimary","path":"x.d2","text":"a: { style: { fill; stroke: { x: y } } }"}
+{"from":"extra:g-style-unknown","path":"x.d2","text":"a: { style: { foo: bar; Fill: red } }"}
+{"from":"extra:g-style-case","path":"x.d2","text":"a: { style.Fill: red; style.FONT: Mono; style.fill-PATTERN: DOTS; style.text-transform: UPPERCASE }"}
+{"from":"extra:g-style-null","path":"x.d2","text":"a: { style.fill: red }\na: { style.fill: null }"}
+{"from":"extra:g-edge-styles","path":"x.d2","text":"a -> b: x { style: { stroke: red; animated: true; font: mono; bold: true } }\nc -> d { style.stroke-dash: 3 }"}
+{"from":"extra:g-edge-bad-keys","path":"x.d2","text":"a -> b: { foo: bar }\nc -> d: { x.y: z }"}
+{"from":"extra:g-edge-reserved-top","path":"x.d2","text":"a -> b: { label: hi; link: x; tooltip: t; icon: i.png; near: top-left; width: 5 }"}
+{"from":"extra:g-edge-arrowheads","path":"x.d2","text":"a -> b: { source-arrowhead: { shape: diamond; label: s; style.filled: true }; target-arrowhead: { shape: cf-many; label: t } }\nc -> d: { target-arrowhead.shape: arrow }\ne -> f: { source-arrowhead: L }\ng -> h: { target-arrowhead: { foo: bar; style: { fill: red } } }"}
+{"from":"extra:g-arrowhead-on-shape","path":"x.d2","text":"a: { source-arrowhead: { shape: diamond } }\nb: { target-arrowhead: x }"}
+{"from":"extra:g-arrowhead-style-nomap","path":"x.d2","text":"a -> b: { target-arrowhead: { style } }"}
+{"from":"extra:g-edge-index","path":"x.d2","text":"a -> b\na -> b\na -> b: x\n(a -> b)[1]: y\n(a -> b)[2].style.stroke: red\n(a <- b)[0]\na <-> b"}
+{"from":"extra:g-edge-multi","path":"x.d2","text":"a -> b -> c -> a\nx: { y -> z }\nx.y -> x.z\n_.a -> x.y"}
+{"from":"extra:g-edge-underscore","path":"x.d2","text":"a: { b: { _.c -> _._.d; _.e } }\nf: { _.g }"}
+{"from":"extra:g-edge-reserved-endpoint","path":"x.d2","text":"a -> style\nb -> label.x\nc.shape -> d"}
+{"from":"extra:g-edge-constant-near","path":"x.d2","text":"a: { near: top-left; b }\na -> a.b"}
+{"from":"extra:g-edge-self","path":"x.d2","text":"a -> a\na.b -> a\na -> a.b"}
+{"from":"extra:g-edge-label-block","path":"x.d2","text":"a -> b: |md\n  # x\n|\nc -> d: |py\n  x\n|"}
+{"from":"extra:g-edge-glob","path":"x.d2","text":"(* -> *)[*].style.stroke: red\na -> b\nc -> d"}
+{"from":"extra:g-class-ref","path":"x.d2","text":"classes: { c1: { style.fill: red }; c2: { style.stroke: blue; label: hi } }\na: { class: c1 }\nb: { class: [c1; c2] }\nc: { class: \"c1, c2\" }\nd: { class: \"c1, nope\" }\ne: { class: nope }\nf -> g: { class: c1 }\nh: { class: [c1; { x: y }] }"}
+{"from":"extra:g-class-ref-edge-array","path":"x.d2","text":"classes: { c1: { style.stroke: red } }\na -> b: { class: [c1; { x: y }] }\nc -> d: { class: c1 }"}
+{"from":"extra:g-classes-bad","path":"x.d2","text":"classes: { c1: { foo: bar; class: c2; style.fill: red; shape: circle } }\nclasses.c3 -> x"}
+{"from":"extra:g-class-field-attr","path":"x.d2","text":"a: { class: x }\nb: { class: [x; y] }"}
+{"from":"extra:g-vars-sub","path":"x.d2","text":"vars: { v: hello; w: { a: b } }\nx: ${v}\ny: { ...${w} }\nz -> ${v}"}
+{"from":"extra:g-vars-order","path":"x.d2","text":"vars: { v: world }\nb: ${v}\na\nc: ${v}\nd"}
+{"from":"extra:g-boards-layers","path":"x.d2","text":"x\nlayers: { l1: { a -> b }; l2: { c; layers: { inner: { d } } } }"}
+{"from":"extra:g-boards-scenarios","path":"x.d2","text":"x -> y\nscenarios: { s1: { x.style.fill: red }; s2: { z } }"}
+{"from":"extra:g-boards-steps","path":"x.d2","text":"x\nsteps: { 1: { a }; 2: { b } }"}
+{"from":"extra:g-boards-folder","path":"x.d2","text":"layers: { l1: { a } }"}
+{"from":"extra:g-boards-empty-board","path":"x.d2","text":"x\nlayers: { l1: {} }"}
+{"from":"extra:g-boards-label","path":"x.d2","text":"layers: { l1: Label { a }; l2: |md\n  # hi\n| }"}
+{"from":"extra:g-boards-dup","path":"x.d2","text":"layers: { a: { x } }\nscenarios: { a: { y } }"}
+{"from":"extra:g-boards-link","path":"x.d2","text":"layers: { l1: { x: { link: root } }; l2: { y: { link: root.layers.l1 } } }\nz: { link: layers.l2 }"}
+{"from":"extra:g-boards-link-scenario","path":"x.d2","text":"a\nscenarios: { s1: { x: { link: root.scenarios.s1 } } }\nsteps: { st: { y: { link: root.scenarios.s1 } } }"}
+{"from":"extra:g-boards-nested-link","path":"x.d2","text":"layers: { l1: { layers: { l2: { x: { link: root.layers.l1.layers.l2 }; y: { link: _.l1 } } } } }"}
+{"from":"extra:g-boards-scenario-inherit","path":"x.d2","text":"a -> b\nscenarios: { s: { a.style.fill: red; c -> a } }\nsteps: { s1: { x }; s2: { y } }"}
+{"from":"extra:g-boards-import","path":"index.d2","text":"layers: { l1: @sub }","fs":{"sub.d2":"a -> b\nx: { link: layers.q }"}}
+{"from":"extra:g-boards-ast","path":"index.d2","text":"a\nlayers: { l1: { b }; l2: @sub; l3: { ...@sub } }\nscenarios: { s: { c } }","fs":{"sub.d2":"z"}}
+{"from":"extra:g-boards-ast2","path":"index.d2","text":"layers: { l1: @sub }\nlayers: { l2: { x } }","fs":{"sub.d2":"q: {r}"}}
+{"from":"extra:g-keys-unicode","path":"x.d2","text":"é: 😀\n\"a b\": c\n\"a.b\": d\n'x\"y': e\n\"\": f"}
+{"from":"extra:g-keys-quoted-special","path":"x.d2","text":"\"a:b\" -> \"c;d\"\n\"x\\ny\"\n\"-\": a\n\"->\": b\n\"*\": c"}
+{"from":"extra:g-keys-case","path":"x.d2","text":"A\na\nA.b\na.B\nA -> a"}
+{"from":"extra:g-keys-dots","path":"x.d2","text":"a.b.c.d -> e.f.g\na.b: x\n\"a.b\": y"}
+{"from":"extra:g-keys-reserved-children","path":"x.d2","text":"a: { style: { fill: red } }\nb: { label: { x } }"}
+{"from":"extra:g-keys-image-children","path":"x.d2","text":"a: { shape: image; icon: x.png; b }"}
+{"from":"extra:g-keys-image-seq","path":"x.d2","text":"sq: { shape: sequence_diagram; a: { shape: image; icon: x.png } }"}
+{"from":"extra:g-refs-multi","path":"x.d2","text":"a.b: 1\na.c: 2\na: 3\nb.a -> a.b\nb: { a }"}
+{"from":"extra:g-refs-underscore","path":"x.d2","text":"a: { b: { _.x: 1 } }\ny: { _.z }"}
+{"from":"extra:g-refs-scope-obj","path":"x.d2","text":"a: { b -> c }\na: { d }\nlayers: { l: { a: { e } } }"}
+{"from":"extra:g-refs-edge-in-class","path":"x.d2","text":"classes: { c: { a -> b } }"}
+{"from":"extra:g-refs-vars-inside","path":"x.d2","text":"vars: { v: { x -> y } }\nz: { ...${v} }"}
+{"from":"extra:g-text-transform","path":"x.d2","text":"a: hello world { style.text-transform: capitalize }\nb: x { style.text-transform: none }"}
+{"from":"extra:g-label-forms","path":"x.d2","text":"a: 1\nb: true\nc: null\nd: [1;2]\ne: \"multi\\nline\"\nf: \"\"\ng: -5\nh: 1.50"}
+{"from":"extra:g-label-null","path":"x.d2","text":"a: x\na: null\nb: { label: null }\nc -> d: null"}
+{"from":"extra:g-label-substitution","path":"x.d2","text":"a: ${x}"}
+{"from":"extra:g-label-block-empty","path":"x.d2","text":"a: |\n  \n|\nb: |md\n  \n|\nc: |py\n  \n|"}
+{"from":"extra:g-labels-text-empty","path":"x.d2","text":"a: { shape: text }\nb: { shape: text; label: \"\" }\nc: { shape: text; label: \" \" }"}
+{"from":"extra:g-pre-link-label","path":"x.d2","text":"a: { link: https://x.com }\nb: https://y.com"}
+{"from":"extra:g-classes-array-null","path":"x.d2","text":"a: { class: [null; 1; x] }\nclasses: { x: { style.fill: red } }"}
+{"from":"extra:g-constraint-array","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: [null; unique; primary_key] } }"}
+{"from":"extra:g-constraint-single","path":"x.d2","text":"a: { shape: sql_table; b: int { constraint: unique } }"}
+{"from":"extra:g-opacity-legend","path":"x.d2","text":"vars: { d2-legend: { a: { style.opacity: nan }; b: { style.opacity: 0 }; c: { style.opacity: 0e0 } } }"}
+{"from":"extra:g-mega","path":"x.d2","text":"direction: down\nvars: { d2-config: { pad: 5 } }\nx: { shape: sql_table; a: int }\ny: { shape: class; f(): int }\nz: |md\n  # t\n|\nx.a -> y\nlayers: { l: { w -> v } }"}
+{"from":"extra:g-imports-link","path":"index.d2","text":"x: @sub","fs":{"sub.d2":"a: { link: layers.l }\nb: { icon: pic.png }\nc: { icon: https://x.com/y.png }"}}
+{"from":"extra:g-imports-icon-ent","path":"index.d2","text":"x: @sub","fs":{"sub.d2":"a: { icon: \"http&colon;//x.com/y.png\" }\nb: { icon: \"&#47;abs.png\" }"}}
+{"from":"extra:g-error-dedupe","path":"x.d2","text":"a: { style.fill: nope; style.fill: nope }\n**.style.fill: nope\nb\nc"}
+{"from":"extra:g-error-glob-dupe","path":"x.d2","text":"*.style.opacity: 5\na\nb\nc"}
+{"from":"extra:g-error-many","path":"x.d2","text":"a: { shape: bogus; width: x; height: y; top: -1; left: -1; direction: z; style.opacity: 5 }"}
+{"from":"extra:g-hierarchy","path":"x.d2","text":"h: { shape: hierarchy; a; b }"}
+{"from":"extra:g-unicode-style","path":"x.d2","text":"a: { style.font: \"İ\" }\nb: { style.fill: \"İ\" }"}
+{"from":"extra:g-unicode-lower","path":"x.d2","text":"İ: x\nı: y\nK: z\nk: w\nſ: v\ns: u"}
+{"from":"extra:g-unicode-ida","path":"x.d2","text":"\"é́\": 1\n\"日本\": 2\n\"🙂\": 3\n\"\\u0000\": 4"}
+{"from":"extra:g-spaces-keys","path":"x.d2","text":"\" a\": 1\n\"a \": 2\n\"  \": 3"}
+{"from":"extra:v9-glob-lazy-dedupe","path":"index.d2","text":"*.style.fill: red\nx\ny.z\nx.w"}
+{"from":"extra:v9-glob-lazy-dedupe2","path":"index.d2","text":"**.style.opacity: 0.5\na: {b: {c}}\nd\na.b.e"}
+{"from":"extra:v9-glob-edge-lazy","path":"index.d2","text":"* -> *\na\nb\nc"}
+{"from":"extra:v9-glob-edge-lazy2","path":"index.d2","text":"x.* -> y.*\nx.a\ny.b\nx.c\ny.d"}
+{"from":"extra:v9-glob-triple-boards","path":"index.d2","text":"***.style.fill: blue\na\nlayers: { l1: { b; c } }\nscenarios: { s1: { d } }"}
+{"from":"extra:v9-glob-double-skips-classes","path":"index.d2","text":"classes: { k: { style.fill: red } }\nvars: { v: 1 }\n**.style.opacity: 0.4\nx.class: k"}
+{"from":"extra:v9-glob-double-skips-vars","path":"index.d2","text":"vars: { a: { b: c } }\n**: { label: hi }\nq"}
+{"from":"extra:v9-glob-suffix-only","path":"index.d2","text":"*b: x\nab\nabc\nb\ncab\nbab"}
+{"from":"extra:v9-glob-suffix-multi","path":"index.d2","text":"a*b*c: x\nab1c\nabc\nxabc\naXbYc\naXbYcZ"}
+{"from":"extra:v9-glob-suffix-unicode","path":"index.d2","text":"*İ: x\nİ\naİ\naı\nİa"}
+{"from":"extra:v9-glob-prefix-pattern","path":"index.d2","text":"a*: {label: p}\nabc\nxa\nA\nab"}
+{"from":"extra:v9-glob-nested-created","path":"index.d2","text":"*.*: {style.fill: red}\na.b\nc.d.e\nf"}
+{"from":"extra:v9-glob-filter-amp","path":"index.d2","text":"*: { &shape: circle; style.fill: red }\na: { shape: circle }\nb\nc: { shape: square }"}
+{"from":"extra:v9-glob-filter-late","path":"index.d2","text":"*: { &style.fill: red; label: red }\na\na.style.fill: red\nb"}
+{"from":"extra:v9-edge-reverse-index","path":"index.d2","text":"a -> b\nb <- a\n(a -> b)[1].style.stroke: red\n(b <- a)[0].style.stroke: blue"}
+{"from":"extra:v9-edge-reverse-index2","path":"index.d2","text":"a -> b\nb -> a\n(b -> a)[0]: l0\n(a -> b)[1]: l1\n(a -> b)[0]: l2"}
+{"from":"extra:v9-edge-reverse-index3","path":"index.d2","text":"a <-> b\nb <-> a\n(a <-> b)[1].style.opacity: 0.2"}
+{"from":"extra:v9-edge-reverse-index-glob","path":"index.d2","text":"a -> b\nb <- a\n(* -> *)[*].style.stroke-width: 4"}
+{"from":"extra:v9-edge-index-nested","path":"index.d2","text":"x: { a -> b; b <- a }\n(x.a -> x.b)[1]: hi"}
+{"from":"extra:v9-edge-link-label","path":"index.d2","text":"a -> b: { link: https://example.com/x }\nb -> c: { label: set; link: https://example.org }\nc -> d: { link: layers.l1 }\nlayers: { l1: { z } }"}
+{"from":"extra:v9-edge-link-class","path":"index.d2","text":"classes: { lk: { link: https://class.example } }\na -> b: { class: lk }"}
+{"from":"extra:v9-class-cycle","path":"index.d2","text":"classes: { a: { class: b }; b: { class: a } }\nx.class: a"}
+{"from":"extra:v9-class-cycle-self","path":"index.d2","text":"classes: { a: { class: a } }\nx.class: a\ny -> z: { class: a }"}
+{"from":"extra:v9-class-cycle-edge","path":"index.d2","text":"classes: { a: { class: b }; b: { class: a } }\nx -> y: { class: a }"}
+{"from":"extra:v9-class-chain","path":"index.d2","text":"classes: { a: { class: b }; b: { style.fill: red } }\nx.class: a\nx -> y: { class: [a; b] }"}
+{"from":"extra:v9-opacity-inf","path":"index.d2","text":"a.style.opacity: inf\nb.style.opacity: -Inf\nc.style.opacity: nan\nd.style.opacity: 1e999\ne.style.opacity: 0.5"}
+{"from":"extra:v9-opacity-edge","path":"index.d2","text":"a -> b: { style.opacity: nan }"}
+{"from":"extra:v9-import-twice-key","path":"index.d2","text":"x: @lib.a\ny: @lib.a\nz: @lib","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-twice-plain","path":"index.d2","text":"x: @lib\ny: @lib\n...@lib","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-key-array","path":"index.d2","text":"x: @lib.arr\ny: @lib.arr","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-empty-string","path":"index.d2","text":"x: @lib2\n","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-globs","path":"index.d2","text":"*.style.fill: red\nx: @lib\ny: @lib.a","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-boards","path":"index.d2","text":"layers: { l1: @lib\n l2: @lib }\nscenarios: { s1: @lib }","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-vars","path":"index.d2","text":"vars: { v: @lib.a }\nx: ${v}\ny: @lib.a.b","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-import-edge-ids","path":"index.d2","text":"a -> b\nx: @lib3\nb <- a","fs":{"lib.d2":"a: { b: c; style.fill: red }\narr: [1; 2; {x: y}]\nq -> r\n","lib2.d2":"x: \"\"\ny: |md |md\n","lib3.d2":"a -> b\nb <- a\n"}}
+{"from":"extra:v9-board-copy-base","path":"index.d2","text":"a -> b\nlayers: { l1: { c -> d } }\nscenarios: { s1: { b -> a } }\nsteps: { s1: { e } }"}
+{"from":"extra:v9-board-copy-edges","path":"index.d2","text":"x -> y\nlayers: { l: { z } }\n(x -> y)[0].style.stroke: red\nscenarios: { s: { (x -> y)[0].style.stroke: blue } }"}
+{"from":"extra:v9-board-folder","path":"index.d2","text":"layers: { a: { x }; b: { y } }"}
+{"from":"extra:v9-board-folder2","path":"index.d2","text":"x\nlayers: { a: { x } }"}
+{"from":"extra:v9-board-folder3","path":"index.d2","text":"layers: { a: { layers: { b: { z } } } }"}
+{"from":"extra:v9-empty-string-clone","path":"index.d2","text":"a: \"\"\nb: \"${a}\"\nclasses: { k: { label: \"\" } }\nc.class: k\nd: |md |md"}
+{"from":"extra:v9-ampersand-ref","path":"index.d2","text":"*: { &label: x; style.fill: red }\na: { label: x }\nb: { label: y }"}
+{"from":"extra:v9-suspend-glob","path":"index.d2","text":"*: suspend\na\nb\n*: unsuspend"}
+{"from":"extra:sketch-all-shapes","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\ns0: rectangle { shape: rectangle }\ns1: square { shape: square }\ns2: page { shape: page }\ns3: parallelogram { shape: parallelogram }\ns4: document { shape: document }\ns5: cylinder { shape: cylinder }\ns6: queue { shape: queue }\ns7: package { shape: package }\ns8: step { shape: step }\ns9: callout { shape: callout }\ns10: stored_data { shape: stored_data }\ns11: person { shape: person }\ns12: diamond { shape: diamond }\ns13: oval { shape: oval }\ns14: circle { shape: circle }\ns15: hexagon { shape: hexagon }\ns16: cloud { shape: cloud }\ns17: text { shape: text }\ns19: class { shape: class }\ns20: sql_table { shape: sql_table }\ns21: image { shape: image; icon: https://icons.terrastruct.com/essentials%2F092-graph%20bar.svg }\ns22: sequence_diagram { shape: sequence_diagram }\ns23: hierarchy { shape: hierarchy }"}
+{"from":"extra:sketch-effects","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\na: A {shape: rectangle; style: {3d: true; fill: red}}\nb: B {shape: circle; style: {multiple: true; double-border: true; shadow: true}}\nc: C {shape: hexagon; style: {opacity: 0.5; fill-pattern: dots; border-radius: 8}}\nd: D {shape: cylinder; style: {stroke-dash: 3; stroke-width: 6; fill: \"linear-gradient(#f00,#00f)\"}}\na -> b -> c -> d"}
+{"from":"extra:sketch-arrowheads","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\na0: A0\nb0: B0\na0 <-> b0: {source-arrowhead: {shape: triangle; style.filled: true}; target-arrowhead: {shape: triangle; style.filled: false; label: x}}\na1: A1\nb1: B1\na1 <-> b1: {source-arrowhead: {shape: arrow; style.filled: false}; target-arrowhead: {shape: arrow; style.filled: true; label: x}}\na2: A2\nb2: B2\na2 <-> b2: {source-arrowhead: {shape: diamond; style.filled: true}; target-arrowhead: {shape: diamond; style.filled: false; label: x}}\na3: A3\nb3: B3\na3 <-> b3: {source-arrowhead: {shape: circle; style.filled: false}; target-arrowhead: {shape: circle; style.filled: true; label: x}}\na4: A4\nb4: B4\na4 <-> b4: {source-arrowhead: {shape: box; style.filled: true}; target-arrowhead: {shape: box; style.filled: false; label: x}}\na5: A5\nb5: B5\na5 <-> b5: {source-arrowhead: {shape: cf-one; style.filled: false}; target-arrowhead: {shape: cf-one; style.filled: true; label: x}}\na6: A6\nb6: B6\na6 <-> b6: {source-arrowhead: {shape: cf-many; style.filled: true}; target-arrowhead: {shape: cf-many; style.filled: false; label: x}}\na7: A7\nb7: B7\na7 <-> b7: {source-arrowhead: {shape: cf-one-required; style.filled: false}; target-arrowhead: {shape: cf-one-required; style.filled: true; label: x}}\na8: A8\nb8: B8\na8 <-> b8: {source-arrowhead: {shape: cf-many-required; style.filled: true}; target-arrowhead: {shape: cf-many-required; style.filled: false; label: x}}\na9: A9\nb9: B9\na9 <-> b9: {source-arrowhead: {shape: cross; style.filled: false}; target-arrowhead: {shape: cross; style.filled: true; label: x}}"}
+{"from":"extra:sketch-animated","path":"index.d2","text":"vars: {d2-config: {sketch: true; theme-id: 200}}\na -> b: {style.animated: true}\nb <-> c: {style.animated: true}\nc -- d: {style.animated: true}\nd -> e: {style: {stroke-width: 7; stroke: red; opacity: 0.4}}"}
+{"from":"extra:sketch-containers","path":"index.d2","text":"vars: {d2-config: {sketch: true; theme-id: 4; pad: 20}}\nouter: Outer {\n  label.near: bottom-center\n  inner: Inner {\n    x -> y\n    style.double-border: true\n  }\n  icon: https://icons.terrastruct.com/essentials%2F092-graph%20bar.svg\n}\nouter.style.fill: \"#eee\"\nz: {shape: oval; label: \"Border label\"; label.near: outside-top-right; style.fill: honeydew}"}
+{"from":"extra:sketch-tables","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\nt: T {\n  shape: sql_table\n  id: int {constraint: primary_key}\n  name: varchar(200) {constraint: [unique; not_null]}\n  style.border-radius: 6\n}\nc: C {\n  shape: class\n  +field: string\n  -hidden(): void\n  style.border-radius: 6\n}\nt.id -> c.field\nt -> c: ref {style.stroke-dash: 4}"}
+{"from":"extra:sketch-markdown-code","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\nm: |md\n  # Title\n  * item\n  `code`\n|\nk: |json\n  [1, 2]\n|\nm -> k: \"label\"\nk -> m: bold"}
+{"from":"extra:sketch-grid-seq","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\ng: {grid-columns: 2; a; b; c: {shape: circle}; d}\ns: {shape: sequence_diagram; a -> b: hi; b -> a: back; grp: {a -> b}}\ng -> s"}
+{"from":"extra:sketch-dark-themes","path":"index.d2","text":"vars: {d2-config: {sketch: true; theme-id: 0; dark-theme-id: 200}}\na: {style.fill: \"#eeeeee\"}\nb: {style.fill: orange; style.stroke: \"#0a0f25\"}\nc: {style.fill: \"#ffd1d1\"; style.font-color: \"#222\"}\na -> b -> c"}
+{"from":"extra:sketch-boards","path":"index.d2","text":"vars: {d2-config: {sketch: true}}\nx -> y\nlayers: {l: {a -> b}}\nscenarios: {s: {x.style.fill: red}}\nsteps: {1: {y -> z}}"}
+{"from":"extra: icon userinfo 0","path":"x.d2","text":"a: {icon: \"https://bob@example.com/i.svg\"}\nb: {icon: \"https://user:pa%20ss@example.com/x.png\"}\nc: {icon: \"http://üser:p%C3%A4@h.example/x.png\"}\na -> b: {icon: \"https://:x@h.example/y.png\"}\n"}
+{"from":"extra: icon userinfo 1","path":"x.d2","text":"x: {shape: image; icon: \"https://u:@h.example/a.png\"}\ny: {icon: \"https://a%40b:c%3Ad@h.example/q?x=1#f\"}\nlayers: {l: {z: {icon: \"https://zed@h.example/z.png\"}}}\n"}

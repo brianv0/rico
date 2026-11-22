@@ -1,0 +1,1 @@
+{"name":"plaintext","rules":{"root":[[".+",["t","Text"],0],["\\n",["t","Text"],0]]}}

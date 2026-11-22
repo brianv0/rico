@@ -1,0 +1,1 @@
+{"name":"Bash Session","nl":1,"rules":{"root":[["^((?:\\[[^]]+@[^]]+\\]\\s?)?[#$%>])(\\s*)(.*\\n?)",["g",[["t","GenericPrompt"],["t","Text"],["u","bash"]]],0],["^.+\\n?",["t","GenericOutput"],0]]}}
