@@ -17,17 +17,16 @@ const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof mat
  * The document shown inside the diagram's sandboxed iframe. The frame has no scripts (sandbox), and
  * this CSP forbids every network request, so untrusted diagram source cannot run code or phone home.
  */
-export const frameDoc = (svg, css = '') => '<!doctype html><meta charset="utf-8">'
+export const frameDoc = (svg, css = '', fontSrc = '') => '<!doctype html><meta charset="utf-8">'
   // An iframe whose colour scheme differs from its embedder gets an opaque white canvas (a white strip, light-grey lines on
   // white in dark mode). Declaring the scheme the page is using keeps it transparent.
   + `<meta name="color-scheme" content="${prefersDark() ? 'dark' : 'light'}">`
-  + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
+  + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:${fontSrc ? ' ' + fontSrc : ''}">`
   + '<style>html,body{margin:0;background:transparent}body{display:flex;justify-content:center}'
   + `svg{max-width:100%;height:auto;cursor:pointer}${css}</style>` // links are neutralised by the capture-phase click handler, not by CSS
   + `<body>${svg}</body>`;
 
 // ---------------- D2 ----------------
-let d2Promise = null;
 function d2Errors(e) {
   try {
     const list = JSON.parse(e.message || String(e));
@@ -36,19 +35,57 @@ function d2Errors(e) {
   return [String(e.message || e)];
 }
 
-async function renderD2(source) {
+// The JavaScript port of D2 (public/d2/, see docs/d2-port.md) is preferred: no WASM download, no worker, and the default layout is
+// ready in tens of milliseconds. The WASM build (@terrastruct/d2, optional) stays as the fallback for when the port cannot load or
+// throws something that is not a compile error of the diagram.
+let d2jsPromise = null;
+let d2wasmPromise = null;
+
+function loadD2js() {
+  return (d2jsPromise ||= (async () => {
+    const [lib, svg] = await Promise.all([import('/d2/d2lib.js'), import('/d2/d2svg.js')]);
+    await lib.init({ markdownit: window.markdownit });
+    return { lib, svg };
+  })().catch((e) => { d2jsPromise = null; throw e; }));
+}
+
+const d2Errs = (err) => (Array.isArray(err.errs) && err.errs.length ? err.errs : String(err.message || err).split('\n').filter(Boolean)).map((x) => `line ${String(x.errmsg || x.message || x).replace(/^(Error: |index:)/, '')}`); // the port's ParseError holds one Error per problem
+const d2Theme = (ro) => (forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
+
+async function d2WithPort(source) {
+  const { lib, svg: svgm } = await loadD2js();
+  const ro = {};
+  const r = await lib.compile(source, {}, ro);
+  if (r.err) throw fail(d2Errs(r.err)); // a real compile error of the diagram: do not retry with the WASM build
+  // fonts: the SVG points at the cached same-origin TTFs instead of carrying base64 subsets; the frame's CSP allows exactly that origin
+  const svg = await svgm.renderAsync(r.diagram, { ...d2Theme(ro), fonts: 'external', fontBaseURL: `${location.origin}/d2/fonts/` });
+  return { svg, diagram: r.diagram, graph: r.graph, fontSrc: location.origin };
+}
+
+async function d2WithWasm(source) {
   let d2;
-  try { d2 = await (d2Promise ||= import('/vendor/d2.js').then((m) => new m.D2())); } catch {
-    d2Promise = null;
+  try { d2 = await (d2wasmPromise ||= import('/vendor/d2.js').then((m) => new m.D2())); } catch {
+    d2wasmPromise = null;
     throw fail(['Install the optional dependency: npm install @terrastruct/d2'], true);
   }
   let r;
   try { r = await d2.compile(source); } catch (e) { throw fail(d2Errors(e)); }
   const ro = r.renderOptions || {};
-  const svg = await d2.render(r.diagram, forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
-  const maps = d2LineMaps(r.diagram, r.graph);
+  const svg = await d2.render(r.diagram, d2Theme(ro));
+  return { svg, diagram: r.diagram, graph: r.graph };
+}
+
+async function renderD2(source) {
+  let out;
+  try { out = await d2WithPort(source); } catch (e) {
+    if (e.messages) throw e; // the diagram does not compile
+    console.warn('D2 (JavaScript port) failed, falling back to the WASM build:', e);
+    out = await d2WithWasm(source);
+  }
+  const maps = d2LineMaps(out.diagram, out.graph);
   return {
-    svg,
+    svg: out.svg,
+    fontSrc: out.fontSrc,
     // walk up from the clicked element to the group D2 tagged with the shape / connection id
     resolve(target) {
       for (let el = target; el && el.nodeType === 1 && el.tagName.toLowerCase() !== 'svg'; el = el.parentElement) {

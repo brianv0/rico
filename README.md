@@ -103,14 +103,18 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   person or an AI agent reading it on GitHub gets the full range. A collapsed `<details>` block under the comment holds the actual selected source lines and
   the commit they are from (each line cut to 240 characters, ranges over 40 lines to their head and tail). The quote is included only when it adds information (a partial line, a diagram, a clamped range, or
   text outside the diff). Long selections keep their head and tail with an ellipsis.
-- **Diagrams (D2 and Mermaid), rendered client-side.** `d2` and `mermaid` code blocks render in the browser
-  (D2 as WASM via `@terrastruct/d2`, Mermaid as plain JS); both are *optional* dependencies loaded on demand,
-  and without them the source is shown with an install hint. Click a **node or edge** to comment on the source
+- **Diagrams (D2, Mermaid and Graphviz), rendered client-side.** `d2`, `mermaid` and `dot` (also `graphviz` / `gv`) code
+  blocks render in the browser: D2 with the JavaScript port in `public/d2/` (see `docs/d2-port.md`; the WASM build
+  `@terrastruct/d2` is the fallback when the port cannot load), Mermaid as plain JS, Graphviz as WASM via `@viz-js/viz`.
+  D2-WASM, Mermaid and Graphviz are *optional* dependencies loaded on demand, and without a renderer the source is
+  shown with an install hint. Click a **node or edge** to comment on the source
   line that defines it (the comment box names the element); click empty space to comment on the whole block;
   open "source" to comment on a specific line. Broken diagrams show their compile errors inline.
   - *Line mapping.* D2: exact, from the compiler's source ranges (a node defined on several lines anchors to its
     first definition and lists the others). Mermaid: from element ids and labels (flowchart nodes and edges,
-    sequence actors and messages); anything it cannot place falls back to the whole block.
+    sequence actors and messages); anything it cannot place falls back to the whole block. Graphviz: from the node names,
+    `a -> b` / `a -- b` pairs (chains, `{a b} -> c` groups, ports, repeated edges by order) and `cluster_` subgraphs,
+    matched against statement-level tokens only, so a label or comment that mentions a name is never mistaken for it.
   - *Safety.* Diagram source is untrusted. Each diagram is drawn in a sandboxed `iframe` with **no scripts** and a
     CSP that blocks **all network requests**, so a `javascript:` link, an `onclick`, or an `icon:` URL pointing at
     another host can do nothing (tested, including that the CSP blocks the icon fetch).
@@ -121,7 +125,7 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   from the margin. Outdated threads are labelled. Your unposted drafts appear there too, dashed.
 - Comments live on GitHub (single or pending); only the review summary, "viewed" marks and unsent text are kept in `localStorage`.
 - **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; D2's WASM
-  renderer and its ELK layout worker are the only eval-shaped exceptions), `X-Frame-Options: DENY` and
+  fallback, its ELK layout worker and Graphviz's WASM are the only eval-shaped exceptions), `X-Frame-Options: DENY` and
   `X-Content-Type-Options: nosniff`. A sanitizer regression cannot run script in the page, and a remote
   site cannot frame the app to clickjack a review. `.` and `..` are never accepted as owner/repo, since
   fetch would collapse them out of the `/repos/{owner}/{repo}/` API path.

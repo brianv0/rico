@@ -1484,7 +1484,7 @@ function showDiagram(fig, res) {
     frame.setAttribute('sandbox', 'allow-same-origin'); // deliberately NOT allow-scripts
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.title = `${LANG_NAME[fig.dataset.lang]} diagram`;
-    frame.srcdoc = frameDoc(res.svg, res.css);
+    frame.srcdoc = frameDoc(res.svg, res.css, res.fontSrc);
     frame.addEventListener('load', () => wireFrame(fig, frame, res));
     out.append(frame);
     // diagrams are capped in height so one big graph cannot push the document off-screen

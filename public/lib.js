@@ -435,7 +435,9 @@ export function resolveRepoPath(fileDir, src) {
 
 /** D2 range "index,6:0:102-6:23:125" -> {s, e} (0-based lines) */
 export function parseD2Range(r) {
-  const m = /,(\d+):\d+:\d+-(\d+):\d+:\d+$/.exec(String(r || ''));
+  // the WASM build gives the string; the JS port gives a Range object whose toJSON() is that string (its toString() is something else)
+  const str = typeof r === 'string' ? r : r && typeof r.toJSON === 'function' ? r.toJSON() : String(r || '');
+  const m = /,(\d+):\d+:\d+-(\d+):\d+:\d+$/.exec(String(str || ''));
   return m ? { s: Number(m[1]), e: Number(m[2]) } : null;
 }
 

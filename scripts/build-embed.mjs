@@ -12,11 +12,12 @@ const out = path.join(root, 'dist-embed');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out);
 const files = {};
+const TEXT = new Set(['.js', '.mjs', '.json', '.css', '.html', '.svg', '.txt', '.md', '.map']); // everything else (fonts, images) is stored base64
 const walk = (dir) => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p);
-    else if (e.name !== '_headers') files['/' + path.relative(dist, p).split(path.sep).join('/')] = fs.readFileSync(p, 'utf8');
+    else if (e.name !== '_headers') files['/' + path.relative(dist, p).split(path.sep).join('/')] = TEXT.has(path.extname(e.name)) ? fs.readFileSync(p, 'utf8') : { b64: fs.readFileSync(p).toString('base64') };
   }
 };
 walk(dist);

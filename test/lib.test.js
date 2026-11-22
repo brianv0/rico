@@ -514,3 +514,10 @@ test('dotTokens: quoted ids, escapes, HTML labels and comments', () => {
   const t = dotTokens('a -> "b\\"c" /* x\ny */ <<b>x</b>>\n# z\nd');
   assert.deepEqual(t.map((k) => [k.t, k.line]), [['a', 0], ['->', 0], ['b"c', 0], ['<b>x</b>', 1], ['d', 3]]);
 });
+
+test('parseD2Range accepts the WASM string and the JS port\'s Range object (its toJSON is that string)', () => {
+  const str = 'index,6:0:102-6:23:125';
+  assert.deepEqual(parseD2Range(str), { s: 6, e: 6 });
+  assert.deepEqual(parseD2Range({ toJSON: () => str, toString: () => '7:1' }), { s: 6, e: 6 });
+  assert.equal(parseD2Range(null), null);
+});
