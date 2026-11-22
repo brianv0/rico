@@ -137,7 +137,10 @@ export async function startFake() {
         state.comments.push(c);
         ops.push({ op: 'pending.add', id: c.id, path: v.path, line: v.line, side: v.side, start_line: v.sl, body: v.body });
         bump();
-        return data({ addPullRequestReviewThread: { thread: { id: 'PRRT_' + c.id, comments: { nodes: [{ databaseId: c.id }] } } } });
+        return data({ addPullRequestReviewThread: { thread: {
+          id: 'PRRT_' + c.id, path: c.path, line: c.line, originalLine: c.line, startLine: c.start_line ?? null, originalStartLine: c.start_line ?? null, diffSide: c.side, startDiffSide: c.start_side ?? null,
+          comments: { nodes: [{ databaseId: c.id, body: c.body, path: c.path, createdAt: c.created_at, url: c.html_url, authorAssociation: 'OWNER', author: { login: 'me', avatarUrl: AVATAR } }] },
+        } } });
       }
       if (q.includes('submitPullRequestReview')) {
         if (!state.pending) return err('no pending review');
@@ -208,7 +211,8 @@ export async function startFake() {
       if (m) {
         const c = state.comments.find((x) => x.id === Number(m[1]));
         if (!c) return json({ message: 'Not Found' }, 404);
-        if (req.method === 'GET') return json(withReactions(c));
+        // real GitHub hides unsubmitted (pending) review comments from this endpoint: GET is a 404 (found on staging)
+        if (req.method === 'GET') return c.pending ? json({ message: 'Not Found' }, 404) : json(withReactions(c));
         if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
         if (req.method === 'PATCH') {
           if (!body.body) return json({ message: 'Validation Failed', errors: [{ field: 'body', code: 'missing_field' }] }, 422);

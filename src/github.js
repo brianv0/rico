@@ -368,13 +368,21 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       const d = await gql('mutation($pr:ID!,$sha:GitObjectID){addPullRequestReview(input:{pullRequestId:$pr,commitOID:$sha}){pullRequestReview{id databaseId}}}', { pr: prId, sha: c.commit_id });
       review = d.addPullRequestReview.pullRequestReview;
     }
+    // GitHub hides pending comments from the REST comments endpoints (a read-back by id is a 404), so the comment shown in the
+    // margin is built from what the mutation itself returns.
     const d = await gql(
       `mutation($r:ID!,$path:String!,$line:Int!,$side:DiffSide!,$sl:Int,$ss:DiffSide,$body:String!){
-        addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{id comments(first:1){nodes{databaseId}}}}}`,
+        addPullRequestReviewThread(input:{pullRequestReviewId:$r,path:$path,line:$line,side:$side,startLine:$sl,startSide:$ss,body:$body}){thread{
+          id path line originalLine startLine originalStartLine diffSide startDiffSide
+          comments(first:1){nodes{databaseId body path createdAt url authorAssociation author{login avatarUrl}}}}}}`,
       { r: review.id, path: c.path, line: c.line, side: c.side, sl: c.start_line ?? null, ss: c.start_side ?? null, body: c.body },
     );
-    const dbid = d.addPullRequestReviewThread.thread.comments.nodes[0].databaseId;
-    const out = compact(await ghJson(`/repos/${owner}/${repo}/pulls/comments/${dbid}`));
+    const t = d.addPullRequestReviewThread.thread;
+    const n = t.comments.nodes[0];
+    const out = compact({
+      id: n.databaseId, path: n.path || t.path, line: t.line, original_line: t.originalLine, start_line: t.startLine, original_start_line: t.originalStartLine,
+      side: t.diffSide, user: { login: n.author?.login, avatar_url: n.author?.avatarUrl }, body: n.body, created_at: n.createdAt, html_url: n.url, author_association: n.authorAssociation,
+    });
     out.pending = true;
     out.canUpdate = out.canDelete = true;
     return { comment: out, review: { id: review.id, databaseId: review.databaseId ?? null } };
