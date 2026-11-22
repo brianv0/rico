@@ -6,6 +6,7 @@ import * as graphjson from '../../../public/d2/tala/graphjson.js';
 import { background } from '../../../public/d2/tala/context.js';
 import * as engine from '../../../public/d2/tala/engine.js';
 import * as t1 from './t1check.mjs';
+import * as enginecheck from './enginecheck.mjs';
 import { runGo, loadCases } from './rootlib.mjs';
 
 const [file, ...flags] = process.argv.slice(2);
@@ -21,7 +22,7 @@ let cases = loadCases(file);
 if (flag('--only') !== undefined) cases = [cases[Number(flag('--only'))]];
 const max = Number(flag('--max', 100000));
 if (cases.length > max) cases = cases.slice(0, max);
-const stages = [-1, ...new Set(WIRED.flatMap(([k, pred]) => [k, pred]))];
+const stages = flag('--full') ? [-1, ...Array.from({ length: 21 }, (_, i) => i)] : [-1, ...new Set(WIRED.flatMap(([k, pred]) => [k, pred]))];
 let cacheNoise = 0, runs = 0, compared = 0, same = 0, unrecon = 0, skipped = 0, t0 = performance.now();
 const bad = [];
 const perStage = {};
@@ -37,6 +38,33 @@ for (let off = 0; off < cases.length; off += 50) {
       if (!run.stages) continue;
       runs++;
       const byIndex = new Map(run.stages.map((s) => [s.index, s]));
+      if (flag('--full')) {
+        // the whole JS pipeline from Go's input graph (stage -1): every stage of Go's records up to stage 20 is compared
+        const start = byIndex.get(-1);
+        if (!start) continue;
+        let g;
+        try { g = t1.reconstruct(start); } catch (e) { if (e.name !== 'GoError') throw e; unrecon++; continue; }
+        const p = new engine.Pipeline(g, BigInt(run.seed), false);
+        const STOP = new Error('stop');
+        const restore = enginecheck.observeStages((index, nm, graph) => {
+          if (index > 20) throw STOP;
+          const goK = byIndex.get(index);
+          if (!goK) return;
+          compared++;
+          perStage[index] = perStage[index] || [0, 0];
+          perStage[index][1]++;
+          const gotRec = { index, graph: graphjson.serialize(ctx, graph), deep: t1.deepState(graph) };
+          const d = t1.firstDiff(bigjson.plain(gotRec), bigjson.plain({ index: goK.index, graph: goK.graph, deep: goK.deep }));
+          if (d) { bad.push({ name, tag: `seed${run.seed}/full/stage${index}`, ...d }); throw STOP; }
+          same++;
+          perStage[index][0]++;
+        });
+        try { p.runAllStages(ctx); } catch (e) {
+          if (e !== STOP && e.name !== 'GoError' && e.constructor?.name !== 'NotPorted') throw e;
+          if (e !== STOP && e.name === 'GoError') { compared++; if (run.err === undefined) bad.push({ name, tag: `seed${run.seed}/full`, path: 'err', got: e.message, want: '' }); else same++; }
+        } finally { restore(); }
+        continue;
+      }
       if (flag('--chain')) {
         // chained: the stages 7..17 run one after the other on ONE JS graph (so the edge-length cache is warm as in Go)
         const start = byIndex.get(6);

@@ -5,7 +5,7 @@
 // Terrastruct Inc.): stages.go, the stage entry points of the pipeline (Prescale, Prepare, Place, NormalizeGaps, Align, Swap,
 // TransposeAll, Normalize, Pad). The pipeline (engine.js) resolves them by name through stagepkgs.js.
 
-import { goRound } from '../../gomath.js';
+import { goInt } from '../../gomath.js';
 import * as invariant from '../invariant.js';
 import * as labeling from '../labeling.js';
 import * as lg from '../layoutgraph.js';
@@ -49,7 +49,7 @@ export function scaleBasedOnEdges(node) {
   }
   let sidesForEdges = 4.0;
   if (edgeCounts.size < 4) sidesForEdges = edgeCounts.size;
-  const edgesPerSide = Math.max(maxEdgesToAdjacent, Math.trunc(Math.ceil(totalEdges / sidesForEdges)));
+  const edgesPerSide = Math.max(maxEdgesToAdjacent, goInt(Math.ceil(totalEdges / sidesForEdges)));
   if (edgesPerSide === 1) return;
   let minLength = (edgesPerSide + 1) * placementcost.SideEdgeSpacing;
   if (minLength < Math.min(node.width, node.height)) return;
