@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as bigjson from '../../../public/d2/tala/bigjson.js';
 import * as graphjson from '../../../public/d2/tala/graphjson.js';
 import * as lg from '../../../public/d2/tala/layoutgraph.js';
-import { background, withCancel } from '../../../public/d2/tala/context.js';
-import { registerPackage } from '../../../public/d2/tala/stagepkgs.js';
-import * as engine from '../../../public/d2/tala/engine.js';
+import { background } from '../../../public/d2/tala/context.js';
 import * as result from '../../../public/d2/tala/result.js';
 import { runGo, loadCases } from './rootlib.mjs';
 
