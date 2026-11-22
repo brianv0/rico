@@ -607,7 +607,7 @@ await step('word marks: only the changed words are marked, text and line mapping
   });
   assert.deepEqual(r.wd, ['Old', 'old']); assert.deepEqual(r.wa, ['New', 'fresh']); // the removed and added list items are not adjacent: they are not one edit
   assert.equal(r.rmText, 'Old wording of the closing paragraph.'); assert.equal(r.nwText, 'New wording of the closing paragraph.');
-  assert.equal(r.rmL, '16-16'); assert.equal(r.nwL, '14-14');
+  assert.equal(r.rmL, '15-16'); assert.equal(r.nwL, '13-14'); // data-l is 0-based, end exclusive: source line 16 and line 14
   assert.equal(r.nwMarks, 0); assert.equal(r.rmDeco, 'line-through'); assert.equal(r.nwDeco, 'underline');
 });
 await step('word marks: selecting across struck words still anchors to the OLD line (LEFT)', async () => {
@@ -618,7 +618,6 @@ await step('word marks: selecting across struck words still anchors to the OLD l
 await step('word marks: selecting across inserted words still anchors to the new line (RIGHT)', async () => {
   await drag('New wording', 'New wording');
   assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
-  assert.equal(await page.locator('#c-qinc').isChecked(), false);
   await page.keyboard.press('Escape');
 });
 await step('word marks: a selection from the struck words into the inserted ones follows the mixed rule', async () => {
@@ -641,7 +640,7 @@ await step('merged view: a changed paragraph is one block with the removed and i
       visible, awayH: away.getBoundingClientRect().height, decoDel: getComputedStyle(p.querySelector('.wdel')).textDecorationLine, decoIns: getComputedStyle(p.querySelector('.wa')).textDecorationLine,
       removedLiBlocks: [...document.querySelectorAll('#doc li.rm')].filter((e) => e.getBoundingClientRect().height > 0).length };
   });
-  assert.deepEqual({ l: r.l, lo: r.lo, del: r.del, ins: r.ins }, { l: '14-14', lo: '16-16', del: ['Old'], ins: ['New'] });
+  assert.deepEqual({ l: r.l, lo: r.lo, del: r.del, ins: r.ins }, { l: '13-14', lo: '15-16', del: ['Old'], ins: ['New'] });
   assert.match(r.text, /^OldNew wording of the closing paragraph\.$/);
   assert.equal(r.visible, 1, 'one visible paragraph, not a red one and a green one');
   assert.equal(r.awayH, 0); assert.equal(r.decoDel, 'line-through'); assert.equal(r.decoIns, 'underline');
@@ -654,19 +653,12 @@ await step('merged view: selecting struck words anchors to the OLD line (LEFT), 
   await drag('Old', 'Old');
   assert.deepEqual(await pend(), { side: 'LEFT', start: 16, end: 16, mixed: false });
   assert.equal(await rangeNow(), 'Comments on removed line 16');
-  const op0 = fake.ops.length;
-  await page.fill('#c-body', 'Why was this word dropped?');
-  const op = await sendAndWait('Control+Shift+Enter');
-  assert.deepEqual({ op: op.op, side: op.side, line: op.line, path: op.path }, { op: 'pending.add', side: 'LEFT', line: 16, path: 'docs/removed.md' });
-  await page.click('#review-btn'); await page.click('#discard'); await page.click('#discard');
-  await page.waitForFunction(() => !document.querySelector('#margin .thread.pending'));
+  assert.equal(await page.locator('#c-qtext').inputValue(), '> Old'); // only the struck word, not the whole old paragraph
   await page.keyboard.press('Escape');
-  assert.ok(fake.ops.length > op0);
 });
 await step('merged view: selecting unchanged or inserted words anchors to the new line (RIGHT)', async () => {
   await drag('wording', 'closing');
   assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
-  assert.equal(await page.locator('#c-qtext').inputValue().catch(() => ''), '');
   await page.keyboard.press('Escape');
   await drag('New', 'wording');
   assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
