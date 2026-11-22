@@ -15,6 +15,7 @@
     "deploy": "npm run build && wrangler deploy",
     "deploy:stage": "npm run build && wrangler deploy --env stage",
     "e2e": "node e2e/run.mjs",
+    "e2e:live": "node e2e/real/stage.cjs",
     "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml",
     "deploy:stage:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml --env stage"
   },

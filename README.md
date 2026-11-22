@@ -233,3 +233,15 @@ Never give `PREVIEW_TOKEN` access to private repositories: its responses are sha
 
 `npm run dev:cf` runs the Worker locally (`wrangler dev`, with the same variables in a `.dev.vars` file). Changing
 `SESSION_SECRET` signs everyone out. Locally, `npm start` is unchanged and uses your own token.
+
+## Tests
+
+- `npm test` — unit and server tests (fast). `npm run test:d2` — the D2 port's own suites (slow).
+- `npm run e2e` — real Chromium against a fake GitHub (`e2e/run.mjs`); runs on every pull request.
+- `npm run e2e:live` — real Chromium against **real GitHub** on the throwaway test PRs of `brianv0/rico`
+  (#1 prose and threads, #5 Mermaid, #6 D2, #8 Graphviz). Read-only by default; `RICO_WRITE=1` also posts comments,
+  a reply, an edit, resolve/reopen and a pending review on PR #1, every body prefixed `REAL-STAGE:`, with a cleanup pass
+  before and after that deletes them and discards any pending review. A *submitted* review cannot be deleted on GitHub,
+  so submitting is not part of it. Targets: `GITHUB_TOKEN=… npm run e2e:live` starts a local server; `RICO_URL=https://stage.ricorico.dev`
+  tests a deployment with a saved sign-in (`npm run e2e:live -- --login` once). `.github/workflows/live-e2e.yml` runs it after each
+  stage deploy and nightly (secret `RICO_TEST_TOKEN`).
