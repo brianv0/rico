@@ -11,6 +11,7 @@
 import * as geo from '../../geo.js';
 import * as shape from '../../shape.js';
 import { goV } from '../../gomath.js';
+import { sortStableFunc } from '../goslices.js';
 import { GoError, errorf, errorsIs } from '../goerrors.js';
 import * as invariant from '../invariant.js';
 import { Node, ErrInvalidCandidate, PointMap, MinRouteNodeClearance, MinArrowheadClearance, newEdge } from '../layoutgraph.js';
@@ -1267,14 +1268,14 @@ for (const name of ['launch', 'findLaunchings', 'findLandings', 'fillPathGuarded
 }
 
 /**
- * sortEdges orders the edges of a flavor. (slices.SortStableFunc is Array.prototype.sort here: both are stable and the comparators
- * are consistent orderings except for exact ties of overlapping nodes.)
+ * sortEdges orders the edges of a flavor with Go's slices.SortStableFunc (goslices.js: the TopDownLeftRight comparator is not a strict weak
+ * order for distinct nodes at the same position, so the algorithm matters).
  */
 export function sortEdges(flavor, edges, clusterNodes) {
   const cmpNum = (a, b) => (a < b ? -1 : b < a ? 1 : 0);
   switch (flavor) {
     case ShortestToLongest:
-      edges.sort((a, b) => {
+      sortStableFunc(edges, (a, b) => {
         const aDistance = a.euclideanDistance();
         const bDistance = b.euclideanDistance();
         if (aDistance < bDistance) return -1;
@@ -1283,7 +1284,7 @@ export function sortEdges(flavor, edges, clusterNodes) {
       });
       break;
     case LongestToShortest:
-      edges.sort((a, b) => {
+      sortStableFunc(edges, (a, b) => {
         const aDistance = a.euclideanDistance();
         const bDistance = b.euclideanDistance();
         if (aDistance > bDistance) return -1;
@@ -1292,7 +1293,7 @@ export function sortEdges(flavor, edges, clusterNodes) {
       });
       break;
     case TopDownLeftRight:
-      edges.sort((a, b) => {
+      sortStableFunc(edges, (a, b) => {
         // Ensure that edge.From is above edge.To for both edges.
         let aFrom = a.from;
         let aTo = a.to;
@@ -1313,7 +1314,7 @@ export function sortEdges(flavor, edges, clusterNodes) {
   }
 
   // Clusters go first, looks best
-  edges.sort((a, b) => {
+  sortStableFunc(edges, (a, b) => {
     let connectedA = false;
     let connectedB = false;
 
