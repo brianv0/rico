@@ -25,7 +25,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 const cspBlocked = [];
 let expectHttp = false; // while a step provokes GitHub errors on purpose, the browser's own "Failed to load resource" line is expected
 page.on('console', (m) => { if (m.type() !== 'error') return; if (expectHttp && /Failed to load resource: the server responded with a status of (401|403|422)/.test(m.text())) return; if (/violates the following Content Security Policy/.test(m.text())) cspBlocked.push(m.text()); else errors.push(m.text()); });
-await page.addInitScript(() => { try { localStorage.setItem('rico:margin', 'aligned'); } catch { /* ignore */ } }); // the existing checks are about the aligned layout; synced mode has its own
+await page.addInitScript(() => { try { localStorage.setItem('rico:margin', 'aligned'); localStorage.setItem('rico:merge', 'off'); } catch { /* ignore */ } }); // the existing checks are about the aligned layout; synced mode has its own
 let failed = false;
 let nfail = 0;
 const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name); } catch (e) { failed = true; console.log('FAIL ' + name + '\n     ' + e.message.split('\n').slice(0, 6).join(' | ') + '\n     at ' + (String(e.stack).split('\n').find((l) => l.includes('e2e/run.mjs')) || '').trim()); await page.screenshot({ path: path.join(root, 'e2e', `fail-${++nfail}.png`) }).catch(() => {}); } };
@@ -33,7 +33,7 @@ const step = async (name, fn) => { try { await fn(); console.log('ok   ' + name)
 // Where is `t` on screen right now? Searches the active document's text across element boundaries
 // (syntax highlighting splits code into many spans). Optionally scrolls it to the middle first.
 const textBox = (t, scroll) => page.evaluate(([t, scroll]) => {
-  const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT);
+  const w = document.createTreeWalker(document.getElementById('doc'), NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('.away') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) }); // collapsed old blocks have no place on screen
   const nodes = [];
   let full = '';
   for (let n = w.nextNode(); n; n = w.nextNode()) { nodes.push({ n, start: full.length }); full += n.data; }
@@ -666,6 +666,99 @@ await step('removed sections: a selection across kept and removed text anchors t
   assert.match(op.body, /^> Intro paragraph that stays\.\n\n```diff\n- This paragraph was removed entirely\.\n```\n\n> keep one\n\nThe removed paragraph should stay\.$/);
   await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((t) => /should stay/.test(t.innerText) && !t.classList.contains('local')));
   await deleteMine(page.locator('#margin .thread', { hasText: 'The removed paragraph should stay' }));
+});
+// ---- word-level marks inside changed paragraphs: they must not change what selection and comments anchor to ----
+const pend = () => page.evaluate(() => { const p = window.__rico.state.pending; return p && { side: p.side, start: p.start, end: p.end, mixed: !!p.touchesRemoved }; });
+await step('word marks: only the changed words are marked, text and line mapping are untouched', async () => {
+  const r = await page.evaluate(() => {
+    const t = (c) => [...document.querySelectorAll('#doc ' + c)].map((e) => e.textContent);
+    const rm = [...document.querySelectorAll('#doc p.rm, #doc .rm > p')].find((e) => /closing/.test(e.textContent));
+    const nw = [...document.querySelectorAll('#doc p')].find((e) => /^New wording/.test(e.textContent));
+    return { wd: t('.wd'), wa: t('.wa'), rmText: rm.textContent, rmL: rm.dataset.l, nwText: nw.textContent, nwL: nw.dataset.l, nwMarks: nw.querySelectorAll('.wd').length, rmDeco: getComputedStyle(rm.querySelector('.wd')).textDecorationLine, nwDeco: getComputedStyle(nw.querySelector('.wa')).textDecorationLine };
+  });
+  assert.deepEqual(r.wd, ['Old', 'old']); assert.deepEqual(r.wa, ['New', 'fresh']); // the removed and added list items are not adjacent: they are not one edit
+  assert.equal(r.rmText, 'Old wording of the closing paragraph.'); assert.equal(r.nwText, 'New wording of the closing paragraph.');
+  assert.equal(r.rmL, '15-16'); assert.equal(r.nwL, '13-14'); // data-l is 0-based, end exclusive: source line 16 and line 14
+  assert.equal(r.nwMarks, 0); assert.equal(r.rmDeco, 'line-through'); assert.equal(r.nwDeco, 'underline');
+});
+await step('word marks: selecting across struck words still anchors to the OLD line (LEFT)', async () => {
+  await drag('Old wording', 'closing paragraph');
+  assert.deepEqual(await pend(), { side: 'LEFT', start: 16, end: 16, mixed: false });
+  await page.keyboard.press('Escape');
+});
+await step('word marks: selecting across inserted words still anchors to the new line (RIGHT)', async () => {
+  await drag('New wording', 'New wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
+  await page.keyboard.press('Escape');
+});
+await step('word marks: a selection from the struck words into the inserted ones follows the mixed rule', async () => {
+  await drag('Old wording', 'New wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: true });
+  const q = await page.locator('#c-qtext').inputValue();
+  assert.match(q, /```diff\n- Old wording of the closing paragraph\.\n```/);
+  assert.match(q, /> New wording/);
+  await page.keyboard.press('Escape');
+});
+// ---- merged view: one paragraph, removed words struck through inline, inserted words underlined (like GitHub's rich diff) ----
+await step('merged view: a changed paragraph is one block with the removed and inserted words inline; the old block collapses', async () => {
+  await page.evaluate(() => window.__rico.setMergeWords(true));
+  await page.waitForFunction(() => document.querySelector('#doc .wmerge'));
+  const r = await page.evaluate(() => {
+    const p = document.querySelector('#doc p.wmerge');
+    const visible = [...document.querySelectorAll('#doc p')].filter((e) => /wording of the closing/.test(e.textContent) && !e.closest('.away') && e.getBoundingClientRect().height > 0).length;
+    const away = document.querySelector('#doc .away');
+    return { l: p.dataset.l, lo: p.dataset.lo, del: [...p.querySelectorAll('.wdel')].map((e) => e.textContent), ins: [...p.querySelectorAll('.wa')].map((e) => e.textContent), text: p.textContent,
+      visible, awayH: away.getBoundingClientRect().height, decoDel: getComputedStyle(p.querySelector('.wdel')).textDecorationLine, decoIns: getComputedStyle(p.querySelector('.wa')).textDecorationLine,
+      removedLiBlocks: [...document.querySelectorAll('#doc li.rm')].filter((e) => e.getBoundingClientRect().height > 0).length };
+  });
+  assert.deepEqual({ l: r.l, lo: r.lo, del: r.del, ins: r.ins }, { l: '13-14', lo: '15-16', del: ['Old'], ins: ['New'] });
+  assert.match(r.text, /^OldNew wording of the closing paragraph\.$/);
+  assert.equal(r.visible, 1, 'one visible paragraph, not a red one and a green one');
+  assert.equal(r.awayH, 0); assert.equal(r.decoDel, 'line-through'); assert.equal(r.decoIns, 'underline');
+  assert.equal(r.removedLiBlocks, 1, 'a removal that is not next to an addition stays a red block');
+  const bg = await page.evaluate(() => getComputedStyle(document.querySelector('#doc p.wmerge')).backgroundColor);
+  assert.equal(bg, 'rgba(0, 0, 0, 0)', 'no block tint behind a merged paragraph, only on the words');
+  await page.screenshot({ path: path.join(root, 'e2e', 'merged.png'), clip: { x: 280, y: 150, width: 900, height: 480 } });
+});
+await step('merged view: selecting struck words anchors to the OLD line (LEFT), quotes only the removed words', async () => {
+  await drag('Old', 'Old');
+  assert.deepEqual(await pend(), { side: 'LEFT', start: 16, end: 16, mixed: false });
+  assert.equal(await rangeNow(), 'Comments on removed line 16');
+  assert.equal(await page.locator('#c-qtext').inputValue(), '> Old'); // only the struck word, not the whole old paragraph
+  await page.keyboard.press('Escape');
+});
+await step('merged view: selecting unchanged or inserted words anchors to the new line (RIGHT)', async () => {
+  await drag('wording', 'closing');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
+  await page.keyboard.press('Escape');
+  await drag('New', 'wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: false });
+  await page.keyboard.press('Escape');
+});
+await step('merged view: a selection across struck and inserted words anchors to the new line and quotes the removal as a diff', async () => {
+  await drag('Old', 'wording');
+  assert.deepEqual(await pend(), { side: 'RIGHT', start: 14, end: 14, mixed: true });
+  assert.equal(await rangeNow(), 'Comments on line 14 — includes removed text (quoted)');
+  const q = await page.locator('#c-qtext').inputValue();
+  assert.equal(q, '> New wording\n\n```diff\n- Old\n```');
+  await page.fill('#c-body', 'Intentional rename?');
+  const op = await sendAndWait();
+  assert.deepEqual({ side: op.side, line: op.line }, { side: 'RIGHT', line: 14 });
+  assert.match(op.body, /^> New wording\n\n```diff\n- Old\n```\n\nIntentional rename\?$/);
+  await page.waitForFunction(() => [...document.querySelectorAll('#margin .thread')].some((t) => /Intentional rename/.test(t.innerText) && !t.classList.contains('local')));
+  await deleteMine(page.locator('#margin .thread', { hasText: 'Intentional rename' }));
+});
+await step('merged view: a selection from the paragraph before into the merged one is mixed, and covers the new lines', async () => {
+  await drag('Release notes', 'wording');
+  const s = await pend();
+  assert.equal(s.side, 'RIGHT'); assert.equal(s.mixed, true); assert.equal(s.end, 14);
+  await page.keyboard.press('Escape');
+});
+await step('merged view: the toggle switches back to separate red and green blocks', async () => {
+  await page.click('#merge-toggle');
+  await page.waitForFunction(() => !document.querySelector('#doc .wmerge') && document.querySelector('#doc .wd'));
+  assert.equal(await page.getAttribute('#merge-toggle', 'aria-pressed'), 'false');
+  await page.evaluate(() => window.__rico.setMergeWords(false));
 });
 await step('removed sections: removed list items and table rows are commentable on their old lines', async () => {
   const r = await page.evaluate(() => {

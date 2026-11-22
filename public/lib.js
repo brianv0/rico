@@ -788,6 +788,66 @@ export function oldToNewMap(rows) {
   return m;
 }
 
+// ---------- word-level diff inside a changed paragraph ----------
+
+/**
+ * Word-level diff of an old and a new text, as change groups in reading order. Words are runs of letters/digits (with ' and -);
+ * every other non-space character is its own token, so a changed comma shows up on its own. A group is
+ *   {del: [s, e) in a | null, ins: [s, e) in b | null, at: offset in b where the removed words sit}.
+ * Unchanged runs of fewer than `minGap` words between two changes are folded into them, so a sentence that was reworded
+ * reads as one removal and one insertion (like GitHub's rich diff) instead of a scatter of single words.
+ *   -> {groups, same: number of unchanged words}
+ */
+export function diffGroups(a, b, minGap = 1) {
+  a = String(a); b = String(b);
+  const toks = (s) => [...s.matchAll(/[\p{L}\p{N}_]+(?:['\u2019-][\p{L}\p{N}_]+)*|[^\s]/gu)].map((m) => ({ t: m[0], s: m.index, e: m.index + m[0].length }));
+  const x = toks(a);
+  const y = toks(b);
+  const w = y.length + 1;
+  const L = new Uint32Array((x.length + 1) * w); // LCS lengths of suffixes
+  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) L[i * w + j] = x[i].t === y[j].t ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+  // ops: '=' pairs (i, j); otherwise a run of '-'/'+' tokens
+  const runs = []; // {same: bool, i0, i1, j0, j1}: token index ranges [i0,i1) in x and [j0,j1) in y
+  const push = (same, i0, i1, j0, j1) => {
+    const last = runs[runs.length - 1];
+    if (last && last.same === same) { last.i1 = i1; last.j1 = j1; } else runs.push({ same, i0, i1, j0, j1 });
+  };
+  let i = 0;
+  let j = 0;
+  let same = 0;
+  while (i < x.length || j < y.length) {
+    if (i < x.length && j < y.length && x[i].t === y[j].t) { push(true, i, i + 1, j, j + 1); i++; j++; same++; }
+    else if (j >= y.length || (i < x.length && L[(i + 1) * w + j] >= L[i * w + j + 1])) { push(false, i, i + 1, j, j); i++; }
+    else { push(false, i, i, j, j + 1); j++; }
+  }
+  // fold short unchanged runs that sit between two changes into those changes
+  const merged = [];
+  for (let k = 0; k < runs.length; k++) {
+    const r = runs[k];
+    const between = r.same && k > 0 && k < runs.length - 1 && r.i1 - r.i0 < minGap;
+    const last = merged[merged.length - 1];
+    if (between || (!r.same && last && !last.same)) { // a change (or a folded run) continues the previous change
+      const lastC = merged[merged.length - 1];
+      if (lastC && !lastC.same) { lastC.i1 = r.i1; lastC.j1 = r.j1; continue; }
+    }
+    merged.push({ ...(between ? { ...r, same: false } : r) });
+  }
+  const groups = [];
+  for (const r of merged) {
+    if (r.same) continue;
+    const del = r.i1 > r.i0 ? [x[r.i0].s, x[r.i1 - 1].e] : null;
+    const ins = r.j1 > r.j0 ? [y[r.j0].s, y[r.j1 - 1].e] : null;
+    groups.push({ del, ins, at: ins ? ins[0] : r.j0 < y.length ? y[r.j0].s : b.length });
+  }
+  return { groups, same };
+}
+
+/** Changed character ranges: {del: ranges in a, add: ranges in b, same}. */
+export function wordDiff(a, b) {
+  const { groups, same } = diffGroups(a, b, 0);
+  return { del: groups.filter((g) => g.del).map((g) => g.del), add: groups.filter((g) => g.ins).map((g) => g.ins), same };
+}
+
 // ---------- synced margin: text position -> margin position ----------
 
 /**

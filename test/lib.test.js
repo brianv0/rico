@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap,
+  parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups
 } from '../public/lib.js';
 
 test('parsePrRef accepts urls and short forms', () => {
@@ -520,4 +520,37 @@ test('parseD2Range accepts the WASM string and the JS port\'s Range object (its 
   assert.deepEqual(parseD2Range(str), { s: 6, e: 6 });
   assert.deepEqual(parseD2Range({ toJSON: () => str, toString: () => '7:1' }), { s: 6, e: 6 });
   assert.equal(parseD2Range(null), null);
+});
+
+test('wordDiff: marks only the changed words, as ranges in each text', () => {
+  const sl = (s, rs) => rs.map(([a, z]) => s.slice(a, z));
+  const a = 'together and why they are shaped';
+  const b = 'together, why they are shaped, and which trade-offs we accepted';
+  const d = wordDiff(a, b);
+  assert.deepEqual(sl(a, d.del), ['and']);
+  assert.deepEqual(sl(b, d.add), [',', ', and which trade-offs we accepted']);
+  assert.equal(wordDiff('same text', 'same text').del.length + wordDiff('same text', 'same text').add.length, 0);
+  assert.deepEqual(sl('a b c', wordDiff('a b c', 'a c').del), ['b']); // pure deletion
+  assert.deepEqual(sl('a c d', wordDiff('a c', 'a c d').add), ['d']); // pure insertion
+  assert.deepEqual(wordDiff('old words', 'new text').same, 0); // nothing in common: the caller keeps whole-block marks
+  const r = wordDiff('call `foo()` now', 'call `bar()` now'); // inline code and punctuation are tokens too
+  assert.deepEqual([sl('call `foo()` now', r.del), sl('call `bar()` now', r.add)], [['foo'], ['bar']]);
+});
+
+test('diffGroups: groups carry where removed words sit in the new text, and short unchanged runs fold into the change', () => {
+  const a = 'fit together and why they are shaped the way they are.';
+  const b = 'fit together, why they are shaped the way they are, and which trade-offs we accepted.';
+  const sl = (s, r) => (r ? s.slice(r[0], r[1]) : null);
+  const g = diffGroups(a, b, 3).groups.map((x) => [sl(a, x.del), sl(b, x.ins), x.at]);
+  assert.deepEqual(g, [['and', ',', 12], [null, ', and which trade-offs we accepted', 50]]);
+  // an unchanged run shorter than minGap between two changes is folded into one removal and one insertion
+  const a2 = 'one two three four five six';
+  const b2 = 'one 2 three 4 five six';
+  assert.equal(diffGroups(a2, b2, 1).groups.length, 2);
+  const f = diffGroups(a2, b2, 3).groups;
+  assert.deepEqual(f.map((x) => [sl(a2, x.del), sl(b2, x.ins)]), [['two three four', '2 three 4']]);
+  assert.equal(diffGroups('same', 'same').groups.length, 0);
+  assert.equal(diffGroups('all new', 'xyz qrs').same, 0); // nothing in common
+  const d = diffGroups('keep this', 'keep'); // pure removal: it sits at the end of the new text
+  assert.deepEqual(d.groups.map((x) => [sl('keep this', x.del), x.ins, x.at]), [['this', null, 4]]);
 });

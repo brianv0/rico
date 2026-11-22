@@ -193,6 +193,9 @@ textarea { resize: vertical; padding: 8px 12px; }
 .markdown-body li.rm { margin: 2px 0 2px -8px; padding: 0 8px; }
 .markdown-body tr.rm td, .markdown-body tr.rm th { background: color-mix(in srgb, var(--danger) 18%, var(--bg)); }
 .markdown-body .rm [data-l]::before { display: none; }
+/* word-level marks inside a changed paragraph: not colour alone (strikethrough / underline), like GitHub's rich diff */
+.markdown-body .wd { background: color-mix(in srgb, var(--danger) 30%, transparent); text-decoration: line-through; border-radius: 2px; }
+.markdown-body .wa { background: color-mix(in srgb, var(--chg) 28%, transparent); text-decoration: underline; border-radius: 2px; }
 .markdown-body [data-l].gone.has-t, .markdown-body [data-l].gone.has-c { box-shadow: 0 0 0 3px var(--mark); }
 
 /* GitHub-flavoured markdown details */
@@ -396,3 +399,12 @@ textarea { resize: vertical; padding: 8px 12px; }
 .thread .who .macts { position: absolute; right: 6px; top: 50%; margin-left: 0; transform: translateY(-50%); padding-left: 16px; background: linear-gradient(90deg, transparent, var(--bg-inset) 12px); }
 .rico-margin .cnt { left: 0; right: 0; transform: none; border-radius: 0; border-left: 0; border-right: 0; text-align: center; box-shadow: none; background: color-mix(in srgb, var(--bg) 92%, var(--accent)); }
 .rico-margin .cnt.up { top: 0; border-top: 0; } .rico-margin .cnt.down { bottom: 0; border-bottom: 0; }
+
+/* merged paragraph (GitHub-style): removed words struck through in red, inserted words underlined in green, unchanged words once */
+.markdown-body .wmerge.chg { background: none; }
+.markdown-body .wmerge .wdel { text-decoration: line-through; background: color-mix(in srgb, var(--danger) 16%, transparent); color: inherit; border-radius: 2px; }
+.markdown-body .wmerge .wa { background: color-mix(in srgb, var(--chg) 18%, transparent); text-decoration: underline; border-radius: 2px; }
+.markdown-body .away { height: 0 !important; min-height: 0; margin: 0 !important; padding: 0 !important; overflow: hidden; visibility: hidden; border: 0; list-style: none; }
+#merge-toggle { margin-left: auto; font-size: 12px; }
+#merge-toggle[aria-pressed="true"] { font-weight: 600; }
+.markdown-body .wmerge .wdel + .wa { margin-left: .2em; }
