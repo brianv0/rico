@@ -17,13 +17,21 @@ const prefersDark = () => (forcedTheme() ? forcedTheme() === 'dark' : typeof mat
  * The document shown inside the diagram's sandboxed iframe. The frame has no scripts (sandbox), and
  * this CSP forbids every network request, so untrusted diagram source cannot run code or phone home.
  */
+// The diagram's own size: the width of the outer <svg>'s viewBox. Without a width/height attribute a bare SVG stretches to the
+// whole frame, so a small diagram came out blown up (and cropped by the height cap): cap it at its natural width.
+export const naturalWidth = (svg) => {
+  const m = /<svg\b[^>]*?\bviewBox\s*=\s*["']\s*-?[\d.]+[\s,]+-?[\d.]+[\s,]+([\d.]+)[\s,]+[\d.]+\s*["']/i.exec(String(svg));
+  const w = m ? Number(m[1]) : 0;
+  return w > 0 ? Math.ceil(w) : 0;
+};
+
 export const frameDoc = (svg, css = '', fontSrc = '') => '<!doctype html><meta charset="utf-8">'
   // An iframe whose colour scheme differs from its embedder gets an opaque white canvas (a white strip, light-grey lines on
   // white in dark mode). Declaring the scheme the page is using keeps it transparent.
   + `<meta name="color-scheme" content="${prefersDark() ? 'dark' : 'light'}">`
   + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:${fontSrc ? ' ' + fontSrc : ''}">`
   + '<style>html,body{margin:0;background:transparent}body{display:flex;justify-content:center}'
-  + `svg{max-width:100%;height:auto;cursor:pointer}${css}</style>` // links are neutralised by the capture-phase click handler, not by CSS
+  + `svg{max-width:100%;height:auto;cursor:pointer}${naturalWidth(svg) ? `body>svg{max-width:min(100%,${naturalWidth(svg)}px)}` : ''}${css}</style>` // links are neutralised by the capture-phase click handler, not by CSS
   + `<body>${svg}</body>`;
 
 // ---------------- D2 ----------------
