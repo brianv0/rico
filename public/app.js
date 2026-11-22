@@ -270,15 +270,20 @@ const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 // The address bar always names the PR (and the commit it was loaded at) and the open file, so it can be shared.
-function syncUrl(filename) {
+// Opening a file replaces the history entry; loading a different PR (push) adds one, so Back returns to the previous PR.
+const samePr = (at, p) => !!(at && p && at.instance === 'github.com' && at.number === p.number
+  && at.owner.toLowerCase() === p.owner.toLowerCase() && at.repo.toLowerCase() === p.repo.toLowerCase());
+function syncUrl(filename, push = false) {
   if (!state.pr) return;
   const p = state.pr;
   const q = filename ? '?' + new URLSearchParams({ file: filename }) : '';
   const url = prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha) + q;
-  if (location.pathname + location.search + location.hash !== url) history.replaceState(null, '', url);
+  if (location.pathname + location.search + location.hash === url) return;
+  if (push && !samePr(parsePrPath(location.pathname), p)) history.pushState(null, '', url);
+  else history.replaceState(null, '', url);
 }
 
-async function loadPr(ref, wantFile, wantSha = '') {
+async function loadPr(ref, wantFile, wantSha = '', push = false) {
   const parsed = parsePrRef(ref);
   if (!parsed) return status('That does not look like a GitHub PR link (try https://github.com/owner/repo/pull/123 or owner/repo#123).', true);
   status('Loading PR…');
@@ -300,13 +305,14 @@ async function loadPr(ref, wantFile, wantSha = '') {
     buildCards();
     renderFiles();
     if (!pr.files.length) {
+      syncUrl('', push);
       $('#cards').innerHTML = '<p class="empty">This PR changes no markdown files.</p>';
       $('#legend').hidden = true;
       status('');
       return;
     }
     const first = pr.files.find((x) => x.filename === wantFile) || pr.files[0];
-    syncUrl(wantFile && first.filename === wantFile ? wantFile : '');
+    syncUrl(wantFile && first.filename === wantFile ? wantFile : '', push);
     use(views.get(first.filename)); // active before anything renders
     const eager = [first, ...pr.files.filter((f) => f !== first)].slice(0, EAGER);
     await Promise.all(eager.map((f) => loadView(views.get(f.filename)).catch((e) => status(e.message, true))));
@@ -2385,7 +2391,13 @@ $('#mmode').addEventListener('click', () => { const order = ['auto', 'aligned', 
 labelMargin();
 
 // ---------- boot ----------
-$('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value); });
+$('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value, null, '', true); });
+// Back / Forward to another PR (or to the start page): load what the address bar now names. A fragment change within
+// the same PR is not a new page.
+window.addEventListener('popstate', () => {
+  if (state.pr && samePr(parsePrPath(location.pathname), state.pr)) return;
+  location.reload();
+});
 const h = new URLSearchParams(location.hash.slice(1));
 const here = parsePrPath(location.pathname);
 if (here) {

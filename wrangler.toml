@@ -13,7 +13,7 @@ keep_vars = true
 directory = "dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"   # /github.com/owner/repo/7 serves the app
-run_worker_first = ["/api/*", "/auth/*"]
+run_worker_first = ["/api/*", "/auth/*", "/github.com/*"]   # PR pages too: see the Worker
 
 [vars]
 # GITHUB_CLIENT_ID (not secret; the OAuth app's client id) is set in the dashboard or here, e.g. GITHUB_CLIENT_ID = "Iv1.abc..."

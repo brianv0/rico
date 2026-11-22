@@ -4,6 +4,7 @@
 import { createGithub, HttpError } from './github.js';
 import { seal, open, readCookie, setCookie } from './session.js';
 import { secure } from './security.js';
+import { parsePrPath } from '../public/lib.js';
 
 const SESSION = 'rico_session';
 const OAUTH = 'rico_oauth';
@@ -160,6 +161,11 @@ const worker = {
       }
       if (p.startsWith('/api/')) return api(request, env, url);
       return json(404, { error: 'not found' });
+    }
+    // A PR page (/github.com/o/r/7@abc1234) is the app. Serve index.html for it here: left to Workers Assets, the
+    // single-page fallback first 307-redirects the path to its canonical encoding (/github.com/o/r/7%40abc1234).
+    if (parsePrPath(p) && (request.method === 'GET' || request.method === 'HEAD')) {
+      return env.ASSETS.fetch(new Request(new URL('/', url), { method: request.method, headers: request.headers }));
     }
     return env.ASSETS.fetch(request); // the app; unknown paths fall back to index.html (see wrangler.toml)
   },

@@ -370,6 +370,8 @@ test('prPath / parsePrPath round-trip a linkable PR location, with an optional c
   assert.equal(prPath(pr, 'abcdef1234567890'), '/github.com/acme/docs/7@abcdef1');
   assert.deepEqual(parsePrPath('/github.com/acme/docs/7@abcdef1'), { instance: 'github.com', owner: 'acme', repo: 'docs', number: 7, sha: 'abcdef1' });
   assert.deepEqual(parsePrPath('/ghe.corp.com:8443/o/r/12/'), { instance: 'ghe.corp.com:8443', owner: 'o', repo: 'r', number: 12, sha: '' });
+  // Cloudflare's asset server redirects '@' to '%40': both spellings name the same commit
+  assert.deepEqual(parsePrPath('/github.com/brianv0/rico/2%40033896c'), { instance: 'github.com', owner: 'brianv0', repo: 'rico', number: 2, sha: '033896c' });
   assert.equal(parsePrPath('/'), null);
   assert.equal(parsePrPath('/vendor/x.js'), null);
   assert.equal(parsePrPath('/github.com/../docs/7'), null); // dot segments, as in parsePrRef

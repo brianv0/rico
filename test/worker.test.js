@@ -117,7 +117,17 @@ test('logout clears the session; missing configuration is reported; everything e
   const bad = await worker.fetch(req('/api/me'), { ...env, GITHUB_CLIENT_SECRET: '' });
   assert.equal(bad.status, 500);
   assert.match((await bad.json()).error, /GITHUB_CLIENT_SECRET/);
-  assert.equal(await (await worker.fetch(req('/github.com/o/r/1'), env)).text(), 'asset:/github.com/o/r/1');
+  assert.equal(await (await worker.fetch(req('/app.js'), env)).text(), 'asset:/app.js');
+});
+
+test('a PR page is the app (index.html), served without the asset handler\'s %40 redirect', async () => {
+  // Workers Assets 307-redirects /…/7@abc to /…/7%40abc; the Worker serves "/" for PR paths so the link stays as made
+  for (const p of ['/github.com/o/r/1', '/github.com/o/r/1@abc1234?file=a.md', '/github.com/o/r/1%40abc1234']) {
+    const out = await worker.fetch(req(p), env);
+    assert.equal(out.status, 200, p);
+    assert.equal(await out.text(), 'asset:/', p);
+  }
+  assert.equal(await (await worker.fetch(req('/github.com/o/r/1@abc1234/x.js'), env)).text(), 'asset:/github.com/o/r/1@abc1234/x.js'); // not a PR path
 });
 
 // ---- split mode: the token is encrypted in KV with a key made of a server secret and a half held only by the cookie

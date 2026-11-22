@@ -22,9 +22,12 @@ export function prPath({ owner, repo, number }, sha = '', instance = 'github.com
   return `/${instance}/${owner}/${repo}/${number}${sha ? '@' + String(sha).slice(0, 7) : ''}`;
 }
 
-/** Inverse of prPath. -> {instance, owner, repo, number, sha} | null */
+/**
+ * Inverse of prPath. -> {instance, owner, repo, number, sha} | null
+ * Accepts the '@' percent-encoded too: some servers (Cloudflare's static assets) redirect /…/7@abc to /…/7%40abc.
+ */
 export function parsePrPath(pathname) {
-  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:@([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || ''));
+  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/(\d+)(?:@([0-9a-f]{4,40}))?\/?$/i.exec(String(pathname || '').replace(/%40/gi, '@'));
   if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null; // dot segments, as in parsePrRef
   return { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], number: Number(m[4]), sha: m[5] || '' };
 }
