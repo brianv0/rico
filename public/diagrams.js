@@ -83,6 +83,26 @@ async function d2WithWasm(source) {
   return { svg, diagram: r.diagram, graph: r.graph };
 }
 
+// A D2 `icon:` is a URL, but the diagram's frame may fetch nothing (CSP: img-src data:), so icons from D2's icon library are
+// fetched here, through Rico's /api/icon (one allowed host, size-limited), and inlined as data: URIs before the SVG is framed.
+// Any other icon URL stays as it is and is simply not shown.
+const ICON_RE = /(<image\b[^>]*?\bhref=")(https:\/\/icons\.terrastruct\.com\/[^"]*)(")/g;
+const iconCache = new Map(); // url -> Promise<data URI | null>
+const toDataUri = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+function iconData(url) {
+  if (!iconCache.has(url)) {
+    iconCache.set(url, fetch('/api/icon?u=' + encodeURIComponent(url)).then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? toDataUri(b) : null)).catch(() => null));
+  }
+  return iconCache.get(url);
+}
+export async function inlineIcons(svg) {
+  const found = [...String(svg).matchAll(ICON_RE)];
+  if (!found.length) return svg;
+  const urls = [...new Set(found.map((m) => m[2].replace(/&amp;/g, '&')))];
+  const got = new Map(await Promise.all(urls.map(async (u) => [u, await iconData(u)])));
+  return String(svg).replace(ICON_RE, (all, a, u, z) => { const d = got.get(u.replace(/&amp;/g, '&')); return d ? a + d + z : all; });
+}
+
 async function renderD2(source) {
   let out;
   try { out = await d2WithPort(source); } catch (e) {
@@ -92,7 +112,7 @@ async function renderD2(source) {
   }
   const maps = d2LineMaps(out.diagram, out.graph);
   return {
-    svg: out.svg,
+    svg: await inlineIcons(out.svg),
     fontSrc: out.fontSrc,
     // walk up from the clicked element to the group D2 tagged with the shape / connection id
     resolve(target) {

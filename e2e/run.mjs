@@ -87,6 +87,14 @@ const waitOp = async (n) => { const done = () => fake.ops.slice(n).some((o) => o
 const sendAndWait = async (key = 'Control+Enter') => { const n = fake.ops.length; await page.keyboard.press(key); return waitOp(n); };
 const deleteMine = async (loc) => { const n = fake.ops.length; const b = loc.locator('.macts .danger').last(); await b.click(); await b.click(); const o = await waitOp(n); assert.match(o.op, /delete/); await page.waitForFunction(() => !document.querySelector('.thread.local'), null, { timeout: 5000 }); };
 
+// D2 icons: the page never contacts the icon host itself. It asks Rico's own /api/icon (answered here with a known SVG, so the
+// suite needs no internet), and the sandboxed diagram frame gets the result inline as a data: URI. Anything that reached
+// terrastruct.com is a leak. Set up before the PR loads: the first files, diagrams included, render during the load.
+const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#e00"/></svg>';
+const external = [];
+const iconAsks = [];
+await page.route(/\/api\/icon\?/, (route) => { iconAsks.push(new URL(route.request().url()).searchParams.get('u')); route.fulfill({ status: 200, contentType: 'image/svg+xml', body: ICON_SVG }); });
+page.on('response', (r) => { if (new URL(r.url()).hostname.endsWith('terrastruct.com')) external.push(r.url()); }); // anything that actually got an answer
 await page.goto(`http://localhost:${PORT}/`);
 await page.fill('#pr', 'https://github.com/acme/docs/pull/7');
 await page.click('#load button');
@@ -438,8 +446,6 @@ const clickIn = async (n, kind, key) => { const p = await frameSpot(n, kind, key
 const rangeLabel = async () => { const t = await page.locator('#c-range').innerText(); await page.keyboard.press('Escape'); return t; };
 
 await step('diagrams: 6 render in sandboxed script-free frames, 3 broken ones show their errors', async () => {
-  const external = [];
-  page.on('response', (r) => { if (/terrastruct\.com/.test(r.url())) external.push(r.url()); }); // anything that actually got an answer
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.locator('#files button[data-path="docs/diagrams.md"]').click();
   await page.waitForFunction(() => window.__rico.state.file?.filename === 'docs/diagrams.md');
@@ -451,8 +457,13 @@ await step('diagrams: 6 render in sandboxed script-free frames, 3 broken ones sh
   assert.match(errs[0], /does not compile[\s\S]*line \d/); assert.match(errs[1], /does not compile[\s\S]*Parse error/i); assert.match(errs[2], /does not compile[\s\S]*syntax error/i);
   assert.equal(await page.locator('#doc figure.dia').nth(1).locator('details').evaluate((d) => d.open), true, 'source opens on error');
   await page.waitForTimeout(600);
-  assert.deepEqual(external, [], 'the hostile icon URL must never be fetched');
-  assert.ok(cspBlocked.some((m) => /terrastruct\.com/.test(m) && /img-src/.test(m)), 'the frame CSP must have blocked the icon request');
+  assert.deepEqual(external, [], 'neither the page nor the frame may contact the icon host');
+  assert.deepEqual(iconAsks, ['https://icons.terrastruct.com/essentials%2F092-graph%20bar.svg'], 'the page asked Rico for the icon, once, by its exact URL');
+  const hostile = await page.evaluate(() => document.querySelectorAll('#doc iframe.dia-frame')[1].srcdoc);
+  assert.match(hostile, /<image href="data:image\/svg\+xml;base64,/, 'the icon is inline in the frame');
+  assert.doesNotMatch(hostile, /https:\/\/icons\.terrastruct/, 'no remote URL is left in the frame');
+  assert.match(hostile, /Content-Security-Policy[^>]*default-src 'none'; style-src 'unsafe-inline'; img-src data:;/, 'the frame CSP still allows images from data: only');
+  assert.deepEqual(cspBlocked.filter((m) => /terrastruct\.com/.test(m)), [], 'nothing in the frame tried to load the icon');
   assert.equal(await page.evaluate(() => window.__pwned), undefined);
 });
 await step('diagrams: clicking the hostile node (javascript: link) executes nothing', async () => {

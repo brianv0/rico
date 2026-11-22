@@ -235,3 +235,20 @@ test('comment routes: signed in, a comment reaches GitHub as the user; /api/comm
   assert.notEqual(prev.status, 401);
   assert.ok(!calls.some((x) => x.url.includes('/graphql')), 'no GraphQL in preview');
 });
+
+test('/api/icon: signed-out preview can load a D2 icon from the icon host only, as an image with a locked-down CSP', async () => {
+  const real = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, opts) => { if (new URL(String(url)).hostname === 'icons.terrastruct.com') { asked.push(String(url)); return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', { status: 200, headers: { 'Content-Type': 'image/svg+xml' } }); } return real(url, opts); };
+  try {
+    const u = 'https://icons.terrastruct.com/essentials%2F092-graph%20bar.svg';
+    const ok = await worker.fetch(req('/api/icon?u=' + encodeURIComponent(u)), env);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get('Content-Type'), 'image/svg+xml');
+    assert.match(ok.headers.get('Content-Security-Policy'), /default-src 'none'/);
+    assert.deepEqual(asked, [u]);
+    const bad = await worker.fetch(req('/api/icon?u=' + encodeURIComponent('https://evil.example/x.svg')), env);
+    assert.equal(bad.status, 400);
+    assert.equal(asked.length, 1); // the other host was never contacted
+  } finally { globalThis.fetch = real; }
+});

@@ -1,6 +1,7 @@
 // The GitHub half of Rico, shared by the local Node server and the Cloudflare Worker.
 // Web-standard APIs only (fetch, Uint8Array): no Node built-ins, so it runs in both.
 import { parsePrRef } from '../public/lib.js';
+import { fetchIcon } from './icon.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
 // '.' and '..' as owner/repo would normalise away in the API path (fetch collapses dot segments),
@@ -470,6 +471,10 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       if (method === 'GET' && p === '/api/raw') {
         const { type, data } = await apiRaw(url.searchParams);
         return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=300', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff' } });
+      }
+      if (method === 'GET' && p === '/api/icon') { // a D2 icon, fetched for the sandboxed diagram (see src/icon.js)
+        const { type, data } = await fetchIcon(url.searchParams.get('u'));
+        return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff' } });
       }
       if (method === 'GET' && p === '/api/file') return new Response(await apiFile(url.searchParams), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
       if (method === 'POST' && p === '/api/review') return j(200, await apiReview(await readBody()));
