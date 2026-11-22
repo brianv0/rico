@@ -13,7 +13,8 @@
     "dev:cf": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "e2e": "node e2e/run.mjs",
-    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml"
+    "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml",
+    "deploy:stage": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.stage.toml"
   },
   "engines": {
     "node": ">=18"
