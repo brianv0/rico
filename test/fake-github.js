@@ -121,6 +121,12 @@ export async function startFake() {
         });
         return data({ viewer: { login: 'me' }, repository: { pullRequest: { id: 'PR_7', reviews: { nodes: pendingNode() }, reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
       }
+      if (q.includes('search(query:')) { // PR autocomplete: record the search strings, answer each alias with one PR
+        ops.push({ op: 'search', queries: Object.values(v) });
+        const node = { number: 7, title: 'Update the docs', state: 'OPEN', isDraft: false, updatedAt: '2026-11-20T00:00:00Z', author: { login: 'alice' }, repository: { nameWithOwner: 'acme/docs' } };
+        return data(Object.fromEntries(Object.keys(v).map((k) => ['s' + k.slice(1), { nodes: [node] }])));
+      }
+      if (q.includes('pullRequest(number:$number){number title')) return data({ repository: { pullRequest: { number: v.number, title: 'Exact one', state: 'CLOSED', isDraft: false, updatedAt: '2026-01-01T00:00:00Z', author: null, repository: { nameWithOwner: v.owner + '/' + v.repo } } } });
       if (q.includes('pullRequest(number:$number){id reviews')) return data({ repository: { pullRequest: { id: 'PR_7', reviews: { nodes: pendingNode() } } } });
       if (q.includes('addPullRequestReview(')) {
         if (state.pending) return err('User can only have one pending review per pull request');

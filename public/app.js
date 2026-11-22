@@ -4,6 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
+import { initSuggest, rememberPr } from './suggest.js';
 import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
 
 const $ = (s) => document.querySelector(s);
@@ -290,6 +291,7 @@ async function loadPr(ref, wantFile, wantSha = '', push = false) {
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
+    rememberPr(pr);
     if (wantSha && pr.headSha && !pr.headSha.startsWith(wantSha)) {
       setTimeout(() => status(`This link was made at commit ${wantSha}; the PR is now at ${pr.headSha.slice(0, 7)}, so lines and comments may have moved.`, true), 0);
     }
@@ -2391,7 +2393,8 @@ $('#mmode').addEventListener('click', () => { const order = ['auto', 'aligned', 
 labelMargin();
 
 // ---------- boot ----------
-$('#load').addEventListener('submit', (e) => { e.preventDefault(); loadPr($('#pr').value, null, '', true); });
+$('#load').addEventListener('submit', (e) => { e.preventDefault(); $('#pr').blur(); loadPr($('#pr').value, null, '', true); });
+initSuggest({ input: $('#pr'), list: $('#pr-list'), onPick: (ref) => { $('#pr').blur(); loadPr(ref, null, '', true); } });
 // Back / Forward to another PR (or to the start page): load what the address bar now names. A fragment change within
 // the same PR is not a new page.
 window.addEventListener('popstate', () => {

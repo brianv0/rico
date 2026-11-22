@@ -557,3 +557,52 @@ test('diffGroups: groups carry where removed words sit in the new text, and shor
   const d = diffGroups('keep this', 'keep'); // pure removal: it sits at the end of the new text
   assert.deepEqual(d.groups.map((x) => [sl('keep this', x.del), x.ins, x.at]), [['this', null, 4]]);
 });
+
+import { parseSuggestQuery, rankSuggestions, suggestLookup, shortAge } from '../public/lib.js';
+
+test('parseSuggestQuery classifies partial references', () => {
+  assert.deepEqual(parseSuggestQuery('#12'), { kind: 'number', number: '12' });
+  assert.deepEqual(parseSuggestQuery('12'), { kind: 'number', number: '12' });
+  assert.deepEqual(parseSuggestQuery('acme/'), { kind: 'repo', owner: 'acme', repo: '', number: '' });
+  assert.deepEqual(parseSuggestQuery('acme/do'), { kind: 'repo', owner: 'acme', repo: 'do', number: '' });
+  assert.deepEqual(parseSuggestQuery('acme/docs#'), { kind: 'repo', owner: 'acme', repo: 'docs', number: '' });
+  assert.deepEqual(parseSuggestQuery('acme/docs#7'), { kind: 'repo', owner: 'acme', repo: 'docs', number: '7' });
+  assert.deepEqual(parseSuggestQuery('https://github.com/acme/docs/pull/7/files'), { kind: 'repo', owner: 'acme', repo: 'docs', number: '7' });
+  assert.deepEqual(parseSuggestQuery('github.com/acme/docs/pull/'), { kind: 'repo', owner: 'acme', repo: 'docs', number: '' });
+  assert.deepEqual(parseSuggestQuery('docs#7'), { kind: 'name', repo: 'docs', number: '7' });
+  assert.deepEqual(parseSuggestQuery('fix the thing'), { kind: 'text', text: 'fix the thing' });
+  assert.equal(parseSuggestQuery('  ').kind, 'empty');
+});
+
+test('a bare number is ambiguous: every repo\'s match is listed, own/recent PRs first', () => {
+  const now = Date.parse('2026-11-22T00:00:00Z');
+  const mine = [{ owner: 'a', repo: 'x', number: 11, title: 'A', updatedAt: '2026-11-21T00:00:00Z' }, { owner: 'b', repo: 'y', number: 11, title: 'B', updatedAt: '2026-11-21T00:00:00Z' }, { owner: 'a', repo: 'x', number: 12, title: 'C', updatedAt: '2026-11-21T00:00:00Z' }];
+  const recent = [{ owner: 'b', repo: 'y', number: 11, title: 'B' }];
+  const r = rankSuggestions('11', [{ items: recent, boost: 25 }, { items: mine, boost: 10 }], now);
+  assert.deepEqual(r.map((p) => `${p.owner}/${p.repo}#${p.number}`), ['b/y#11', 'a/x#11']); // recently opened wins the tie; #12 does not match "11"
+});
+
+test('rankSuggestions: repo prefixes, titles, a typed ref is always offered, sources are merged', () => {
+  const pool = [{ owner: 'brianv0', repo: 'rico', number: 11, title: 'Graphviz port', state: 'OPEN', updatedAt: '2026-11-21T00:00:00Z' }, { owner: 'brianv0', repo: 'formwork', number: 85, title: 'refactor: rename the egress grade to view', updatedAt: '2026-11-21T00:00:00Z' }];
+  const ids = (q, ...src) => rankSuggestions(q, src).map((p) => `${p.repo}#${p.number}`);
+  assert.deepEqual(ids('brianv0/fo', { items: pool }), ['formwork#85']);
+  assert.deepEqual(ids('egress view', { items: pool }), ['formwork#85']);
+  assert.deepEqual(ids('rico#1', { items: pool }), ['rico#11']);
+  assert.deepEqual(ids('nothing', { items: pool }), []);
+  const typed = rankSuggestions('acme/docs#7', [{ items: pool }]);
+  assert.deepEqual([typed[0].owner, typed[0].number, typed[0].direct], ['acme', 7, true]); // not in any source, still offered
+  const merged = rankSuggestions('rico#11', [{ items: [{ owner: 'brianv0', repo: 'rico', number: 11 }], boost: 25 }, { items: pool }]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].title, 'Graphviz port'); // the richer record fills the recent entry's gaps
+  assert.equal(rankSuggestions('', [{ items: pool }]).length, 2);
+});
+
+test('suggestLookup asks the server only when the cached pool cannot answer; shortAge', () => {
+  assert.equal(suggestLookup('12'), null);
+  assert.equal(suggestLookup('rico#12'), null);
+  assert.deepEqual(suggestLookup('acme/docs#7'), { repo: 'acme/docs', text: '', number: '7' });
+  assert.deepEqual(suggestLookup('acme/'), { owner: 'acme', text: '' });
+  assert.deepEqual(suggestLookup('graphviz'), { text: 'graphviz' });
+  const now = Date.parse('2026-11-22T12:00:00Z');
+  assert.deepEqual(['2026-11-22T11:59:30Z', '2026-11-22T09:00:00Z', '2026-11-19T12:00:00Z', '2026-05-22T12:00:00Z'].map((t) => shortAge(t, now)), ['now', '3h', '3d', '6mo']);
+}); 

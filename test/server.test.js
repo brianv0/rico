@@ -200,3 +200,17 @@ test('the base version of a file can be fetched at the merge base', async () => 
   assert.equal(ok.status, 200);
   assert.match(ok.body, /This paragraph was removed entirely\./);
 });
+
+test('GET /api/suggest: the viewer pool, repo scope with an exact number, and text sanitising', async () => {
+  const searches = () => fake.ops.filter((o) => o.op === 'search').at(-1).queries;
+  let r = await get(port, '/api/suggest');
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(r.body).items[0], { owner: 'acme', repo: 'docs', number: 7, title: 'Update the docs', state: 'OPEN', draft: false, author: 'alice', updatedAt: '2026-11-20T00:00:00Z' });
+  assert.deepEqual(searches().map((q) => q.split(' ')[1]), ['involves:@me', 'review-requested:@me']);
+  r = await get(port, '/api/suggest?repo=acme/docs&number=99');
+  assert.equal(JSON.parse(r.body).items[0].number, 99); // the exact PR comes first, whatever its age
+  assert.match(searches()[0], /repo:acme\/docs/);
+  await get(port, '/api/suggest?text=' + encodeURIComponent('fix user:evil "x"'));
+  assert.ok(!searches()[0].includes(':evil') && !searches()[0].includes('"'), searches()[0]); // no qualifier smuggling
+  assert.equal((await get(port, '/api/suggest?repo=../x')).status, 400);
+});

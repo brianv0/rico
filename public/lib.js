@@ -874,3 +874,127 @@ export function mapPosition(pts, d) {
 
 /** How many margin pixels one pixel of text is worth at d (never 0, so the wheel can always move). */
 export const positionSlope = (pts, d) => Math.max(0.05, mapPosition(pts, d + 1) - mapPosition(pts, d));
+
+// ---------- Load-PR autocomplete (pure; the server only supplies candidate PRs) ----------
+
+/**
+ * Classify what is typed in the Load PR box, however far along it is.
+ *   {kind:'number', number}                     "12", "#12"
+ *   {kind:'repo', owner, repo, number}   "o/r", "o/r#1", "o/r/pull/1", "https://github.com/o/r/pull/1"; repo may be a prefix ('' while typing "o/"); number '' until typed
+ *   {kind:'name', repo, number}                 "rico#11": a repo name without its owner
+ *   {kind:'text', text}                         anything else: words matched against titles and repo names
+ */
+export function parseSuggestQuery(input) {
+  let s = String(input || '').trim();
+  if (!s) return { kind: 'empty' };
+  s = s.replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '').replace(/[?#].*$/, (m) => (/^#\d*$/.test(m) ? m : '')); // a pasted URL, minus ?query and #fragment noise
+  let m = /^#?(\d+)$/.exec(s);
+  if (m) return { kind: 'number', number: m[1] };
+  m = /^([\w.-]+)\/([\w.-]*?)(?:\/pulls?|\/pull\/(\d*)(?:\/(?:files|commits|checks))?|#(\d*))?\/?$/.exec(s);
+  if (m && !/^\.+$/.test(m[1]) && !/^\.+$/.test(m[2])) {
+    const number = m[3] ?? m[4] ?? '';
+    return { kind: 'repo', owner: m[1], repo: m[2], number };
+  }
+  m = /^([\w.-]+)#(\d*)$/.exec(s);
+  if (m) return { kind: 'name', repo: m[1], number: m[2] };
+  return { kind: 'text', text: s };
+}
+
+const lc = (x) => String(x || '').toLowerCase();
+const key = (p) => `${lc(p.owner)}/${lc(p.repo)}#${p.number}`;
+
+/** Score one candidate against a parsed query; 0 means "does not match". */
+function scoreOne(q, p) {
+  const owner = lc(p.owner);
+  const repo = lc(p.repo);
+  const num = String(p.number);
+  let s = 1;
+  const field = (want, have, exactPts, prefixPts) => { // want/have lowercase; null = reject
+    if (!want) return 0;
+    if (have === want) return exactPts;
+    if (have.startsWith(want)) return prefixPts;
+    return null;
+  };
+  const numberPts = (want) => {
+    if (want === '') return 0;
+    if (num === want) return 100;
+    return num.startsWith(want) ? 30 : null;
+  };
+  const add = (n) => { if (n == null || s === 0) s = 0; else s += n; };
+  if (q.kind === 'number') add(numberPts(q.number));
+  else if (q.kind === 'repo') {
+    add(field(lc(q.owner), owner, 30, 15));
+    add(field(lc(q.repo), repo, 30, 15));
+    add(numberPts(q.number));
+  } else if (q.kind === 'name') {
+    add(field(lc(q.repo), repo, 40, 20));
+    add(numberPts(q.number));
+  } else if (q.kind === 'text') {
+    const hay = `${lc(p.title)} ${owner}/${repo} ${lc(p.author)}`;
+    for (const w of lc(q.text).split(/\s+/).filter(Boolean)) {
+      if (!hay.includes(w)) { s = 0; break; }
+      s += new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(hay) ? 10 : 4; // a word start beats a substring
+    }
+  }
+  return s;
+}
+
+/**
+ * Merge candidates from several sources and rank them for the typed text.
+ *   sources: [{items: [{owner, repo, number, title?, state?, draft?, merged?, author?, updatedAt?}], boost}] (boost: how much the source is trusted: recent history > involves-me > search)
+ * A PR present in several sources is shown once with the richest data. A number alone ("12") is ambiguous, so every
+ * repo's #12 is listed (best first, by source then recency) instead of guessing one. Returns [{...pr, score, direct?}].
+ */
+export function rankSuggestions(input, sources, now = Date.now(), limit = 8) {
+  const q = parseSuggestQuery(input);
+  const merged = new Map();
+  for (const { items, boost = 0 } of sources) {
+    items.forEach((it, i) => {
+      const k = key(it);
+      const cur = merged.get(k);
+      const b = boost - Math.min(i, 10) * 0.5; // earlier in its source (more recent) is slightly better
+      if (!cur) merged.set(k, { ...it, _b: b });
+      else {
+        for (const f of Object.keys(it)) if (it[f] != null && (cur[f] == null || cur[f] === '')) cur[f] = it[f]; // fill gaps with the richer record
+        if (b > cur._b) cur._b = b;
+      }
+    });
+  }
+  const out = [];
+  for (const p of merged.values()) {
+    const base = q.kind === 'empty' ? 1 : scoreOne(q, p);
+    if (!base) continue;
+    const t = p.updatedAt ? Date.parse(p.updatedAt) : NaN;
+    const days = Number.isNaN(t) ? 365 : Math.max(0, (now - t) / 864e5);
+    const { _b, ...rest } = p;
+    out.push({ ...rest, score: base + _b + 10 / (1 + days / 7) });
+  }
+  // a fully typed reference is always offered, even for a PR no source returned (private repo, or too old to be listed)
+  const direct = q.kind === 'repo' && q.number !== '' && q.repo ? { owner: q.owner, repo: q.repo, number: Number(q.number), direct: true } : null;
+  if (direct && !out.some((p) => key(p) === key(direct))) out.push({ ...direct, score: 1000 });
+  else if (direct) out.find((p) => key(p) === key(direct)).score += 1000;
+  out.sort((a, b) => b.score - a.score || (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
+  return out.slice(0, limit);
+}
+
+/** "3h", "2d", "5mo": the short age GitHub lists show. */
+export function shortAge(iso, now = Date.now()) {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const m = Math.max(0, (now - t) / 6e4);
+  if (m < 1) return 'now';
+  if (m < 60) return Math.floor(m) + 'm';
+  if (m < 1440) return Math.floor(m / 60) + 'h';
+  if (m < 43200) return Math.floor(m / 1440) + 'd';
+  if (m < 525600) return Math.floor(m / 43200) + 'mo';
+  return Math.floor(m / 525600) + 'y';
+}
+
+/** What the server should look up for this input, so most keystrokes need no request at all. */
+export function suggestLookup(input) {
+  const q = parseSuggestQuery(input);
+  if (q.kind === 'repo' && q.repo) return { repo: `${q.owner}/${q.repo}`, text: '', number: q.number };
+  if (q.kind === 'repo' && q.owner) return { owner: q.owner, text: q.repo };
+  if (q.kind === 'text') return { text: q.text };
+  return null; // empty, number-only, "name#n": the cached pool of the viewer's PRs is enough
+}

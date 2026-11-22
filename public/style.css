@@ -81,6 +81,16 @@ textarea { resize: vertical; padding: 8px 12px; }
 .gh-brand small { font-weight: 400; font-size: 12px; color: var(--fg-muted); }
 .gh-brand-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; color: #fff; background: var(--accent); border-radius: 6px; }
 #load { display: flex; gap: 8px; flex: 1; max-width: 640px; }
+#load .suggest { position: relative; flex: 1; min-width: 0; }
+#load .suggest input { width: 100%; box-sizing: border-box; }
+#pr-list { position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px 0; list-style: none; max-height: 380px; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(1,4,9,.18); }
+#pr-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; cursor: pointer; }
+#pr-list li:hover, #pr-list li[aria-selected="true"] { background: var(--bg-hover); }
+#pr-list .sg-ic { flex: none; margin-top: 2px; display: inline-flex; }
+#pr-list .sg-open { color: var(--success-emph); } #pr-list .sg-merged { color: var(--done); } #pr-list .sg-closed { color: #cf222e; } #pr-list .sg-draft { color: #6e7781; }
+#pr-list .sg-main { display: flex; flex-direction: column; min-width: 0; }
+#pr-list .sg-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pr-list .sg-meta { font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #status { font-size: 13px; color: var(--fg-muted); min-height: 1em; }
 #status.err { color: var(--danger); }
 

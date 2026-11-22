@@ -71,6 +71,17 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
         comments(first:100){nodes{id databaseId state lastEditedAt body createdAt updatedAt url authorAssociation author{login avatarUrl} replyTo{databaseId} viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
 
+const PR_FIELDS = '... on PullRequest{number title state isDraft updatedAt author{login} repository{nameWithOwner}}';
+const PR_ONE_Q = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){number title state isDraft updatedAt author{login} repository{nameWithOwner}}}}`;
+
+/** A GraphQL search string may carry user text: keep words, '#', '/', '.', '-' and drop qualifier syntax (':', quotes). */
+const searchText = (t) => String(t || '').replace(/[^\w .#/-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+
+const prItem = (n) => {
+  const [owner, repo] = (n.repository?.nameWithOwner || '').split('/');
+  return { owner, repo, number: n.number, title: n.title, state: n.state, draft: !!n.isDraft, author: n.author?.login || null, updatedAt: n.updatedAt };
+};
+
 /**
  * @param {{ getToken: () => string, apiUrl?: string, readOnly?: boolean }} opts  readOnly: preview mode, never use the token's own permissions or pending reviews.  getToken may throw an HttpError(401) when signed out.
  */
@@ -163,6 +174,43 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     } catch {
       return null; // GraphQL blocked or unavailable: fall back to what REST can tell us
     }
+  }
+
+  /**
+   * Candidate PRs for the Load PR box's autocomplete, from one GraphQL request. The browser ranks and merges them.
+   *   (nothing)            the viewer's own PRs (involves:@me) and those waiting for their review: the pool most typing is matched against
+   *   repo=o/r [&text=]    PRs of that repo; with number=N also that exact PR, whatever its age
+   *   owner=o [&text=]     PRs in repos of that user or org
+   *   text=…               PRs whose title matches, anywhere
+   */
+  async function apiSuggest(q) {
+    if (readOnly || !getToken()) throw new HttpError(401, 'Sign in with GitHub to search pull requests.');
+    const text = searchText(q.get('text'));
+    const repo = q.get('repo');
+    const owner = q.get('owner');
+    const sort = 'sort:updated-desc';
+    let queries;
+    if (repo) {
+      const [o, r] = repo.split('/');
+      if (!NAME_RE.test(o || '') || !NAME_RE.test(r || '')) throw new HttpError(400, 'bad repo');
+      queries = [`is:pr repo:${o}/${r} ${text} ${sort}`];
+    } else if (owner) {
+      if (!NAME_RE.test(owner)) throw new HttpError(400, 'bad owner');
+      queries = [`is:pr user:${owner} ${text} ${sort}`];
+    } else if (text) queries = [`is:pr in:title ${text} ${sort}`];
+    else queries = [`is:pr involves:@me ${sort}`, `is:pr review-requested:@me ${sort}`];
+    const vars = Object.fromEntries(queries.map((s, i) => ['q' + i, s]));
+    const decl = queries.map((_, i) => `$q${i}:String!`).join(',');
+    const body = queries.map((_, i) => `s${i}:search(query:$q${i},type:ISSUE,first:${text || repo || owner ? 10 : 30}){nodes{${PR_FIELDS}}}`).join(' ');
+    const exact = repo && /^\d+$/.test(q.get('number') || '') ? Number(q.get('number')) : 0;
+    const [d, one] = await Promise.all([
+      gql(`query(${decl}){${body}}`, vars),
+      exact && NAME_RE.test(repo.split('/')[0]) ? gql(PR_ONE_Q, { owner: repo.split('/')[0], repo: repo.split('/')[1], number: exact }).catch(() => null) : null,
+    ]);
+    const items = [];
+    if (one?.repository?.pullRequest) items.push(prItem(one.repository.pullRequest));
+    for (const k of Object.keys(d)) for (const n of d[k].nodes) if (n?.number) items.push(prItem(n));
+    return { items };
   }
 
   /** Review comments (markdown files only), PR-level comments, and who may do what with them. */
@@ -467,6 +515,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     try {
       const p = url.pathname;
       if (method === 'GET' && p === '/api/me') return j(200, await apiMe());
+      if (method === 'GET' && p === '/api/suggest') return j(200, await apiSuggest(url.searchParams));
       if (method === 'GET' && p === '/api/pr') return j(200, await apiPr(url.searchParams));
       if (method === 'GET' && p === '/api/raw') {
         const { type, data } = await apiRaw(url.searchParams);
