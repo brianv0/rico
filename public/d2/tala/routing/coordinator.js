@@ -292,7 +292,7 @@ export function routeEdgesWithResourceGuards(ctx, g, nearbyNodes, ovgGuard, sear
       try {
         route = routeSentinelEdge(tree, ovg.ports, ovg.centers, existingPortArrowheads);
       } catch (err) {
-        if (err instanceof GoError) continue;
+        if (err instanceof GoError) { if (process.env.DBGTREE) console.log('sentinel err', err.message); continue; }
         throw err;
       }
 
@@ -431,7 +431,7 @@ export function routeSentinelEdge(tree, portNodes, centers, portArrowheads) {
   for (const n of nodesFromSourcePortToTargetPort) {
     if (n.isPort()) {
       let validOwner = false;
-      for (const owner of n.portOwners()) {
+      for (const owner of n.portOwners().keys()) {
         if (edge.from.isDescendantOf(owner) || edge.to.isDescendantOf(owner)) {
           validOwner = true;
           break;
