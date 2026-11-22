@@ -104,9 +104,8 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   the commit they are from (each line cut to 240 characters, ranges over 40 lines to their head and tail). The quote is included only when it adds information (a partial line, a diagram, a clamped range, or
   text outside the diff). Long selections keep their head and tail with an ellipsis.
 - **Diagrams (D2, Mermaid and Graphviz), rendered client-side.** `d2`, `mermaid` and `dot` (also `graphviz` / `gv`) code
-  blocks render in the browser: D2 with the JavaScript port in `public/d2/` (see `docs/d2-port.md`; the WASM build
-  `@terrastruct/d2` is the fallback when the port cannot load), Mermaid as plain JS, Graphviz as WASM via `@viz-js/viz`.
-  D2-WASM, Mermaid and Graphviz are *optional* dependencies loaded on demand, and without a renderer the source is
+  blocks render in the browser: D2 with the JavaScript port in `public/d2/` (see `docs/d2-port.md`), Mermaid as plain JS, Graphviz as WASM via
+  `@viz-js/viz`. Mermaid and Graphviz are *optional* dependencies loaded on demand, and without a renderer the source is
   shown with an install hint. Click a **node or edge** to comment on the source
   line that defines it (the comment box names the element); click empty space to comment on the whole block;
   open "source" to comment on a specific line. Broken diagrams show their compile errors inline.
@@ -124,8 +123,8 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
   are anchored to. Hover a thread to highlight its text; click highlighted text to jump to the thread; reply
   from the margin. Outdated threads are labelled. Your unposted drafts appear there too, dashed.
 - Comments live on GitHub (single or pending); only the review summary, "viewed" marks and unsent text are kept in `localStorage`.
-- **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; D2's WASM
-  fallback, its ELK layout worker and Graphviz's WASM are the only eval-shaped exceptions), `X-Frame-Options: DENY` and
+- **Backstop headers on every response:** a `Content-Security-Policy` (script stays same-origin; Graphviz's WASM
+  renderer is the only eval-shaped exception in use; `'unsafe-eval'` and `blob:` workers are still allowed from the old WASM D2 build), `X-Frame-Options: DENY` and
   `X-Content-Type-Options: nosniff`. A sanitizer regression cannot run script in the page, and a remote
   site cannot frame the app to clickjack a review. `.` and `..` are never accepted as owner/repo, since
   fetch would collapse them out of the `/repos/{owner}/{repo}/` API path.

@@ -553,30 +553,19 @@ await step('diagrams: a selection across text and a diagram quotes prose then th
 });
 await step('diagrams: without the optional dependencies the source is shown with a clear message', async () => {
   const p2 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await p2.route('**/vendor/d2.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
-  await p2.route('**/d2/d2lib.js', (r) => r.fulfill({ status: 404, body: 'nope' })); // no JS port either: only then is D2 unavailable
+  await p2.route('**/d2/d2lib.js', (r) => r.fulfill({ status: 404, body: 'nope' })); // the D2 port cannot load
   await p2.route('**/vendor/mermaid.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
   await p2.route('**/vendor/viz.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
   await p2.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fdiagrams.md`);
   await p2.waitForFunction(() => document.querySelectorAll('#doc .dia-err').length === 9, null, { timeout: 30000 });
   const t = await p2.locator('#doc .dia-err').allInnerTexts();
-  assert.match(t[0], /not available[\s\S]*npm install @terrastruct\/d2/);
+  assert.match(t[0], /not available[\s\S]*D2 renderer/);
   assert.match(t[3], /not available[\s\S]*npm install mermaid/);
   assert.match(t[6], /not available[\s\S]*npm install @viz-js\/viz/);
   assert.equal(await p2.locator('#doc figure.dia').first().locator('details').evaluate((d) => d.open), true);
   await p2.close();
 });
 
-await step('D2: if the JavaScript port cannot load, the WASM build draws the diagram', async () => {
-  const p3 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await p3.route('**/d2/d2lib.js', (r) => r.fulfill({ status: 404, body: 'nope' }));
-  const used = [];
-  p3.on('request', (r) => { if (/\/vendor\/d2\.js/.test(r.url())) used.push(r.url()); });
-  await p3.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fdiagrams.md`);
-  await p3.waitForFunction(() => document.querySelectorAll('#doc iframe.dia-frame').length === 6, null, { timeout: 90000 });
-  assert.ok(used.length > 0, 'the WASM build was requested');
-  await p3.close();
-});
 await step('D2: the JavaScript port draws by default (no WASM request) and its fonts load from our own origin', async () => {
   const p4 = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const reqs = [];

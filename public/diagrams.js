@@ -35,19 +35,9 @@ export const frameDoc = (svg, css = '', fontSrc = '') => '<!doctype html><meta c
   + `<body>${svg}</body>`;
 
 // ---------------- D2 ----------------
-function d2Errors(e) {
-  try {
-    const list = JSON.parse(e.message || String(e));
-    if (Array.isArray(list)) return list.map((x) => String(x.errmsg || x).replace(/^index:/, 'line '));
-  } catch { /* not JSON */ }
-  return [String(e.message || e)];
-}
-
-// The JavaScript port of D2 (public/d2/, see docs/d2-port.md) is preferred: no WASM download, no worker, and the default layout is
-// ready in tens of milliseconds. The WASM build (@terrastruct/d2, optional) stays as the fallback for when the port cannot load or
-// throws something that is not a compile error of the diagram.
+// D2 is drawn by the JavaScript port in public/d2/ (see docs/d2-port.md): no WASM download, no worker, and the default layout is
+// ready in tens of milliseconds. (The WASM build, @terrastruct/d2, is no longer shipped.)
 let d2jsPromise = null;
-let d2wasmPromise = null;
 
 function loadD2js() {
   return (d2jsPromise ||= (async () => {
@@ -60,36 +50,19 @@ function loadD2js() {
 const d2Errs = (err) => (Array.isArray(err.errs) && err.errs.length ? err.errs : String(err.message || err).split('\n').filter(Boolean)).map((x) => `line ${String(x.errmsg || x.message || x).replace(/^(Error: |index:)/, '')}`); // the port's ParseError holds one Error per problem
 const d2Theme = (ro) => (forcedTheme() ? { ...ro, themeID: forcedTheme() === 'dark' ? 200 : 0, darkThemeID: null } : { ...ro, themeID: ro.themeID ?? 0, darkThemeID: ro.darkThemeID ?? 200 });
 
-async function d2WithPort(source) {
-  const { lib, svg: svgm } = await loadD2js();
-  const ro = {};
-  const r = await lib.compile(source, {}, ro);
-  if (r.err) throw fail(d2Errs(r.err)); // a real compile error of the diagram: do not retry with the WASM build
-  // fonts: the SVG points at the cached same-origin TTFs instead of carrying base64 subsets; the frame's CSP allows exactly that origin
-  const svg = await svgm.renderAsync(r.diagram, { ...d2Theme(ro), fonts: 'external', fontBaseURL: `${location.origin}/d2/fonts/` });
-  return { svg, diagram: r.diagram, graph: r.graph, fontSrc: location.origin };
-}
-
-async function d2WithWasm(source) {
-  let d2;
-  try { d2 = await (d2wasmPromise ||= import('/vendor/d2.js').then((m) => new m.D2())); } catch {
-    d2wasmPromise = null;
-    throw fail(['Install the optional dependency: npm install @terrastruct/d2'], true);
-  }
-  let r;
-  try { r = await d2.compile(source); } catch (e) { throw fail(d2Errors(e)); }
-  const ro = r.renderOptions || {};
-  const svg = await d2.render(r.diagram, d2Theme(ro));
-  return { svg, diagram: r.diagram, graph: r.graph };
-}
-
 async function renderD2(source) {
-  let out;
-  try { out = await d2WithPort(source); } catch (e) {
-    if (e.messages) throw e; // the diagram does not compile
-    console.warn('D2 (JavaScript port) failed, falling back to the WASM build:', e);
-    out = await d2WithWasm(source);
+  let port;
+  try { port = await loadD2js(); } catch (e) {
+    console.warn('D2 renderer failed to load:', e);
+    throw fail(['The D2 renderer (public/d2/) could not be loaded'], true);
   }
+  const ro = {};
+  let r;
+  try { r = await port.lib.compile(source, {}, ro); } catch (e) { throw fail([`D2 could not render this diagram: ${String(e.message || e).split('\n')[0]}`]); }
+  if (r.err) throw fail(d2Errs(r.err)); // a compile error of the diagram itself
+  // fonts: the SVG points at the cached same-origin TTFs instead of carrying base64 subsets; the frame's CSP allows exactly that origin
+  const svg = await port.svg.renderAsync(r.diagram, { ...d2Theme(ro), fonts: 'external', fontBaseURL: `${location.origin}/d2/fonts/` });
+  const out = { svg, diagram: r.diagram, graph: r.graph, fontSrc: location.origin };
   const maps = d2LineMaps(out.diagram, out.graph);
   return {
     svg: out.svg,

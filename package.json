@@ -35,7 +35,6 @@
     "wrangler": "^4.166.0"
   },
   "optionalDependencies": {
-    "@terrastruct/d2": "0.1.33",
     "@viz-js/viz": "^3.31.0",
     "mermaid": "11.17.2"
   }

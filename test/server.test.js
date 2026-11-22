@@ -168,14 +168,6 @@ test('GET /api/raw serves repo images byte-for-byte, and only images', async () 
   assert.equal((await get(port, q({ path: 'docs/img/missing.png' }))).status, 404);
 });
 
-test('GET /vendor/d2.js serves the optional D2 bundle when it is installed', { skip: !fs.existsSync(path.join(root, 'node_modules/@terrastruct/d2/dist/browser/index.js')) && 'optional dependency not installed' }, async () => {
-  const r = await get(port, '/vendor/d2.js');
-  assert.equal(r.status, 200);
-  assert.match(r.type, /javascript/);
-  assert.ok(r.raw.length > 1_000_000, 'bundle should be several MB');
-  assert.match(r.body.slice(0, 200000), /export|D2/);
-});
-
 test('other /vendor paths are not served', async () => {
   assert.equal((await get(port, '/vendor/../server.js')).status, 404);
   assert.equal((await get(port, '/vendor/secret.js')).status, 404);
