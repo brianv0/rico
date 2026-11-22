@@ -51,10 +51,11 @@ export function initSuggest({ input, list, onPick, fetchJson }) {
     return poolReq;
   }
 
+  const known = () => [...loadRecent(), ...(pool?.items || [])];
   const lookupKey = (l) => new URLSearchParams(l).toString();
 
   function render() {
-    const lookup = suggestLookup(input.value);
+    const lookup = suggestLookup(input.value, known());
     const sources = [
       { items: loadRecent(), boost: 25 },
       { items: pool?.items || [], boost: 10 },
@@ -93,13 +94,15 @@ export function initSuggest({ input, list, onPick, fetchJson }) {
     active = -1;
     render();
     ensurePool().then(render);
-    const lookup = suggestLookup(input.value);
     clearTimeout(timer);
     abort?.abort();
-    if (!lookup) return; // the cached pool is enough
-    const k = lookupKey(lookup);
-    if (lookups.has(k)) return;
-    timer = setTimeout(() => {
+    if (!suggestLookup(input.value)) return; // the cached pool is enough
+    timer = setTimeout(async () => {
+      await ensurePool(); // "name#47" needs the pool to know which owners have that repo
+      const lookup = suggestLookup(input.value, known());
+      if (!lookup) return;
+      const k = lookupKey(lookup);
+      if (lookups.has(k)) return render();
       abort = new AbortController();
       getJson('/api/suggest?' + k, abort.signal).then((d) => { lookups.set(k, d.items || []); render(); }).catch(() => {});
     }, 180);

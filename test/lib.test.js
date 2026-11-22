@@ -599,7 +599,11 @@ test('rankSuggestions: repo prefixes, titles, a typed ref is always offered, sou
 
 test('suggestLookup asks the server only when the cached pool cannot answer; shortAge', () => {
   assert.equal(suggestLookup('12'), null);
-  assert.equal(suggestLookup('rico#12'), null);
+  assert.equal(suggestLookup('rico#'), null);
+  // "formwork#47": owners that have a repo of that name come first, then the others seen, most frequent first
+  const known = [{ owner: 'Org', repo: 'other' }, { owner: 'org', repo: 'x' }, { owner: 'brianv0', repo: 'formwork' }, { owner: 'z', repo: 'formwork-site' }];
+  assert.deepEqual(suggestLookup('formwork#47', known), { name: 'formwork', number: '47', owners: 'brianv0,z,org' });
+  assert.deepEqual(suggestLookup('formwork#47'), { name: 'formwork', number: '47', owners: '' }); // the server still tries the viewer's own
   assert.deepEqual(suggestLookup('acme/docs#7'), { repo: 'acme/docs', text: '', number: '7' });
   assert.deepEqual(suggestLookup('acme/'), { owner: 'acme', text: '' });
   assert.deepEqual(suggestLookup('graphviz'), { text: 'graphviz' });

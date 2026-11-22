@@ -127,6 +127,12 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     }
     return out.data;
   }
+  /** GraphQL where some parts may be missing (a repo that does not exist): keep the data that resolved. */
+  async function gqlPartial(query, variables) {
+    const out = JSON.parse(await gh('/graphql', { method: 'POST', body: { query, variables } }));
+    if (!out.data) throw new HttpError(422, 'GitHub: ' + (out.errors || []).map((e) => e.message).join('; '));
+    return out.data;
+  }
   const ghJson = async (p, o) => JSON.parse(await gh(p, o));
 
   function repoParams(q) {
@@ -185,6 +191,23 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
    */
   async function apiSuggest(q) {
     if (readOnly || !getToken()) throw new HttpError(401, 'Sign in with GitHub to search pull requests.');
+    const name = q.get('name');
+    if (name) { // "formwork#47": that PR in the viewer's own repo of that name, and in each candidate owner's
+      const number = Number(q.get('number'));
+      const owners = String(q.get('owners') || '').split(',').filter(Boolean).slice(0, 4);
+      if (!NAME_RE.test(name) || !(number > 0) || !owners.every((o) => NAME_RE.test(o))) throw new HttpError(400, 'bad name lookup');
+      const pr = `pullRequest(number:$n){number title state isDraft updatedAt author{login} repository{nameWithOwner}}`;
+      const body = [`me:viewer{repository(name:$name){${pr}}}`, ...owners.map((_, i) => `o${i}:repository(owner:$o${i},name:$name){${pr}}`)].join(' ');
+      const decl = ['$name:String!', '$n:Int!', ...owners.map((_, i) => `$o${i}:String!`)].join(',');
+      const d = await gqlPartial(`query(${decl}){${body}}`, { name, n: number, ...Object.fromEntries(owners.map((o, i) => ['o' + i, o])) });
+      const seen = new Set();
+      const items = [];
+      for (const v of Object.values(d)) {
+        const n = (v?.repository || v)?.pullRequest;
+        if (n && !seen.has(n.repository.nameWithOwner)) { seen.add(n.repository.nameWithOwner); items.push(prItem(n)); }
+      }
+      return { items };
+    }
     const text = searchText(q.get('text'));
     const repo = q.get('repo');
     const owner = q.get('owner');

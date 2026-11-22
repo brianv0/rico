@@ -214,3 +214,12 @@ test('GET /api/suggest: the viewer pool, repo scope with an exact number, and te
   assert.ok(!searches()[0].includes(':evil') && !searches()[0].includes('"'), searches()[0]); // no qualifier smuggling
   assert.equal((await get(port, '/api/suggest?repo=../x')).status, 400);
 });
+
+test('GET /api/suggest?name=…: the exact PR from whichever candidate owner has that repo; missing repos are not errors', async () => {
+  const r = await get(port, '/api/suggest?name=formwork&number=47&owners=' + encodeURIComponent('nobody,acme'));
+  assert.equal(r.status, 200, r.body);
+  assert.deepEqual(JSON.parse(r.body).items.map((p) => `${p.owner}/${p.repo}#${p.number} ${p.state}`), ['acme/formwork#47 MERGED']);
+  assert.deepEqual(fake.ops.filter((o) => o.op === 'name-lookup').at(-1).vars, { name: 'formwork', n: 47, o0: 'nobody', o1: 'acme' });
+  assert.equal((await get(port, '/api/suggest?name=formwork&number=x')).status, 400);
+  assert.equal((await get(port, '/api/suggest?name=formwork&number=4&owners=../a')).status, 400);
+});

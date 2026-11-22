@@ -990,9 +990,26 @@ export function shortAge(iso, now = Date.now()) {
   return Math.floor(m / 525600) + 'y';
 }
 
-/** What the server should look up for this input, so most keystrokes need no request at all. */
-export function suggestLookup(input) {
+/**
+ * What the server should look up for this input, so most keystrokes need no request at all.
+ * `known`: PRs already at hand (recent, the viewer's pool). For "name#47" they say which owners have a repo of that name,
+ * so the exact PR can be fetched however old it is; the viewer's own account is always tried too (server side).
+ */
+export function suggestLookup(input, known = []) {
   const q = parseSuggestQuery(input);
+  if (q.kind === 'name' && q.number !== '') {
+    const want = lc(q.repo);
+    const score = new Map(); // owner -> rank: an exact repo-name match first, then a prefix match, then how often the owner shows up
+    for (const p of known) {
+      const o = lc(p.owner);
+      if (!o) continue;
+      const r = lc(p.repo);
+      const pts = (r === want ? 1000 : r.startsWith(want) ? 100 : 0) + 1;
+      score.set(o, Math.max(score.get(o) || 0, 0) + pts);
+    }
+    const owners = [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([o]) => o);
+    return { name: q.repo, number: q.number, owners: owners.join(',') };
+  }
   if (q.kind === 'repo' && q.repo) return { repo: `${q.owner}/${q.repo}`, text: '', number: q.number };
   if (q.kind === 'repo' && q.owner) return { owner: q.owner, text: q.repo };
   if (q.kind === 'text') return { text: q.text };

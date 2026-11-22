@@ -121,6 +121,13 @@ export async function startFake() {
         });
         return data({ viewer: { login: 'me' }, repository: { pullRequest: { id: 'PR_7', reviews: { nodes: pendingNode() }, reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
       }
+      if (q.includes('me:viewer{repository(name:')) { // "name#47": only acme has a repo of that name; the viewer ("me") does not
+        ops.push({ op: 'name-lookup', vars: v });
+        const pr = (owner) => ({ pullRequest: { number: v.n, title: 'Old one', state: 'MERGED', isDraft: false, updatedAt: '2025-01-01T00:00:00Z', author: { login: 'bob' }, repository: { nameWithOwner: `${owner}/${v.name}` } } });
+        const d = { me: { repository: null } };
+        Object.keys(v).filter((k) => /^o\d$/.test(k)).forEach((k) => { d[k] = v[k] === 'acme' ? pr('acme') : null; });
+        return json({ data: d, errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a Repository' }] });
+      }
       if (q.includes('search(query:')) { // PR autocomplete: record the search strings, answer each alias with one PR
         ops.push({ op: 'search', queries: Object.values(v) });
         const node = { number: 7, title: 'Update the docs', state: 'OPEN', isDraft: false, updatedAt: '2026-11-20T00:00:00Z', author: { login: 'alice' }, repository: { nameWithOwner: 'acme/docs' } };
