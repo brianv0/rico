@@ -449,7 +449,7 @@ what to compare against Go; every stage below is checked with the same pattern: 
 | 7 | `packing` | 3062 | `graphbounds`, `SplitSubgraphs`, `Transaction`, `fixedBounds` | graphbounds | `stages` index 18 and 32 (`BinPack`; the second one "doesn't try to avoid edges") | uses work budget 1e9; recursion over subgraphs |
 | 8 | `labeling` (node/icon/edge/arrowhead labels) | 2080 | `labelTopLeft`, `Label`/`Icon`, `nodeshape.labelPositionPreferences`, `labelgeom`, edge geometry | labelgeom, nodeshape | `stages` index 33 (`PlaceLabels`) | overlaps `quality`; 50M budget |
 | 9 | `quality` | 1271 | `Graph.area`, `validatePositionedGraphSelection`, `countSegmentCrossings`, labeling | labeling | `scores` per seed (`penalty`, `area`): exact float equality needed for seed selection | the score decides which seed is printed: port early after labeling and diff on `scores` |
-| 10 | `placement` (prescale, prepare, stress init, sized/sizeless optimizers, swap, transpose, align, gap normalization, equidistance, symmetry, dejitter, node placement, pad, normalize) | 9437 | everything: transactions, costs, `abductEdges`, nears, hubs, trees, clusters, loops | grouping, labeling, loops, packing, placementcost, proximity, trees, rand (`Float64` temperature noise, own `rand.New(rand.NewSource(seed))`) | `stages` 0 (`Prescale`) to 17, 19-20 (`CleanupStuff`, `Rescale`), 23 (`Dejitter`), 36 (`Normalize`) | the largest package; split by stage (placement is stages 7-17 of the pipeline: see the list below); the randomized optimizers make any one wrong draw diverge everything after it, so diff after every stage |
+| 10 | `placement` **(done, T2, see "placement (T2)")** (prescale, prepare, stress init, sized/sizeless optimizers, swap, transpose, align, gap normalization, equidistance, symmetry, dejitter, node placement, pad, normalize) | 9437 | everything: transactions, costs, `abductEdges`, nears, hubs, trees, clusters, loops | grouping, labeling, loops, packing, placementcost, proximity, trees, rand (`Float64` temperature noise, own `rand.New(rand.NewSource(seed))`) | `stages` 0 (`Prescale`) to 17, 19-20 (`CleanupStuff`, `Rescale`), 23 (`Dejitter`), 36 (`Normalize`) | the largest package; split by stage (placement is stages 7-17 of the pipeline: see the list below); the randomized optimizers make any one wrong draw diverge everything after it, so diff after every stage |
 | 11 | `routing` (OVG visibility graph, edge router with flavors, postprocessing, nudging, shortcuts, swap ports, slingshot, tunnels, tree routes) | 15715 | `Graph` costs (`turnCost`, `crossingCost`, `nonCenterPortCost`), ports, `PortEdges`, `graphbounds`, hierarchy, loops, quality | graphbounds, hierarchy, labeling, loops, nodeshape, quality | `stages` 21 (`EdgeRouting`) .. 36 (`Normalize`), and `ovg` fixtures of `testdata/ovg` (`exp` OVG JSON per case) | the biggest; flavors run in parallel in Go but are independent (see Determinism); priority queue tie-breaks and `sort.Slice` calls must use `gosort.js`; budget `routeWorkGuard`. **Core done (T1)**, see "Routing core"; the stage half remains |
 | 12 | `engine` (pipeline, `CompoundCandidate`) **(done, T2; the full run needs placement and routing)** | 737 | all | all above | `fstages` against `graph.exp.json` (seed 123), `scores` | `pipeline.go` is a flat list of 37 stages: port early as the skeleton with each stage a no-op and fill in |
 | 13 | root: `Layout`, result validation, patch (`layout.go`, `result.go`, `result_validate.go`, `patch.go`, `RouteEdges`) **(done, T2)** | about 1500 | adapter bindings | engine | `layout` stage against `tala/e2egolden.mjs` goldens (309) and `diff.mjs layout` with `layout: 'tala'` | the adapter half is done (`d2talalayout.js`): `translateGraph`, the seed plan, the validations shared with the result |
@@ -740,3 +740,50 @@ Also: `diff.mjs layout|graph|svg corpus.jsonl` (dagre) 1077/1077, 1077/1077, 886
 - **Not exercised by any input** (read against the Go source only): exhaustion of the 1e9-unit transaction budget inside the driver (the budget is a constant of `limits`; the guard itself is checked by its own tests), `storeSnapshots` (the OVG round trip is in the routing core's checks), and the `NotPorted` path of `compoundCandidate` (the unit test registers a stand-in).
 - **The routing core's `slices.SortStableFunc` comparators** (`ovg_edge_router.js`, `slingshot.js`) were reviewed, not changed: the Go comparators are strict weak orders of float keys (the `TopDownLeftRight` one only degenerates for overlapping nodes at identical positions), for which `Array.prototype.sort` (stable) is the same function as Go's stable sort; the `sort.Slice` calls use `gosort.js`. The routing task owns those files.
 - **404s until the stage modules land**: `stagepkgs.js` imports the candidate module names; in a browser each missing one is a failed module fetch (silently skipped) until the files exist. Once `placement` and `routing` are merged, shrink `STAGE_MODULES` to the real file names.
+
+## placement (T2)
+
+`public/d2/tala/placement/` (21 files, about 6.7k lines, 57 KB gzipped as one stream): one JS file per Go file or group (`types.js` = types, tuning,
+axis, moves, metrics, candidate_movement, cluster_connections; `optimization_guard.js`, `optimizer_spatial_index.js`, `sizeless_optimizer.js`,
+`sized_optimizer.js`, `swap.js`, `transpose.js`, `alignment.js`, `direct.js`, `container_orientation.js`, `cluster_optimization.js`,
+`gapreduction.js`, `equidistance.js`, `compaction.js`, `dejitter.js`, `symmetry.js`, `initialize.js` (+ `stress_initialize.go`), `node_placement.js`,
+`stages.js`), plus `gotrig.js` (Go's `math.Sin`/`Cos`, see below) and `index.js`, which exports the stage functions the pipeline looks up by name:
+`prescale, prepare, place(ctx, g, BigInt seed), swap, transposeAll, align, balanceSymmetry, normalizeGaps, optimizeClusters, equidistance,
+dejitter, pad, normalize` (the names in "What the engine needs"; no edit of `stagepkgs.js` needed). Internal API worth knowing: `compaction(ctx, g,
+{axis, includeSizes, factor, transition, edgeAbductions: array | null})`, `placeNodes(ctx, g, root, seed, prevAbductions | null, obstacles | null)`,
+`optimizeCluster(ctx, cluster, onlyFlip)`, `transpose(ctx, g, node, abductions | null)` (`null` is Go's nil slice: it selects a different cost path);
+`commitErr(txn, ctx)` (types.js) is `err := txn.Commit(ctx)`.
+
+**Check** (`tools/d2ref/tala/placecheck.mjs`; uses Go's `t1stages` mode, no new Go code): Go dumps graph + deep state after chosen stages, the JS
+stage methods of `engine.js` run on Go's graph of the stage before (`--stages`), or **chained** from Go's stage 6 graph (`--chain`: stages 7..17 on
+one JS graph, which keeps the edge-length cache warm as in Go).
+
+```bash
+export TALA_REF=/tmp/tala-ref-me; tools/d2ref/tala/setup.sh; cd tools/d2ref; node tala/corpus.mjs $TALA_REF    # as above
+node tala/placecheck.mjs tala-corpus.jsonl --stages 6,7,8,9,10,11,12,13,14,15,16,17 --chain --strict-cache     # the exact check
+node tala/placecheck.mjs tala-corpus.jsonl --stages 0,2,7,23                                                  # isolated stages (see the cache note)
+```
+
+**Results** (identical graph and deep state, nothing tolerated; "isolated" = from Go's previous-stage graph, "chain" = stages 7-17 in one run):
+corpus (1042 Go runs, seeds 1,2,3): isolated stages 0, 2, 7-11, 13, 15, 16 all identical (1041-1042 each), chain 7-17 11452/11453 and the one
+case is the corpus case 521 where Go errors in stage 7 (JS errors identically; fixed in the checker); e2e (369 runs, seed 1) chain 4059/4059, isolated
+5157/5166; graph fixtures (115, seed 123) chain 1265/1265, isolated 2, 7-11, 13, 15, 16 115/115 and stage 23 included. Fuzz: see the table at the end of this section.
+
+**Findings.**
+- **The edge-length cache is state that decides results.** `graph.edgeLengthCache` survives from stage to stage inside Go's run (keyed by a hash of the
+  graph state). An isolated AlignAxes (stages 12, 14, 17) started from Go's graph has a cold cache in JS, so `turnCost` (a lazily cached value,
+  reset at the end of NormalizeGaps) is computed in JS where Go got cache hits: `placecheck` reports those runs (`--strict-cache` turns the
+  tolerance off), and for 3 fixtures (`larger_tree`) a cold cache even picks a different alignment in stage 17. The chained run (warm cache) is
+  identical in every case, so a full JS pipeline is exact; isolated checks of later stages should be read with this in mind.
+- **libm.** Go's `math.Sin/Cos` (Cephes, pure Go on amd64) differ from V8's in the last bit in about 25% of the arguments of the stress initialization:
+  `gotrig.js` ports them (2074/2074 identical to Go). `math.Pow` with a fractional exponent (`coolingFactor`, the stress sweeps) is `Exp(yf*Log(x))` where
+  Go's amd64 `Exp` and `Log` are assembly (`Exp` even depends on the CPU's FMA): `goPowPos` uses V8's `exp`/`log` and differs from Go by one ulp in 7/5715
+  cooling factors and 10/48 sweep factors; the effect is a relative 1e-16 on the annealing temperature, which can only matter at an exact rounding tie
+  (no corpus, e2e, fixture or fuzz case differs). Integer exponents (`Pow(x,2)`) are exact.
+- Go ranges that were order-independent (`edgeCounts` of Prescale, `adjacentsM` of BalanceSymmetry, `spaceReqs` of the sized optimizer, `newSegments` of Dejitter)
+  use insertion order in JS. `sort.Slice` is `gosort.js`; `slices.SortFunc` by unique IDs is `goslices.sortFunc`; `sort.SliceStable` and the 4-element stable
+  sort of `transformsTo` are `Array.prototype.sort` (strict weak orders).
+- Defers: Go's deferred rollbacks are `try/finally` with a `complete` flag; the order of the three defers of `placeNodes` is kept (a list run in reverse).
+- Stage 0 of a graph that already has routes (the `/exp` fixtures) differs between `-1` and `0` because the pipeline clears the routes between them:
+  `prescale` itself is checked on corpus graphs.
+- The pipeline stages of routing are still in the other half: `layout: 'tala'` runs up to stage 20 here.
