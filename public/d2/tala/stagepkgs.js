@@ -39,9 +39,15 @@ export class NotPorted extends Error {
 
 const packages = new Map(); // package name -> [namespace objects], newest first
 
+/** Registers a module namespace (or any object with the functions) for a package; returns the function that removes this registration. */
 export function registerPackage(pkg, namespace) {
   if (!packages.has(pkg)) packages.set(pkg, []);
   packages.get(pkg).unshift(namespace);
+  return () => {
+    const list = packages.get(pkg) ?? [];
+    const i = list.indexOf(namespace);
+    if (i >= 0) list.splice(i, 1);
+  };
 }
 
 /** Forget a package's registrations (tests). */

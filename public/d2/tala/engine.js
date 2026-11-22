@@ -453,11 +453,16 @@ export function runLayout(ctx, graph, options, instrumentation, validate) {
   let workCtx = ctx;
   let cancelWork = () => {};
   if (!ctx.hasDone()) [workCtx, cancelWork] = withCancel(ctx);
+  let pipeline = null;
   try {
-    const pipeline = new Pipeline(graph, options.seed, instrumentation.storeSnapshots);
+    pipeline = new Pipeline(graph, options.seed, instrumentation.storeSnapshots);
     if (instrumentation.measureStageDurations) pipeline.enableStageTiming();
     pipeline.runAllStages(workCtx);
     return pipeline;
+  } catch (e) {
+    // Go returns the pipeline next to the error: it is `e.pipeline` here (tests and tools read the stage timing of a failed run)
+    if (pipeline !== null && e instanceof Error) e.pipeline = pipeline;
+    throw e;
   } finally {
     cancelWork();
   }

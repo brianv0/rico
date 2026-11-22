@@ -95,7 +95,8 @@ export function applyPatch(patch) {
     update.edge.dst = update.destination;
   }
   if (patch.replaceEdges) {
-    patch.graph.edges = patch.finalEdges;
+    // Go: a nil slice when there is no edge (the D2 graph JSON prints null)
+    patch.graph.edges = patch.finalEdges.length === 0 ? null : patch.finalEdges;
   }
 }
 
@@ -118,7 +119,7 @@ export function buildLayoutPatch(ctx, g, result, bindings, sequenceEdges) {
     if (nodes.has(node.id)) throw errorf(`tala result contains duplicate node ID ${node.id}`);
     nodes.set(node.id, node);
   }
-  for (const object of g.objects) {
+  for (const object of g.objects ?? []) {
     checkCtx(ctx);
     const id = bindings.objectIDs.get(object);
     if (id === undefined) throw errorf(`could not reassociate graph object ${quote(object.absID())}`);
@@ -134,7 +135,7 @@ export function buildLayoutPatch(ctx, g, result, bindings, sequenceEdges) {
     if (edges.has(edge.id)) throw errorf(`tala result contains duplicate edge ID ${edge.id}`);
     edges.set(edge.id, edge);
   }
-  for (const edge of g.edges) {
+  for (const edge of g.edges ?? []) {
     checkCtx(ctx);
     const id = bindings.edgeIDs.get(edge);
     if (id === undefined) throw errorf(`could not reassociate D2 edge ${quote(edge.absID())}`);
@@ -171,7 +172,7 @@ export function buildRoutePatch(ctx, g, bindings, routed) {
   patch.destinations = buildDestinationPatches(g, bindings, selectedIDs);
 
   let matched = 0;
-  for (const edge of g.edges) {
+  for (const edge of g.edges ?? []) {
     checkCtx(ctx);
     patch.finalEdges.push(edge);
     const id = bindings.edgeIDs.get(edge);
@@ -187,7 +188,7 @@ export function buildRoutePatch(ctx, g, bindings, routed) {
 
 export function buildDestinationPatches(g, bindings, selectedIDs) {
   const patches = [];
-  for (const edge of g.edges) {
+  for (const edge of g.edges ?? []) {
     if (selectedIDs !== null) {
       const id = bindings.edgeIDs.get(edge);
       if (id === undefined) continue;
