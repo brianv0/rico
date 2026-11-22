@@ -754,27 +754,42 @@ dejitter, pad, normalize` (the names in "What the engine needs"; no edit of `sta
 `optimizeCluster(ctx, cluster, onlyFlip)`, `transpose(ctx, g, node, abductions | null)` (`null` is Go's nil slice: it selects a different cost path);
 `commitErr(txn, ctx)` (types.js) is `err := txn.Commit(ctx)`.
 
-**Check** (`tools/d2ref/tala/placecheck.mjs`; uses Go's `t1stages` mode, no new Go code): Go dumps graph + deep state after chosen stages, the JS
-stage methods of `engine.js` run on Go's graph of the stage before (`--stages`), or **chained** from Go's stage 6 graph (`--chain`: stages 7..17 on
-one JS graph, which keeps the edge-length cache warm as in Go).
+**Check** (`tools/d2ref/tala/placecheck.mjs`; uses Go's `t1stages` mode, no new Go code): Go dumps graph + deep state after chosen stages (`-1` is the
+cloned input). Modes: `--full` runs the **whole JS pipeline** (engine.js `Pipeline`, through `enginecheck.observeStages`) from Go's input graph and
+compares the graph and deep state after every stage 0..20 with Go's (stages 21+ are routing: `NotPorted` ends the run; a JS TypeError is accepted only
+where Go panicked or failed the seed); `--chain` runs stages 7..17 on one graph from Go's stage 6 graph; the default runs each stage in isolation on Go's
+graph of the stage before (`--stages`; this is how stage 23 `Dejitter` is checked). `test/tala-placement.test.js` replays 6 recorded Go pipelines
+(`placefixture.mjs`, `test/fixtures/tala-placement-stages.json`) without Go.
 
 ```bash
 export TALA_REF=/tmp/tala-ref-me; tools/d2ref/tala/setup.sh; cd tools/d2ref; node tala/corpus.mjs $TALA_REF    # as above
-node tala/placecheck.mjs tala-corpus.jsonl --stages 6,7,8,9,10,11,12,13,14,15,16,17 --chain --strict-cache     # the exact check
-node tala/placecheck.mjs tala-corpus.jsonl --stages 0,2,7,23                                                  # isolated stages (see the cache note)
+node tala/placecheck.mjs tala-corpus.jsonl --full                  # stages 0-20 (also tala-e2e.jsonl --seeds 1, tala-fixtures.jsonl --seeds 123, fuzz files --seeds 1,2)
+node tala/placecheck.mjs tala-corpus.jsonl --stages 0,2,23         # isolated stages
 ```
 
-**Results** (identical graph and deep state, nothing tolerated; "isolated" = from Go's previous-stage graph, "chain" = stages 7-17 in one run):
-corpus (1042 Go runs, seeds 1,2,3): isolated stages 0, 2, 7-11, 13, 15, 16 all identical (1041-1042 each), chain 7-17 11452/11453 and the one
-case is the corpus case 521 where Go errors in stage 7 (JS errors identically; fixed in the checker); e2e (369 runs, seed 1) chain 4059/4059, isolated
-5157/5166; graph fixtures (115, seed 123) chain 1265/1265, isolated 2, 7-11, 13, 15, 16 115/115 and stage 23 included. Fuzz: see the table at the end of this section.
+**Results** (every comparison identical, graph and deep state; counts are stage runs / Go runs = seeds x layout calls):
+
+| input | `--full`, stages 0-20 |
+|---|---|
+| D2 corpus, seeds 1,2,3 | 21869/21869 (1042 Go runs; the one TALA error case 521 errors identically) |
+| e2e inputs, seed 1 | 7749/7749 (369 runs) |
+| graph fixtures, seed 123 | 2395/2395 (115 runs; after the Prescale `int(NaN)` fix below) |
+| `fuzzlayout` 700 (seed 11), seeds 1,2 | 31458/31458 (1498 runs) |
+| `fuzzgrid` 250, `hierfuzz` 600, `routingfuzz` 300 | 2940/2940, 26544/26544, 12600/12600 |
+| `t1fuzz` 500 (seed 11) | 20470/20470 (976 runs) |
+| isolated stage 23 (Dejitter), corpus + e2e + fixtures + fuzzlayout | all identical (749 fuzz runs) |
+
+Stage 7 (`NodePlacement`) is where `trees.place`, `grouping.joinDistancedClusters`, `packing.combineSubgraphs`, `proximity` and the optimizers run for real: no
+disagreement was found in any of those packages. Work-unit counters of the optimizer guards are charged call for call but only observable through budget
+errors, which no input reaches (not exercised, as in the other packages).
 
 **Findings.**
-- **The edge-length cache is state that decides results.** `graph.edgeLengthCache` survives from stage to stage inside Go's run (keyed by a hash of the
-  graph state). An isolated AlignAxes (stages 12, 14, 17) started from Go's graph has a cold cache in JS, so `turnCost` (a lazily cached value,
-  reset at the end of NormalizeGaps) is computed in JS where Go got cache hits: `placecheck` reports those runs (`--strict-cache` turns the
-  tolerance off), and for 3 fixtures (`larger_tree`) a cold cache even picks a different alignment in stage 17. The chained run (warm cache) is
-  identical in every case, so a full JS pipeline is exact; isolated checks of later stages should be read with this in mind.
+- **Isolated checks of later stages need the whole state.** `graph.edgeLengthCache` survives from stage to stage inside Go's run, and the label and icon
+  `positionFixed` flags (set by `labeling.Initialize` in stage 2) are not in the dumps either (they change `containerPadding` of a container with a child
+  icon, so gap normalization differed). Starting an isolated stage 11-17 from Go's graph therefore differs in some cases (a cold cache even picks another
+  alignment for the `larger_tree` fixtures); `--full` reproduces both and is identical everywhere, so use `--full`, not isolated runs, for stages 3-20.
+- **`int(NaN)`.** Prescale of a node whose only edges are self loops computes `int(math.Ceil(0/0))`: Go (amd64) gives MinInt64, `Math.trunc` gives NaN
+  (`goInt` fixes it; found by the `self_edges_all_shapes` fixture).
 - **libm.** Go's `math.Sin/Cos` (Cephes, pure Go on amd64) differ from V8's in the last bit in about 25% of the arguments of the stress initialization:
   `gotrig.js` ports them (2074/2074 identical to Go). `math.Pow` with a fractional exponent (`coolingFactor`, the stress sweeps) is `Exp(yf*Log(x))` where
   Go's amd64 `Exp` and `Log` are assembly (`Exp` even depends on the CPU's FMA): `goPowPos` uses V8's `exp`/`log` and differs from Go by one ulp in 7/5715
@@ -784,6 +799,5 @@ case is the corpus case 521 where Go errors in stage 7 (JS errors identically; f
   use insertion order in JS. `sort.Slice` is `gosort.js`; `slices.SortFunc` by unique IDs is `goslices.sortFunc`; `sort.SliceStable` and the 4-element stable
   sort of `transformsTo` are `Array.prototype.sort` (strict weak orders).
 - Defers: Go's deferred rollbacks are `try/finally` with a `complete` flag; the order of the three defers of `placeNodes` is kept (a list run in reverse).
-- Stage 0 of a graph that already has routes (the `/exp` fixtures) differs between `-1` and `0` because the pipeline clears the routes between them:
-  `prescale` itself is checked on corpus graphs.
+- The `/exp` fixtures (graphs with routes): the engine clears the routes between stage `-1` and stage 0; `--full` starts from the input graph and does the same.
 - The pipeline stages of routing are still in the other half: `layout: 'tala'` runs up to stage 20 here.

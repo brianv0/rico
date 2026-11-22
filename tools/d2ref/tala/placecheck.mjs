@@ -60,7 +60,12 @@ for (let off = 0; off < cases.length; off += 50) {
           perStage[index][0]++;
         });
         try { p.runAllStages(ctx); } catch (e) {
-          if (e !== STOP && e.name !== 'GoError' && e.constructor?.name !== 'NotPorted') throw e;
+          if (e !== STOP && e.name !== 'GoError' && e.constructor?.name !== 'NotPorted') {
+            // a JS TypeError stands for a Go panic: Go must have panicked (run.panic) or failed the seed too
+            compared++;
+            if (run.panic !== undefined || run.err !== undefined) same++; else bad.push({ name, tag: `seed${run.seed}/full`, path: 'panic', got: String(e.stack).slice(0, 300), want: '' });
+            continue;
+          }
           if (e !== STOP && e.name === 'GoError') { compared++; if (run.err === undefined) bad.push({ name, tag: `seed${run.seed}/full`, path: 'err', got: e.message, want: '' }); else same++; }
         } finally { restore(); }
         continue;
