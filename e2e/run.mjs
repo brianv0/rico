@@ -780,6 +780,18 @@ await step('removed text: red tint, text in the same column as kept text, and it
   await p6.screenshot({ path: path.join(root, 'e2e', 'removed.png'), clip: { x: 280, y: 150, width: 900, height: 480 } });
   await p6.close();
 });
+await step('narrow window: long unbreakable code or text never makes the page scroll sideways', async () => {
+  const pn = await browser.newPage({ viewport: { width: 1109, height: 900 } });
+  await pn.goto(`http://localhost:${PORT}/#pr=acme%2Fdocs%237&f=docs%2Fcomplex.md`);
+  await pn.waitForSelector('#doc h1');
+  await pn.waitForTimeout(1200);
+  await pn.evaluate(() => { const d = document.getElementById('doc'); const pre = document.createElement('pre'); pre.textContent = 'x'.repeat(130); d.append(pre); const t = document.createElement('p'); t.textContent = 'word '.repeat(300); d.append(t); });
+  await pn.waitForTimeout(300);
+  const r = await pn.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth, doc: document.getElementById('doc').getBoundingClientRect().width, fb: document.querySelector('.file-body').getBoundingClientRect().width }));
+  assert.ok(r.sw <= r.vw, `page scrolls sideways: scrollWidth ${r.sw} > ${r.vw}`);
+  assert.ok(r.doc <= r.fb, `the text column (${r.doc}) fits its card (${r.fb})`);
+  await pn.close();
+});
 await step('removed sections: Source diff and Rendered show the same threads', async () => {
   const c = card('docs/removed.md');
   await c.getByRole('button', { name: 'Source diff' }).click();

@@ -286,7 +286,8 @@ textarea { resize: vertical; padding: 8px 12px; }
 .src-empty { padding: 24px; text-align: center; color: var(--fg-muted); }
 
 @media (max-width: 1150px) {
-  .file-body { flex-direction: column; gap: 16px; }
+  /* stretch, not flex-start: a text column sized to its content (long code or table lines) grew past the window */
+  .file-body { flex-direction: column; align-items: stretch; gap: 16px; }
   .rico-margin { flex: none; width: 100%; }
   .thread { position: static; margin-bottom: 8px; }
   .rico-margin .note { position: static; }
