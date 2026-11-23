@@ -1,12 +1,13 @@
 // The GitHub half of Rico, shared by the local Node server and the Cloudflare Worker.
 // Web-standard APIs only (fetch, Uint8Array): no Node built-ins, so it runs in both.
-import { parsePrRef } from '../public/lib.js';
+import { parsePrRef, parseCommitRef, positionLine } from '../public/lib.js';
 import { fetchIcon } from './icon.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
 // '.' and '..' as owner/repo would normalise away in the API path (fetch collapses dot segments),
 // letting a crafted ref escape the /repos/{owner}/{repo}/ prefix.
 const NAME_RE = /^(?!\.+$)[\w.-]+$/;
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
 const IMG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon' };
 
 export class HttpError extends Error {
@@ -70,6 +71,11 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
       nodes{id path line originalLine startLine originalStartLine diffSide startDiffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
         comments(first:100){nodes{id databaseId state lastEditedAt body createdAt updatedAt url authorAssociation author{login avatarUrl} replyTo{databaseId} viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
+
+const COMMIT_CAPS_Q = `query($owner:String!,$repo:String!,$oid:GitObjectID!,$after:String){
+  viewer{login}
+  repository(owner:$owner,name:$repo){object(oid:$oid){... on Commit{comments(first:100,after:$after){pageInfo{hasNextPage endCursor}
+    nodes{databaseId lastEditedAt viewerCanUpdate viewerCanDelete reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}}}`;
 
 const PR_FIELDS = '... on PullRequest{number title state isDraft updatedAt author{login} repository{nameWithOwner}}';
 const PR_ONE_Q = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){number title state isDraft updatedAt author{login} repository{nameWithOwner}}}}`;
@@ -286,9 +292,125 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { comments, prComments, viewer, pendingReview: g?.pending ? { id: g.pending.id, databaseId: g.pending.databaseId } : null, canThread: !!g };
   }
 
+  // ---- a single commit: GitHub's commit comments (flat, one line each, no reviews, no resolve) ----
+  /** The commit's changed files (with patches), every page. */
+  async function commitFiles(owner, repo, sha) {
+    const first = await ghJson(`/repos/${owner}/${repo}/commits/${sha}?per_page=100&page=1`);
+    const files = [...(first.files || [])];
+    for (let page = 2; page <= 30 && files.length === (page - 1) * 100; page++) {
+      const more = await ghJson(`/repos/${owner}/${repo}/commits/${sha}?per_page=100&page=${page}`);
+      files.push(...(more.files || []));
+    }
+    return { commit: first, files };
+  }
+
+  /**
+   * A commit's comments in the shape a PR's take, so the page treats both alike. A commit comment is anchored by its diff
+   * *position* (see patchPosition), turned back into a side and line from the file's patch here. GitHub keeps commit comments
+   * flat; comments on the same line read as one thread, the earliest first (each later one "replies" to it).
+   */
+  async function loadCommitComments(owner, repo, sha, files) {
+    const base = `/repos/${owner}/${repo}`;
+    const [all, g] = await Promise.all([pages(`${base}/commits/${sha}/comments`), commitGraph(owner, repo, sha)]);
+    let viewer = g?.viewer || null;
+    if (!viewer && !readOnly && getToken()) viewer = await apiMe().then((m) => m.login).catch(() => null);
+    const patches = new Map(files.map((f) => [f.filename, f.patch ?? null]));
+    all.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id);
+    const roots = new Map();
+    const comments = [];
+    const general = [];
+    for (const c of all) {
+      const n = g?.caps.get(c.id);
+      const mine = !!viewer && c.user?.login === viewer;
+      const caps = (o) => {
+        o.canUpdate = n ? n.viewerCanUpdate : mine;
+        o.canDelete = n ? n.viewerCanDelete : mine;
+        if (n) {
+          o.edited = !!n.lastEditedAt;
+          o.reactions = n.reactionGroups.filter((r) => r.reactors.totalCount > 0).map((r) => ({ content: REACTION_REST[r.content], count: r.reactors.totalCount, mine: r.viewerHasReacted }));
+        }
+        return o;
+      };
+      if (!c.path) { general.push(caps(compactIssue(c))); continue; } // on the commit as a whole
+      if (!MD_RE.test(c.path)) continue;
+      const patch = patches.get(c.path);
+      const at = c.position != null && patch != null ? positionLine(patch, c.position) : null;
+      const line = at ? at.line : c.position != null ? c.line ?? null : null;
+      const key = `${c.path}\0${c.position ?? ''}`;
+      const out = caps(compact({ ...c, in_reply_to_id: roots.get(key) ?? null, line, original_line: line ?? c.line ?? null, side: at?.side || 'RIGHT' }));
+      if (c.position == null) out.originalLine = null; // on the file, not a line
+      if (!roots.has(key)) roots.set(key, c.id);
+      comments.push(out);
+    }
+    return { comments, prComments: general, viewer, pendingReview: null, canThread: false };
+  }
+
+  /** Per-comment permissions and reactions on a commit, via GraphQL (null when unavailable). */
+  async function commitGraph(owner, repo, sha) {
+    if (readOnly || !getToken() || sha.length !== 40) return null;
+    try {
+      const caps = new Map();
+      let viewer = null;
+      let after = null;
+      for (let i = 0; i < 5; i++) {
+        const d = await gql(COMMIT_CAPS_Q, { owner, repo, oid: sha, after });
+        viewer = d.viewer.login;
+        const conn = d.repository?.object?.comments;
+        if (!conn) break;
+        for (const n of conn.nodes) caps.set(n.databaseId, n);
+        if (!conn.pageInfo.hasNextPage) break;
+        after = conn.pageInfo.endCursor;
+      }
+      return { viewer, caps };
+    } catch {
+      return null;
+    }
+  }
+
+  async function apiCommit({ owner, repo, sha: want }) {
+    const [{ commit, files }, repoInfo, prs] = await Promise.all([
+      commitFiles(owner, repo, want),
+      ghJson(`/repos/${owner}/${repo}`),
+      ghJson(`/repos/${owner}/${repo}/commits/${want}/pulls?per_page=5`).catch(() => []), // the PRs that contain it: comment there instead?
+    ]);
+    const sha = commit.sha;
+    const message = commit.commit?.message || '';
+    const nl = message.indexOf('\n');
+    const loaded = await loadCommitComments(owner, repo, sha, files);
+    return {
+      kind: 'commit',
+      owner,
+      repo,
+      number: null,
+      sha,
+      ...loaded,
+      isPrivate: !!repoInfo.private,
+      title: (nl < 0 ? message : message.slice(0, nl)).trim() || sha.slice(0, 7),
+      message: nl < 0 ? '' : message.slice(nl + 1).trim(),
+      url: commit.html_url,
+      author: commit.author?.login || commit.commit?.author?.name || null,
+      authorAvatar: commit.author?.avatar_url || null,
+      createdAt: commit.commit?.author?.date || null,
+      parents: (commit.parents || []).map((p) => p.sha),
+      changedFiles: files.length,
+      additions: commit.stats?.additions ?? files.reduce((n, f) => n + f.additions, 0),
+      deletions: commit.stats?.deletions ?? files.reduce((n, f) => n + f.deletions, 0),
+      commitComments: commit.commit?.comment_count ?? null,
+      pulls: (Array.isArray(prs) ? prs : []).map((p) => ({ number: p.number, title: p.title, state: p.merged_at ? 'merged' : p.state, url: p.html_url })),
+      headSha: sha,
+      baseSha: commit.parents?.[0]?.sha || null, // what GitHub's commit page diffs against: the first parent
+      allFiles: files.map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions })),
+      files: files
+        .filter((f) => MD_RE.test(f.filename) && f.status !== 'removed')
+        .map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, previous: f.previous_filename || null, patch: f.patch ?? null })),
+    };
+  }
+
   async function apiPr(q) {
+    const cref = parseCommitRef(q.get('ref'));
+    if (cref) return apiCommit(cref);
     const ref = parsePrRef(q.get('ref'));
-    if (!ref) throw new HttpError(400, 'Could not parse that as a GitHub PR (try https://github.com/owner/repo/pull/123 or owner/repo#123).');
+    if (!ref) throw new HttpError(400, 'Could not parse that as a GitHub PR or commit (try https://github.com/owner/repo/pull/123, owner/repo#123 or owner/repo@abc1234).');
     const { owner, repo, number } = ref;
     const base = `/repos/${owner}/${repo}/pulls/${number}`;
     const pull = await ghJson(base);
@@ -366,6 +488,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   }
 
   async function apiReview(body) {
+    if (body?.sha != null) throw noReviews();
     const { owner, repo, number, review } = body || {};
     if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number)) throw new HttpError(400, 'bad request');
     if (!['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(review?.event)) throw new HttpError(400, 'bad event');
@@ -374,6 +497,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   }
 
   async function apiReply(body) {
+    const k = commitOf(body);
+    if (k) { // commit comments have no replies: a "reply" is another comment on the same line of the same commit
+      if (!Number.isInteger(body.commentId)) throw new HttpError(400, 'bad request');
+      const root = await ghJson(`/repos/${k.owner}/${k.repo}/comments/${body.commentId}`);
+      if (!root.path || root.position == null || !String(root.commit_id || '').startsWith(k.sha.toLowerCase())) throw new HttpError(400, 'That comment is not on a line of this commit.');
+      const out = await ghJson(`/repos/${k.owner}/${k.repo}/commits/${root.commit_id}/comments`, { method: 'POST', body: { path: root.path, position: root.position, body: commentText(body.text) } });
+      return { ...compact(out), replyTo: body.commentId };
+    }
     const { owner, repo, number, commentId, text } = body || {};
     if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number) || !Number.isInteger(commentId)) throw new HttpError(400, 'bad request');
     if (typeof text !== 'string' || !text.trim() || text.length > 65536) throw new HttpError(400, 'empty or too long reply');
@@ -389,7 +520,8 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number)) throw new HttpError(400, 'bad request');
     return { owner, repo, number };
   }
-  function text(body) {
+  function text(body) { return commentText(body); }
+  function commentText(body) {
     if (typeof body !== 'string' || !body.trim() || body.length > 65536) throw new HttpError(400, 'empty or too long comment');
     return body;
   }
@@ -405,18 +537,44 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     }
     return out;
   }
+  /** A write about a commit carries `sha` instead of `number`. -> {owner, repo, sha} | null */
+  function commitOf(body) {
+    const { owner, repo, sha } = body || {};
+    if (sha == null) return null;
+    if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || typeof sha !== 'string' || !SHA_RE.test(sha)) throw new HttpError(400, 'bad request');
+    return { owner, repo, sha };
+  }
+  const noReviews = () => new HttpError(400, 'A commit has no reviews or resolvable threads: only pull requests do.');
+  /** Allow-list a commit-comment payload: GitHub anchors it by diff position (one line), not by line range. */
+  function positionComment(c) {
+    if (!c || typeof c.path !== 'string' || !c.path || c.path.includes('..') || !Number.isInteger(c.position) || c.position < 1) throw new HttpError(400, 'bad comment');
+    return { path: c.path, position: c.position, body: text(c.body) };
+  }
   const cid = (b) => { if (!Number.isInteger(b?.commentId)) throw new HttpError(400, 'bad comment id'); return b.commentId; };
   const kindPath = (b) => (b?.kind === 'issue' ? 'issues' : 'pulls');
 
   async function apiComment(b) {
+    const k = commitOf(b);
+    if (k) {
+      const out = compact(await ghJson(`/repos/${k.owner}/${k.repo}/commits/${k.sha}/comments`, { method: 'POST', body: positionComment(b.comment) }));
+      const line = Number.isInteger(b.comment.line) ? b.comment.line : out.line; // GitHub's reply has the position; the page knows the line
+      return { ...out, line, originalLine: line, side: b.comment.side === 'LEFT' ? 'LEFT' : 'RIGHT' };
+    }
     const { owner, repo, number } = ref(b);
     return compact(await ghJson(`/repos/${owner}/${repo}/pulls/${number}/comments`, { method: 'POST', body: lineComment(b.comment) }));
   }
   async function apiPrComment(b) {
+    const k = commitOf(b);
+    if (k) return compactIssue(await ghJson(`/repos/${k.owner}/${k.repo}/commits/${k.sha}/comments`, { method: 'POST', body: { body: text(b.text) } }));
     const { owner, repo, number } = ref(b);
     return compactIssue(await ghJson(`/repos/${owner}/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: text(b.text) } }));
   }
   async function apiEdit(b) {
+    const k = commitOf(b);
+    if (k) { // commit comments (line or general) all live at /repos/{o}/{r}/comments/{id}
+      const out = await ghJson(`/repos/${k.owner}/${k.repo}/comments/${cid(b)}`, { method: 'PATCH', body: { body: text(b.text) } });
+      return { ...compactIssue(out), edited: true };
+    }
     const { owner, repo } = ref(b);
     if (b.pending === true) { // pending review comments are hidden from REST (PATCH is a 404): edit them through GraphQL
       if (typeof b.nodeId !== 'string' || !/^[\w=-]{4,100}$/.test(b.nodeId)) throw new HttpError(400, 'bad node id');
@@ -428,11 +586,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return b.kind === 'issue' ? compactIssue(out) : compact(out);
   }
   async function apiDelete(b) {
+    const k = commitOf(b);
+    if (k) { await gh(`/repos/${k.owner}/${k.repo}/comments/${cid(b)}`, { method: 'DELETE' }); return { ok: true }; }
     const { owner, repo } = ref(b);
     await gh(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${cid(b)}`, { method: 'DELETE' });
     return { ok: true };
   }
   async function apiResolve(b) {
+    if (b?.sha != null) throw noReviews();
     if (typeof b?.threadId !== 'string' || !/^[\w=-]{4,100}$/.test(b.threadId)) throw new HttpError(400, 'bad thread id');
     const op = b.resolved ? 'resolveReviewThread' : 'unresolveReviewThread';
     const d = await gql(`mutation($id:ID!){${op}(input:{threadId:$id}){thread{id isResolved viewerCanResolve viewerCanUnresolve}}}`, { id: b.threadId });
@@ -440,7 +601,8 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { id: t.id, resolved: t.isResolved, canResolve: t.viewerCanResolve, canUnresolve: t.viewerCanUnresolve };
   }
   async function apiReact(b) {
-    const { owner, repo } = ref(b);
+    const k = commitOf(b);
+    const { owner, repo } = k || ref(b);
     if (!Object.hasOwn(REACTIONS, b?.content)) throw new HttpError(400, 'bad reaction');
     const id = cid(b);
     if (b.remove) { // un-react by node id (REST would need the reaction's own id)
@@ -448,7 +610,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       await gql('mutation($id:ID!,$c:ReactionContent!){removeReaction(input:{subjectId:$id,content:$c}){reaction{content}}}', { id: b.nodeId, c: REACTIONS[b.content] });
       return { ok: true };
     }
-    await gh(`/repos/${owner}/${repo}/${kindPath(b)}/comments/${id}/reactions`, { method: 'POST', body: { content: b.content } });
+    await gh(`/repos/${owner}/${repo}/${k ? '' : kindPath(b) + '/'}comments/${id}/reactions`, { method: 'POST', body: { content: b.content } });
     return { ok: true };
   }
 
@@ -460,6 +622,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { prId: pr.id, review: pr.reviews.nodes.find((r) => r.viewerDidAuthor) || null };
   }
   async function apiPendingAdd(b) {
+    if (b?.sha != null) throw noReviews();
     const { owner, repo, number } = ref(b);
     const c = lineComment(b.comment);
     let { prId, review } = await pendingState(owner, repo, number);
@@ -487,6 +650,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { comment: out, review: { id: review.id, databaseId: review.databaseId ?? null } };
   }
   async function apiPendingFinish(b) {
+    if (b?.sha != null) throw noReviews();
     const { owner, repo, number } = ref(b);
     const event = b?.event;
     if (!['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(event)) throw new HttpError(400, 'bad event');
@@ -501,6 +665,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { id: r.databaseId, url: r.url, state: r.state };
   }
   async function apiPendingDiscard(b) {
+    if (b?.sha != null) throw noReviews();
     const { owner, repo, number } = ref(b);
     const { review } = await pendingState(owner, repo, number);
     if (review) await gql('mutation($r:ID!){deletePullRequestReview(input:{pullRequestReviewId:$r}){pullRequestReview{id}}}', { r: review.id });
@@ -510,6 +675,17 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   // ---- live refresh: conditional requests, so an unchanged PR costs nothing against the rate limit ----
   async function apiRefresh(q) {
     const { owner, repo } = repoParams(q);
+    const sha = q.get('sha');
+    if (sha != null) { // a commit never moves: only its comments can change
+      if (!SHA_RE.test(sha)) throw new HttpError(400, 'bad sha');
+      let known = {};
+      try { known = JSON.parse(q.get('etags') || '{}') || {}; } catch { /* first poll */ }
+      const r = await gh(`/repos/${owner}/${repo}/commits/${sha}/comments?per_page=100`, { raw: true, etag: typeof known.cc === 'string' ? known.cc : undefined });
+      const etags = { cc: r.etag || '' };
+      if (r.status === 304) return { unchanged: true, etags };
+      const { files } = await commitFiles(owner, repo, sha);
+      return { unchanged: false, etags, ...(await loadCommitComments(owner, repo, sha, files)) };
+    }
     const number = Number(q.get('number'));
     if (!Number.isInteger(number) || number < 1) throw new HttpError(400, 'bad number');
     let known = {};

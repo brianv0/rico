@@ -10,6 +10,30 @@ export function parsePrRef(input) {
   return { owner: m[1], repo: m[2], number: Number(m[3]) };
 }
 
+/**
+ * A single commit: https://github.com/o/r/commit/<sha>, o/r/commit/<sha> or o/r@<sha> -> {owner, repo, sha} | null.
+ * (A commit inside a pull request, …/pull/7/commits/<sha>, is the PR: parsePrRef takes it.)
+ */
+export function parseCommitRef(input) {
+  const s = String(input || '').trim();
+  let m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/commits?\/([0-9a-f]{7,40})(?:[/?#].*)?$/i.exec(s);
+  if (!m) m = /^([\w.-]+)\/([\w.-]+)(?:@|\/commits?\/)([0-9a-f]{7,40})$/i.exec(s);
+  if (!m || /^\.+$/.test(m[1]) || /^\.+$/.test(m[2])) return null;
+  return { owner: m[1], repo: m[2], sha: m[3].toLowerCase() };
+}
+
+/** The shareable page path for a commit: /github.com/owner/repo/commit/<sha>. */
+export function commitPath({ owner, repo, sha }, instance = 'github.com') {
+  return `/${instance}/${owner}/${repo}/commit/${sha}`;
+}
+
+/** Inverse of commitPath. -> {instance, owner, repo, sha} | null */
+export function parseCommitPath(pathname) {
+  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/commit\/([0-9a-f]{7,40})\/?$/i.exec(String(pathname || ''));
+  if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null;
+  return { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], sha: m[4].toLowerCase() };
+}
+
 /** Shorten a long multi-line quote for display: the first `head` lines, a gap marker, the last `tail` lines. */
 export function previewLines(text, head = 5, tail = 5) {
   const lines = String(text).split('\n');
@@ -744,6 +768,31 @@ export function parsePatchRows(patch) {
   }
   while (rows.length && rows[rows.length - 1].type === 'ctx' && rows[rows.length - 1].text === '' && !/\n$/.test(String(patch)) && false) rows.pop();
   return rows;
+}
+
+/**
+ * Commit comments are anchored by *position*: the line's index in the file's patch, counting from 1 just below the first
+ * "@@" header, and on through every later line (later "@@" headers included). -> position | null when the line is not in the diff.
+ * side LEFT is an old-file line (a removed line, or context by its old number); RIGHT a new-file line.
+ */
+export function patchPosition(patch, line, side = 'RIGHT') {
+  const rows = parsePatchRows(patch);
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (side === 'LEFT' ? r.type === 'del' && r.old === line : (r.type === 'add' || r.type === 'ctx') && r.new === line) return i;
+  }
+  if (side === 'LEFT') for (let i = 1; i < rows.length; i++) if (rows[i].type === 'ctx' && rows[i].old === line) return i;
+  return null;
+}
+
+/** Inverse of patchPosition: -> {line, side} | null (a hunk header or a "no newline" marker has no line). */
+export function positionLine(patch, position) {
+  if (!Number.isInteger(position) || position < 1) return null;
+  const r = parsePatchRows(patch)[position];
+  if (!r) return null;
+  if (r.type === 'del') return { line: r.old, side: 'LEFT' };
+  if (r.new != null) return { line: r.new, side: 'RIGHT' };
+  return null;
 }
 
 /**

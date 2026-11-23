@@ -223,3 +223,77 @@ test('GET /api/suggest?name=…: the exact PR from whichever candidate owner has
   assert.equal((await get(port, '/api/suggest?name=formwork&number=x')).status, 400);
   assert.equal((await get(port, '/api/suggest?name=formwork&number=4&owners=../a')).status, 400);
 });
+
+// ---- a single commit: GitHub's commit comments ----
+const commitRef = (o = {}) => ({ owner: 'acme', repo: 'docs', sha: SHA, ...o });
+
+test('GET /api/pr loads a commit: its markdown files, diffed against its parent, with commit comments as threads', async () => {
+  const r = await get(port, '/api/pr?ref=' + encodeURIComponent('https://github.com/acme/docs/commit/abc1234'));
+  assert.equal(r.status, 200);
+  const j = JSON.parse(r.body);
+  assert.equal(j.kind, 'commit');
+  assert.deepEqual({ sha: j.sha, head: j.headSha, base: j.baseSha, title: j.title, author: j.author, n: j.changedFiles }, { sha: SHA, head: SHA, base: MERGE_BASE, title: 'Tighten the plan', author: 'bob', n: 3 });
+  assert.equal(j.message, 'And drop the old subtitle.');
+  assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/removed.md']);
+  assert.equal(j.isPrivate, false);
+  const by = Object.fromEntries(j.comments.map((c) => [c.id, c]));
+  assert.deepEqual(Object.keys(by).map(Number), [701, 702, 703]); // src/x.js is not markdown; the general one is separate
+  assert.deepEqual({ line: by[701].line, side: by[701].side, replyTo: by[701].replyTo }, { line: 6, side: 'RIGHT', replyTo: null }); // position 7 -> new line 6
+  assert.equal(by[702].replyTo, 701); // same line: one thread, earliest first
+  assert.deepEqual({ line: by[703].line, side: by[703].side }, { line: 2, side: 'LEFT' }); // position 2 -> the removed line
+  assert.deepEqual({ me: by[702].canUpdate, alice: by[701].canUpdate }, { me: true, alice: false });
+  assert.deepEqual(j.prComments.map((c) => c.body), ['Nice commit overall.']);
+  assert.equal(j.pendingReview, null);
+  assert.equal(j.canThread, false);
+  assert.equal((await get(port, '/api/pr?ref=acme/docs@ffff999')).status, 422);
+});
+
+test('commit comments: post by position, reply on the same line, general comment, edit, react, delete', async () => {
+  let r = await post(port, '/api/comment', { ...commitRef(), comment: { path: 'docs/plan.md', position: 4, body: 'Hmm.', line: 3, side: 'RIGHT' } });
+  assert.equal(r.status, 200);
+  const c = JSON.parse(r.body);
+  assert.deepEqual({ line: c.line, side: c.side, body: c.body }, { line: 3, side: 'RIGHT', body: 'Hmm.' });
+  assert.deepEqual(fake.ops.at(-1), { op: 'commit-comment', id: c.id, path: 'docs/plan.md', position: 4, body: 'Hmm.' }); // only what GitHub takes
+  assert.equal((await post(port, '/api/comment', { ...commitRef(), comment: { path: 'docs/plan.md', line: 3, body: 'x' } })).status, 400); // no position
+  assert.equal((await post(port, '/api/comment', { ...commitRef({ sha: 'main; rm' }), comment: { path: 'docs/plan.md', position: 4, body: 'x' } })).status, 400);
+
+  r = await post(port, '/api/reply', { ...commitRef(), commentId: 701, text: 'Done.' });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).replyTo, 701);
+  assert.deepEqual(fake.ops.at(-1), { op: 'commit-comment', id: JSON.parse(r.body).id, path: 'docs/plan.md', position: 7, body: 'Done.' });
+  assert.equal((await post(port, '/api/reply', { ...commitRef(), commentId: 704, text: 'x' })).status, 400); // not on a line
+
+  r = await post(port, '/api/pr-comment', { ...commitRef(), text: 'On the whole commit.' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(fake.ops.at(-1), { op: 'commit-comment', id: JSON.parse(r.body).id, body: 'On the whole commit.' });
+
+  r = await post(port, '/api/comment/edit', { ...commitRef(), kind: 'review', commentId: c.id, text: 'Hmm!' });
+  assert.equal(JSON.parse(r.body).body, 'Hmm!');
+  assert.deepEqual(fake.ops.at(-1), { op: 'edit-commit-comment', id: c.id, body: 'Hmm!' });
+  r = await post(port, '/api/reaction', { ...commitRef(), kind: 'review', commentId: 701, content: 'heart' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(fake.ops.at(-1), { op: 'react', kind: 'commit', id: 701, content: 'heart' });
+  r = await post(port, '/api/comment/delete', { ...commitRef(), kind: 'review', commentId: c.id });
+  assert.equal(r.status, 200);
+  assert.deepEqual(fake.ops.at(-1), { op: 'delete-commit-comment', id: c.id });
+});
+
+test('a commit has no reviews or resolvable threads', async () => {
+  for (const p of ['/api/pending/add', '/api/pending/finish', '/api/pending/discard', '/api/review']) {
+    const r = await post(port, p, { ...commitRef(), event: 'COMMENT', comment: { path: 'docs/plan.md', line: 6, commit_id: SHA, body: 'x' } });
+    assert.equal(r.status, 400, p);
+    assert.match(JSON.parse(r.body).error, /only pull requests/);
+  }
+});
+
+test('GET /api/comments?sha=…: a conditional refresh of the commit comments', async () => {
+  const q = (etags) => '/api/comments?' + new URLSearchParams({ owner: 'acme', repo: 'docs', sha: SHA, etags: JSON.stringify(etags) });
+  const first = JSON.parse((await get(port, q({}))).body);
+  assert.equal(first.unchanged, false);
+  assert.ok(first.comments.some((c) => c.id === 701));
+  assert.equal(first.headSha, undefined); // a commit never moves
+  const again = JSON.parse((await get(port, q(first.etags))).body);
+  assert.equal(again.unchanged, true);
+  assert.match(fake.hits.at(-1), /commits\/.*\/comments -> 304/);
+  assert.equal((await get(port, '/api/comments?' + new URLSearchParams({ owner: 'acme', repo: 'docs', sha: 'nope' }))).status, 400);
+});

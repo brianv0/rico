@@ -45,6 +45,17 @@ export const COMMENTS = [
   C({ id: 302, path: 'docs/removed.md', line: 5, original_line: 5, body: 'Should "keep one" be bold?' }),
 ];
 
+// A single commit (the PR's head, diffing against MERGE_BASE as its parent) and its commit comments, anchored by diff position.
+// In PATCH, position 7 is new line 6 ('+across two lines…'), position 2 is old line 2 (the removed subtitle).
+const CC = (o) => ({ path: 'docs/plan.md', commit_id: SHA, author_association: 'MEMBER', user: { login: 'alice', avatar_url: AVATAR }, created_at: '2026-11-18T10:00:00Z', html_url: `https://github.com/acme/docs/commit/${SHA}#commitcomment-${o.id}`, line: null, position: null, ...o });
+export const COMMIT_COMMENTS = [
+  CC({ id: 701, position: 7, line: 6, body: 'Wrap this tighter?' }),
+  CC({ id: 702, position: 7, line: 6, user: { login: 'me', avatar_url: AVATAR }, created_at: '2026-11-19T10:00:00Z', body: 'Agreed.' }),
+  CC({ id: 703, position: 2, line: null, body: 'Keep the subtitle.' }),
+  CC({ id: 704, path: null, body: 'Nice commit overall.' }),
+  CC({ id: 705, path: 'src/x.js', position: 1, line: 1, body: 'Not markdown.' }),
+];
+
 /**
  * Start the fake. Returns {port, posted, replies, ops, state, close()}.
  *  posted:  submitted review bodies (REST `POST /reviews`, or GraphQL submit);  replies: replies posted to threads
@@ -61,6 +72,7 @@ export async function startFake() {
   let nextId = 1000;
   const state = {
     comments: COMMENTS.map((c) => ({ ...c })),
+    commitComments: COMMIT_COMMENTS.map((c) => ({ ...c })),
     issueComments: [
       { id: 501, node_id: 'IC_501', user: { login: 'dave', avatar_url: AVATAR }, author_association: 'CONTRIBUTOR', created_at: '2026-11-17T08:00:00Z', updated_at: '2026-11-17T08:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#issuecomment-501', body: 'General note: please also update the changelog.' },
     ],
@@ -82,7 +94,7 @@ export async function startFake() {
     for (const r of rs) out.reactions[r.content] = (out.reactions[r.content] || 0) + 1;
     return out;
   };
-  const etagFor = (key) => `"${key}-v${state.version}-${state.comments.length}-${state.issueComments.length}-${state.headSha.slice(0, 4)}"`;
+  const etagFor = (key) => `"${key}-v${state.version}-${state.comments.length}-${state.issueComments.length}-${state.commitComments.length}-${state.headSha.slice(0, 4)}"`;
 
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
@@ -209,6 +221,43 @@ export async function startFake() {
       const isWrite = req.method !== 'GET';
       if (isWrite && fail()) return;
 
+      if (u.pathname === '/repos/acme/docs' && req.method === 'GET') return json({ full_name: 'acme/docs', private: false });
+      let cm = /^\/repos\/acme\/docs\/commits\/([0-9a-f]+)$/.exec(u.pathname);
+      if (cm && req.method === 'GET') {
+        if (!SHA.startsWith(cm[1])) return json({ message: 'No commit found for SHA: ' + cm[1] }, 422);
+        const files = u.searchParams.get('page') > 1 ? [] : [
+          { filename: 'docs/plan.md', status: 'modified', additions: 4, deletions: 1, patch: PATCH },
+          { filename: 'docs/removed.md', status: 'modified', additions: 4, deletions: 6, patch: REMOVED_PATCH },
+          { filename: 'src/x.js', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1 +1 @@\n-a\n+b' },
+        ];
+        return json({ sha: SHA, html_url: `https://github.com/acme/docs/commit/${SHA}`, commit: { message: 'Tighten the plan\n\nAnd drop the old subtitle.', author: { name: 'Bob', date: '2026-11-18T09:00:00Z' }, comment_count: state.commitComments.length }, author: { login: 'bob', avatar_url: AVATAR }, parents: [{ sha: MERGE_BASE }], stats: { additions: 9, deletions: 7 }, files });
+      }
+      if (u.pathname === `/repos/acme/docs/commits/${SHA}/pulls`) return json([{ number: 7, title: 'Plan v2', state: 'open', merged_at: null, html_url: 'https://github.com/acme/docs/pull/7' }]);
+      if (u.pathname === `/repos/acme/docs/commits/${SHA}/comments` && req.method === 'GET') return cached('cc', () => state.commitComments.map(withReactions));
+      if (u.pathname === `/repos/acme/docs/commits/${SHA}/comments` && req.method === 'POST') {
+        if (!body.body) return json({ message: 'Validation Failed', errors: [{ field: 'body', code: 'missing_field' }] }, 422);
+        if (body.path && !(body.position >= 1 && body.position <= 15)) return json({ message: 'Validation Failed', errors: [{ resource: 'CommitComment', code: 'invalid', field: 'position' }] }, 422);
+        const c = CC({ id: ++nextId, path: body.path || null, position: body.position ?? null, line: body.line ?? null, body: body.body, user: { login: 'me', avatar_url: AVATAR }, author_association: 'OWNER', created_at: new Date().toISOString() });
+        state.commitComments.push(c);
+        ops.push({ op: 'commit-comment', id: c.id, ...body }); bump();
+        return json(withReactions(c), 201);
+      }
+      cm = /^\/repos\/acme\/docs\/comments\/(\d+)(\/reactions)?$/.exec(u.pathname);
+      if (cm) {
+        const c = state.commitComments.find((x) => x.id === Number(cm[1]));
+        if (!c) return json({ message: 'Not Found' }, 404);
+        if (cm[2] && req.method === 'POST') {
+          const list = state.reactions.get(c.id) || [];
+          if (!list.some((r) => r.mine && r.content === body.content)) list.push({ content: body.content, mine: true });
+          state.reactions.set(c.id, list);
+          ops.push({ op: 'react', kind: 'commit', id: c.id, content: body.content }); bump();
+          return json({ id: 9000 + list.length, content: body.content }, 201);
+        }
+        if (req.method === 'GET') return json(withReactions(c));
+        if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
+        if (req.method === 'PATCH') { c.body = body.body; c.updated_at = new Date().toISOString(); ops.push({ op: 'edit-commit-comment', id: c.id, body: body.body }); bump(); return json(withReactions(c)); }
+        if (req.method === 'DELETE') { state.commitComments = state.commitComments.filter((x) => x.id !== c.id); ops.push({ op: 'delete-commit-comment', id: c.id }); bump(); res.writeHead(204); return res.end(); }
+      }
       if (u.pathname === '/repos/acme/docs/pulls/7' && req.method === 'GET') {
         return cached('pull', () => ({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 7, additions: 130, deletions: 9, comments: state.issueComments.length, review_comments: state.comments.length, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: state.headSha, ref: 'plan' }, base: { ref: 'main', sha: BASE_SHA } }));
       }

@@ -1,5 +1,5 @@
 import {
-  parsePrRef, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
+  parsePrRef, parseCommitRef, commitPath, parseCommitPath, patchPosition, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -216,7 +216,12 @@ async function api(path, opts) {
 }
 /** POST JSON to one of our own write routes and parse the reply. */
 const apiPost = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Rico': '1' }, body: JSON.stringify(body) }).then(JSON.parse);
-const prRef = () => ({ owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number });
+const isCommit = () => state.pr?.kind === 'commit';
+// GitHub's "Apply suggestion" belongs to pull requests: on a commit a ```suggestion block would be dead text
+const suggestable = (sel) => (isCommit() ? { ok: false, reason: 'Suggestions need a pull request; this is a single commit.' } : canSuggest(sel));
+// a write names its PR by number, or its commit by sha (the server routes commit comments by that)
+const prRef = () => (isCommit() ? { owner: state.pr.owner, repo: state.pr.repo, sha: state.pr.sha } : { owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number });
+const where = () => (isCommit() ? 'commit' : 'pull request');
 
 // hosted mode shows who is signed in; locally the server's own token is used and there is nothing to sign into
 async function showWho() {
@@ -244,8 +249,8 @@ async function showWho() {
 
 // ---------- persistence ----------
 // Comments live on GitHub now; only the review summary, "viewed" marks and unsent text stay in this browser.
-const storeKey = () => `rico:${state.pr.owner}/${state.pr.repo}#${state.pr.number}:${state.pr.headSha}`;
-const prKey = () => `rico:${state.pr.owner}/${state.pr.repo}#${state.pr.number}`;
+const prKey = () => `rico:${state.pr.owner}/${state.pr.repo}${isCommit() ? '@' + state.pr.sha : '#' + state.pr.number}`;
+const storeKey = () => `${prKey()}:${state.pr.headSha}`;
 function save() {
   try { localStorage.setItem(storeKey(), JSON.stringify({ summary: $('#summary').value })); } catch { /* private mode */ }
 }
@@ -274,26 +279,28 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 
 // The address bar always names the PR (and the commit it was loaded at) and the open file, so it can be shared.
 // Opening a file replaces the history entry; loading a different PR (push) adds one, so Back returns to the previous PR.
-const samePr = (at, p) => !!(at && p && at.instance === 'github.com' && at.number === p.number
+const samePr = (at, p) => !!(at && p && at.instance === 'github.com' && (p.kind === 'commit' ? !!at.sha && !at.number && p.sha.startsWith(at.sha) : at.number === p.number)
   && at.owner.toLowerCase() === p.owner.toLowerCase() && at.repo.toLowerCase() === p.repo.toLowerCase());
+const hereAt = () => parsePrPath(location.pathname) || parseCommitPath(location.pathname);
 function syncUrl(filename, push = false) {
   if (!state.pr) return;
   const p = state.pr;
   const q = filename ? '?' + new URLSearchParams({ file: filename }) : '';
-  const url = prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha) + q;
+  const url = (p.kind === 'commit' ? commitPath(p) : prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha)) + q;
   if (location.pathname + location.search + location.hash === url) return;
-  if (push && !samePr(parsePrPath(location.pathname), p)) history.pushState(null, '', url);
+  if (push && !samePr(hereAt(), p)) history.pushState(null, '', url);
   else history.replaceState(null, '', url);
 }
 
 async function loadPr(ref, wantFile, wantSha = '', push = false) {
-  const parsed = parsePrRef(ref);
-  if (!parsed) return status('That does not look like a GitHub PR link (try https://github.com/owner/repo/pull/123 or owner/repo#123).', true);
-  status('Loading PR…');
+  const commit = parseCommitRef(ref);
+  const parsed = commit || parsePrRef(ref);
+  if (!parsed) return status('That does not look like a GitHub PR or commit link (try https://github.com/owner/repo/pull/123, owner/repo#123, or https://github.com/owner/repo/commit/abc1234).', true);
+  status(commit ? 'Loading commit…' : 'Loading PR…');
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
-    rememberPr(pr);
+    if (pr.kind !== 'commit') rememberPr(pr);
     if (wantSha && pr.headSha && !pr.headSha.startsWith(wantSha)) {
       setTimeout(() => status(`This link was made at commit ${wantSha}; the PR is now at ${pr.headSha.slice(0, 7)}, so lines and comments may have moved.`, true), 0);
     }
@@ -310,7 +317,7 @@ async function loadPr(ref, wantFile, wantSha = '', push = false) {
     renderFiles();
     if (!pr.files.length) {
       syncUrl('', push);
-      $('#cards').innerHTML = '<p class="empty">This PR changes no markdown files.</p>';
+      $('#cards').innerHTML = `<p class="empty">This ${pr.kind === 'commit' ? 'commit' : 'PR'} changes no markdown files.</p>`;
       $('#legend').hidden = true;
       status('');
       return;
@@ -337,6 +344,13 @@ function renderHeader() {
   const p = state.pr;
   $('#prhead').hidden = false;
   $('#toolbar').hidden = false;
+  document.body.classList.toggle('is-commit', p.kind === 'commit');
+  $('#commit-note').hidden = p.kind !== 'commit';
+  $('#c-kind').hidden = p.kind !== 'commit';
+  $('#c-add').textContent = p.kind === 'commit' ? 'Comment on commit' : 'Comment';
+  $('#legend-where').textContent = p.kind === 'commit' ? 'commit' : 'pull request';
+  $('#review-btn').hidden = p.kind === 'commit'; // commit comments are posted one at a time: there is no review to finish
+  if (p.kind === 'commit') return renderCommitHeader(p);
   document.title = `${p.title} · Pull Request #${p.number} · ${p.owner}/${p.repo} · Rico`;
   $('#pr-title').textContent = p.title;
   $('#pr-num').textContent = `#${p.number}`;
@@ -366,6 +380,53 @@ function renderHeader() {
     if (href) { a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; } else a.setAttribute('aria-current', 'page');
     nav.append(a);
   }
+  $('#totals').innerHTML = `<b>${p.changedFiles}</b> changed file${p.changedFiles === 1 ? '' : 's'} &nbsp;<span class="add">+${p.additions}</span> <span class="del">−${p.deletions}</span>`;
+}
+
+// A single commit: its message, who made it, and its parent (what the diff is against). Commit comments only.
+function renderCommitHeader(p) {
+  document.title = `${p.title} · ${p.owner}/${p.repo}@${p.sha.slice(0, 7)} · Rico`;
+  $('#pr-title').textContent = p.title;
+  $('#pr-num').textContent = p.sha.slice(0, 7);
+  const badge = $('#pr-state');
+  badge.className = 'State State--commit';
+  badge.innerHTML = `${icon('git-commit')} Commit`;
+  const meta = $('#pr-meta');
+  meta.textContent = '';
+  const ref = (sha) => { const a = el('a', 'commit-ref', sha.slice(0, 7)); a.href = `${new URL(p.url).origin}/${p.owner}/${p.repo}/commit/${sha}`; a.target = '_blank'; a.rel = 'noopener noreferrer'; return a; };
+  meta.append(el('b', null, p.author || 'someone'), ` committed${p.createdAt ? ' ' + ago(p.createdAt) : ''} · `, ref(p.sha));
+  if (p.parents?.length) meta.append(` · ${p.parents.length > 1 ? 'parents' : 'parent'} `, ...p.parents.flatMap((s, i) => (i ? [' + ', ref(s)] : [ref(s)])));
+  else meta.append(' · no parent (the first commit)');
+  // Say plainly where comments go: on the commit page, not in a pull request's conversation (GitHub keeps them apart too)
+  const note = $('#commit-note');
+  note.textContent = '';
+  note.append(el('span', 'cn-icon'), el('b', null, 'You are reviewing a single commit.'), ` Comments here are commit comments: they appear on the commit’s own page on GitHub, not in any pull request, and each sits on one line. No reviews, suggestions or resolving.`);
+  note.querySelector('.cn-icon').innerHTML = icon('git-commit');
+  if (p.pulls?.length) {
+    const line = el('div', 'cn-prs');
+    line.append(`This commit is in ${p.pulls.length === 1 ? 'a pull request' : 'pull requests'}; to comment in the review, open `);
+    p.pulls.forEach((pr, i) => {
+      if (i) line.append(', ');
+      const link = el('a', null, `#${pr.number} ${pr.title}`);
+      link.href = prPath({ owner: p.owner, repo: p.repo, number: pr.number });
+      link.title = `Review pull request #${pr.number} in Rico (${pr.state})`;
+      line.append(link);
+    });
+    line.append('.');
+    note.append(line);
+  }
+  $('#c-kind').innerHTML = `${icon('git-commit')} Commit comment on <code>${esc(p.sha.slice(0, 7))}</code>`;
+  const nav = $('#tabs');
+  nav.textContent = '';
+  const a = el('a');
+  a.innerHTML = `${icon('git-commit')}<span>On GitHub</span>`;
+  if (p.commitComments) a.append(Object.assign(el('span', 'Counter'), { textContent: String(p.commitComments) }));
+  a.href = p.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  const files = el('a');
+  files.innerHTML = `${icon('diff')}<span>Files changed</span>`;
+  files.append(Object.assign(el('span', 'Counter'), { textContent: String(p.changedFiles) }));
+  files.setAttribute('aria-current', 'page');
+  nav.append(files, a);
   $('#totals').innerHTML = `<b>${p.changedFiles}</b> changed file${p.changedFiles === 1 ? '' : 's'} &nbsp;<span class="add">+${p.additions}</span> <span class="del">−${p.deletions}</span>`;
 }
 
@@ -415,11 +476,12 @@ function renderFiles() {
         row.addEventListener('click', () => openFile(n.path));
       } else { // not markdown (or deleted): GitHub is the place to review it
         row = el('a', 'tree-file dim');
-        row.href = `${p.url}/files`;
+        const filesUrl = p.kind === 'commit' ? p.url : `${p.url}/files`;
+        row.href = filesUrl;
         row.target = '_blank';
         row.rel = 'noopener noreferrer';
         row.title = 'Not reviewable in Rico: opens on GitHub';
-        diffAnchor(n.path).then((h) => { row.href = `${p.url}/files#${h}`; }).catch(() => {});
+        diffAnchor(n.path).then((h) => { row.href = `${filesUrl}#${h}`; }).catch(() => {});
       }
       row.style.setProperty('--depth', depth);
       row.innerHTML = inner;
@@ -1001,7 +1063,7 @@ const armedDeletes = new Map(); // comment id -> when its Delete was first click
 function msgEl(c, th, rerender) {
   const d = el('div', 'msg' + (c.failed ? ' failed' : ''));
   const who = el('div', 'who');
-  const when = el('a', null, c.posting ? 'posting…' : `commented ${ago(c.createdAt)}`);
+  const when = el('a', null, c.posting ? 'posting…' : `commented${isCommit() ? ` on ${state.pr.sha.slice(0, 7)}` : ''} ${ago(c.createdAt)}`);
   if (!c.posting && /^https:\/\//.test(c.url || '')) { when.href = c.url; when.target = '_blank'; when.rel = 'noopener noreferrer'; when.title = 'Link to this comment on GitHub'; }
   who.append(avatarEl(c.user, c.avatar), el('b', null, c.user), when);
   if (c.edited ?? (c.updatedAt && c.createdAt && Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 2000)) who.append(el('span', 'edited', 'edited'));
@@ -1113,7 +1175,7 @@ function threadCard(th, rerender) {
   th.msgs.forEach((m, i) => {
     const d = msgEl(m, th, rerender);
     if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : 'Outdated'));
-    if (i === 0 && th.kind === 'issue') d.querySelector('.who').append(el('span', 'badge', 'On the pull request'));
+    if (i === 0 && th.kind === 'issue') d.querySelector('.who').append(el('span', 'badge', `On the ${where()}`));
     if (folded && i > 0 && i < n - 1) mid.append(d); else card.append(d);
     if (folded && i === 0) {
       const more = btn('', 'more linkish');
@@ -1265,7 +1327,7 @@ function renderGeneral() {
   box.textContent = '';
   box.hidden = !items.length;
   if (!items.length) return;
-  box.append(el('h3', null, `General · ${items.length} comment${items.length > 1 ? 's' : ''} on the pull request`));
+  box.append(el('h3', null, `General · ${items.length} comment${items.length > 1 ? 's' : ''} on the ${where()}`));
   for (const t of items) box.append(threadCard(t, renderGeneral));
 }
 function renderMargin() {
@@ -1853,9 +1915,9 @@ function describeSelection(range) {
 function rangeText(start, end, anchor, side = 'RIGHT') {
   const noun = side === 'LEFT' ? 'removed line' : 'line';
   const span = (x, y) => (x === y ? `${noun} ${x}` : `${noun}s ${x}–${y}`);
-  if (!anchor) return { text: `${span(start, end)} — outside the diff, so it is posted as a comment on the pull request, with this quote.`, warn: true };
+  if (!anchor) return { text: `${span(start, end)} — outside the diff, so it is posted as a comment on the ${where()}, with this quote.`, warn: true };
   if (anchor.exact) return { text: `Comments on ${span(anchor.start, anchor.end)}`, warn: false };
-  return { text: `You selected ${span(start, end)}; GitHub can anchor ${span(anchor.start, anchor.end)} (one hunk). The full quote is included.`, warn: true };
+  return { text: `You selected ${span(start, end)}; GitHub can anchor ${span(anchor.start, anchor.end)} (${isCommit() ? 'a commit comment is on one line' : 'one hunk'}). The full quote is included.`, warn: true };
 }
 
 // ---------- selection icons + composer (both sit in the right margin, like Google Docs) ----------
@@ -1886,7 +1948,7 @@ function showSelbar(sel, pt) {
     pt = { x: last.right, y: last.bottom - 8 };
   }
   sel.pt = pt;
-  const cs = canSuggest(sel);
+  const cs = suggestable(sel);
   const sg = $('#sb-suggest');
   sg.disabled = !cs.ok;
   sg.title = cs.ok ? 'Suggest an edit' : `Can’t suggest here: ${cs.reason}`;
@@ -1905,7 +1967,7 @@ $('#sb-comment').addEventListener('mousedown', (e) => e.preventDefault()); // ke
 $('#sb-suggest').addEventListener('mousedown', (e) => e.preventDefault());
 $('#sb-suggest').addEventListener('click', () => {
   const sel = state.sel;
-  if (!sel || !canSuggest(sel).ok) return;
+  if (!sel || !suggestable(sel).ok) return;
   hideSelbar();
   showComposer(sel, true);
 });
@@ -1966,7 +2028,11 @@ $('#c-sugtext').addEventListener('input', () => { renderSugDiff(); persistCompos
 
 function showComposer(sel, suggest = sel.suggest) {
   sel.view = sel.view || cur;
-  sel.suggest = !!suggest && canSuggest(sel).ok;
+  if (isCommit() && sel.anchor && sel.anchor.start < sel.anchor.end) { // a commit comment sits on one line: its last, and the body says the rest
+    sel.anchor = { start: sel.anchor.end, end: sel.anchor.end, exact: false };
+    sel.includeDefault = true;
+  }
+  sel.suggest = !!suggest && suggestable(sel).ok;
   state.pending = sel;
   const pv = previewLines(sel.quote);
   const q = $('#c-quote');
@@ -1982,7 +2048,8 @@ function showComposer(sel, suggest = sel.suggest) {
   const batching = !!state.pendingReview || hasPending();
   rv.textContent = batching ? 'Add to review' : 'Start a review';
   rv.disabled = !sel.anchor;
-  rv.title = sel.anchor ? 'Keep this comment pending on GitHub until you finish the review' : 'Text outside the diff can only be posted as a single comment on the pull request';
+  rv.hidden = isCommit(); // commits have no reviews
+  rv.title = sel.anchor ? 'Keep this comment pending on GitHub until you finish the review' : `Text outside the diff can only be posted as a single comment on the ${where()}`;
   const rEl = $('#c-range');
   rEl.textContent = rt.text + (sel.touchesRemoved ? ' — includes removed text (quoted)' : '') + (state.stale ? ' — this PR has new commits since you loaded it; line numbers may have moved.' : '');
   rEl.classList.toggle('warn', rt.warn);
@@ -2102,7 +2169,7 @@ async function submitComposer(mode) {
   draftSet('composer', null);
   hideComposer();
   window.getSelection().removeAllRanges();
-  postThread(view, c, p.anchor ? mode : 'single'); // text outside the diff can only be a PR comment
+  postThread(view, c, p.anchor && !isCommit() ? mode : 'single'); // text outside the diff can only be a PR (or commit) comment; a commit has no reviews
 }
 
 /** Show the comment in the margin at once ("posting…"), send it, then swap in GitHub's version (or the reason it failed). */
@@ -2115,7 +2182,10 @@ function postThread(view, c, mode) {
     msg.body = line.body;
     th = { id: msg.id, kind: 'review', path: c.path, start: c.anchor.start, end: c.anchor.end, side: line.side, msgs: [msg], outdated: false, fileLevel: false, info: null, local: true, pending: mode === 'review' };
     (th.side === 'LEFT' ? state.leftThreads : state.threads).push(th);
-    send = async () => (mode === 'review'
+    const pos = isCommit() ? patchPosition(view.file.patch, line.line, line.side) : null;
+    send = async () => (isCommit()
+      ? (pos ? apiPost('/api/comment', { ...prRef(), comment: { path: line.path, position: pos, body: line.body, line: line.line, side: line.side } }) : Promise.reject(new Error('That line is not in this commit’s diff.')))
+      : mode === 'review'
       ? (await apiPost('/api/pending/add', { ...prRef(), comment: { ...line, commit_id: state.pr.headSha } })).comment
       : apiPost('/api/comment', { ...prRef(), comment: { ...line, commit_id: state.pr.headSha } }));
   } else {
@@ -2288,7 +2358,7 @@ async function refreshComments(force = false) {
   const p = state.pr;
   let data;
   try {
-    data = await api('/api/comments?' + new URLSearchParams({ owner: p.owner, repo: p.repo, number: p.number, etags: force ? '{}' : JSON.stringify(etags) })).then(JSON.parse);
+    data = await api('/api/comments?' + new URLSearchParams({ owner: p.owner, repo: p.repo, ...(p.kind === 'commit' ? { sha: p.sha } : { number: p.number }), etags: force ? '{}' : JSON.stringify(etags) })).then(JSON.parse);
   } catch { return; } // a failed poll is not worth interrupting anyone for
   if (state.pr !== p) return; // another PR was opened meanwhile
   etags = data.etags || etags;
@@ -2411,16 +2481,16 @@ initSuggest({ input: $('#pr'), list: $('#pr-list'), onPick: (ref) => { $('#pr').
 // Back / Forward to another PR (or to the start page): load what the address bar now names. A fragment change within
 // the same PR is not a new page.
 window.addEventListener('popstate', () => {
-  if (state.pr && samePr(parsePrPath(location.pathname), state.pr)) return;
+  if (state.pr && samePr(hereAt(), state.pr)) return;
   location.reload();
 });
 const h = new URLSearchParams(location.hash.slice(1));
-const here = parsePrPath(location.pathname);
+const here = hereAt();
 if (here) {
-  const ref = `${here.owner}/${here.repo}#${here.number}`;
+  const ref = here.number ? `${here.owner}/${here.repo}#${here.number}` : `${here.owner}/${here.repo}@${here.sha}`;
   $('#pr').value = here.instance === 'github.com' ? ref : '';
   if (here.instance !== 'github.com') status(`Only github.com is supported (this link is for ${here.instance}).`, true);
-  else loadPr(ref, new URLSearchParams(location.search).get('file'), here.sha);
+  else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '');
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
 showWho();

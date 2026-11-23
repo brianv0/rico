@@ -431,3 +431,13 @@ textarea { resize: vertical; padding: 8px 12px; }
 #merge-toggle { margin-left: auto; font-size: 12px; }
 #merge-toggle[aria-pressed="true"] { font-weight: 600; }
 .markdown-body .wmerge .wdel + .wa { margin-left: .2em; }
+.btn[hidden], #review-btn[hidden] { display: none !important; }
+/* a single commit: say where comments go */
+.State--commit { background: var(--fg-muted, #59636e); }
+.commit-note { margin: 12px 0 4px; padding: 10px 14px; border: 1px solid var(--border, #d1d9e0); border-left: 4px solid var(--fg-muted, #59636e); border-radius: 6px; background: var(--bg-inset); font-size: 14px; line-height: 1.5; }
+.commit-note .cn-icon svg { vertical-align: -3px; margin-right: 6px; fill: currentColor; }
+.commit-note .cn-prs { margin-top: 4px; }
+.c-kind { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--fg-muted, #59636e); }
+.c-kind[hidden] { display: none; }
+.c-kind svg { fill: currentColor; }
+.c-kind code { font-size: 12px; }

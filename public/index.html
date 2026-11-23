@@ -18,7 +18,7 @@
   <a class="gh-brand" href="/" aria-label="Rico home"><span class="gh-brand-mark" id="brand-mark"></span><span>Rico</span></a>
   <form id="load" autocomplete="off">
     <div class="suggest">
-      <input id="pr" type="text" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pr-list" aria-label="Pull request" placeholder="https://github.com/owner/repo/pull/123  or  owner/repo#123">
+      <input id="pr" type="text" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pr-list" aria-label="Pull request or commit" placeholder="https://github.com/owner/repo/pull/123,  owner/repo#123  or  a commit link">
       <ul id="pr-list" role="listbox" aria-label="Pull request suggestions" hidden></ul>
     </div>
     <button type="submit" class="btn btn-icon" aria-label="Load PR" title="Load PR"></button>
@@ -38,6 +38,7 @@
   <div class="container">
     <h1 class="gh-title"><span id="pr-title"></span> <span class="gh-num" id="pr-num"></span></h1>
     <div class="gh-meta"><span id="pr-state" class="State"></span><span id="pr-meta"></span></div>
+    <div id="commit-note" class="commit-note" hidden></div>
     <nav class="tabnav" id="tabs" aria-label="Pull request tabs"></nav>
   </div>
 </section>
@@ -83,7 +84,7 @@
       <span><i class="k chg"></i>changed</span>
       <span><i class="k del"></i>removed</span>
       <span><i class="k ctx"></i>commentable context</span>
-      <span><i class="k out"></i>outside the diff (posted on the pull request)</span>
+      <span><i class="k out"></i>outside the diff (posted on the <span id="legend-where">pull request</span>)</span>
       <button id="merge-toggle" class="linkish" type="button" aria-pressed="true" title="Show removed and inserted words together in one paragraph, like GitHub, or as separate red and green blocks">Inline word diff</button>
     </div>
     <div id="stale" class="banner" role="status" hidden><span class="msg-text"></span> <button id="stale-reload" class="btn" type="button">Reload</button></div>
@@ -106,6 +107,7 @@
         <textarea id="c-sugtext" rows="4" spellcheck="false" aria-label="Suggested replacement for the selected lines"></textarea>
         <div id="c-sugdiff" class="sugdiff" aria-label="Preview of the change"></div>
       </div>
+      <div id="c-kind" class="c-kind" hidden></div>
       <textarea id="c-body" rows="3" placeholder="Leave a comment…  (Ctrl/Cmd+Enter to post, Esc to dismiss)"></textarea>
       <div id="c-err" class="err" role="alert"></div>
       <div class="row"><button id="c-add" class="btn btn-primary" type="button">Comment</button><button id="c-review" class="btn" type="button">Start a review</button><button id="c-cancel" class="btn" type="button">Cancel</button></div>

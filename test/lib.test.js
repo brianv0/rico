@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  parseCommitRef, commitPath, parseCommitPath, parsePrPath, patchPosition, positionLine,
   parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups
 } from '../public/lib.js';
 
@@ -610,3 +611,42 @@ test('suggestLookup asks the server only when the cached pool cannot answer; sho
   const now = Date.parse('2026-11-22T12:00:00Z');
   assert.deepEqual(['2026-11-22T11:59:30Z', '2026-11-22T09:00:00Z', '2026-11-19T12:00:00Z', '2026-05-22T12:00:00Z'].map((t) => shortAge(t, now)), ['now', '3h', '3d', '6mo']);
 }); 
+
+test('parseCommitRef: commit urls and short forms; a commit inside a PR is the PR', () => {
+  const want = { owner: 'acme', repo: 'docs', sha: 'abc1234def' };
+  assert.deepEqual(parseCommitRef('https://github.com/acme/docs/commit/abc1234def'), want);
+  assert.deepEqual(parseCommitRef('github.com/acme/docs/commit/ABC1234DEF?diff=split#diff-1'), want);
+  assert.deepEqual(parseCommitRef('acme/docs@abc1234def'), want);
+  assert.deepEqual(parseCommitRef('acme/docs/commit/abc1234def'), want);
+  assert.equal(parseCommitRef('https://github.com/acme/docs/pull/7/commits/abc1234def'), null);
+  assert.equal(parseCommitRef('acme/docs#7'), null);
+  assert.equal(parseCommitRef('acme/docs@abc'), null); // too short to be a sha
+  assert.equal(parseCommitRef('../docs@abc1234'), null);
+  assert.equal(parseCommitRef('acme/..@abc1234'), null);
+});
+
+test('commitPath round-trips through parseCommitPath, and is not a PR path', () => {
+  const p = commitPath({ owner: 'acme', repo: 'docs', sha: 'abc1234def' });
+  assert.equal(p, '/github.com/acme/docs/commit/abc1234def');
+  assert.deepEqual(parseCommitPath(p), { instance: 'github.com', owner: 'acme', repo: 'docs', sha: 'abc1234def' });
+  assert.equal(parsePrPath(p), null);
+  assert.equal(parseCommitPath('/github.com/acme/docs/7'), null);
+  assert.equal(parseCommitPath('/github.com/../docs/commit/abc1234'), null);
+});
+
+test('patchPosition / positionLine: diff positions count every line below the first @@, later headers included', () => {
+  const patch = ['@@ -1,3 +1,3 @@', ' a', '-old', '+new', ' c', '@@ -10,2 +10,3 @@', ' x', '+y', ' z'].join('\n');
+  assert.equal(patchPosition(patch, 1, 'RIGHT'), 1);
+  assert.equal(patchPosition(patch, 2, 'LEFT'), 2);
+  assert.equal(patchPosition(patch, 2, 'RIGHT'), 3);
+  assert.equal(patchPosition(patch, 3, 'RIGHT'), 4);
+  assert.equal(patchPosition(patch, 11, 'RIGHT'), 7); // position 5 is the second @@ header
+  assert.equal(patchPosition(patch, 10, 'LEFT'), 6); // a context line, by its old number
+  assert.equal(patchPosition(patch, 5, 'RIGHT'), null); // outside the diff
+  assert.deepEqual(positionLine(patch, 2), { line: 2, side: 'LEFT' });
+  assert.deepEqual(positionLine(patch, 7), { line: 11, side: 'RIGHT' });
+  assert.equal(positionLine(patch, 5), null);
+  assert.equal(positionLine(patch, 0), null);
+  assert.equal(positionLine(patch, 99), null);
+  for (let pos = 1; pos <= 8; pos++) { const at = positionLine(patch, pos); if (at && at.side === 'RIGHT') assert.equal(patchPosition(patch, at.line, 'RIGHT'), pos); }
+});
