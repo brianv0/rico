@@ -1309,9 +1309,14 @@ function hoverRanges(ranges) {
 /** The block a PR-level comment's quote points at in this file, or null (it then lives under General). */
 function issueBlocks(th, path, leaves) {
   const q = parseQuote(th.msgs[0].body);
-  if (!q.quote || (q.path && q.path !== path)) return null;
-  const hit = leaves.find((l) => findQuote(l.e.textContent, q.quote));
-  return hit ? [hit.e] : null;
+  if (q.path && q.path !== path) return null;
+  const hit = q.quote && leaves.find((l) => findQuote(l.e.textContent, q.quote));
+  if (hit) return [hit.e];
+  // No findable prose quote (a fenced code or diagram quote, or one shortened with "…"): the header Rico wrote,
+  // **`path` L32–65**, still says which lines it is about. Lines are new-file lines: removed text is always in the diff.
+  if (q.path !== path || !q.lines) return null;
+  const blocks = leaves.filter((l) => overlaps(l.b, q.lines.start, q.lines.end)).map((l) => l.e);
+  return blocks.length ? blocks : null;
 }
 
 /** PR-level comments nobody can point at: no quote, or the quoted text is not in any file shown. */

@@ -77,6 +77,16 @@ try {
     const op = fake.ops.filter((o) => o.op === 'commit-comment').at(-1);
     assert.deepEqual({ path: op.path, position: op.position, body: op.body }, { path: 'docs/plan.md', position: 7, body: 'Will do.' });
   });
+  await step('a general comment whose quote is a code block sits beside the lines its header names', async () => {
+    fake.state.commitComments.push({ id: 7900, path: null, position: null, line: null, commit_id: SHA, user: { login: 'carol', avatar_url: null }, author_association: 'MEMBER', created_at: '2026-11-20T10:00:00Z', html_url: 'https://github.com/acme/docs/commit/x#commitcomment-7900', body: '**`docs/plan.md` L16**\n\n```\nnot findable as prose\n```\n\nConvert to D2?' });
+    fake.state.version++;
+    await page.evaluate(() => window.__rico.refreshComments(true));
+    await page.waitForFunction(() => window.__rico.state.placed.get('i7900') === 'docs/plan.md', null, { timeout: 5000 });
+    assert.equal(await page.locator('#general .thread[data-id="i7900"]').count(), 0);
+    assert.equal(await page.locator('.rico-margin .thread[data-id="i7900"]').count(), 1);
+    fake.state.commitComments.pop(); fake.state.version++;
+  });
+
   await step('a PR shows none of it', async () => {
     await page.click('#commit-note .cn-prs a');
     await page.waitForFunction(() => window.__rico?.state.pr?.number === 7 && !window.__rico.state.pr.kind, null, { timeout: 8000 });

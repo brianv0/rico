@@ -378,19 +378,20 @@ export function parseQuote(body) {
   const lines = String(body || '').replace(/\r/g, '').split('\n');
   let i = 0;
   let path = null;
+  let range = null;
   let about = null;
   const skipBlank = () => { while (i < lines.length && !lines[i].trim()) i++; };
   skipBlank();
   for (let guard = 0; guard < 3 && i < lines.length; guard++) {
     const l = lines[i].trim();
     let m;
-    if ((m = /^\*\*`([^`]+)` (L\d+(?:–\d+)?)\*\*$/.exec(l))) path = m[1];
+    if ((m = /^\*\*`([^`]+)` L(\d+)(?:–(\d+))?\*\*$/.exec(l))) { path = m[1]; range = { start: Number(m[2]), end: Number(m[3] || m[2]) }; }
     else if ((m = /^_Re: (.*)_$/.exec(l))) about = m[1];
     else if (/^_Selected .*\._$/.test(l)) { /* clamp note */ } else break;
     i++;
     skipBlank();
   }
-  const out = { path, about, quote: null, rest: lines.slice(i).join('\n').trim() };
+  const out = { path, lines: range, about, quote: null, rest: lines.slice(i).join('\n').trim() };
   if (i < lines.length && /^>/.test(lines[i])) {
     const q = [];
     let j = i;

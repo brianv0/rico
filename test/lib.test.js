@@ -402,11 +402,11 @@ test('buildLineComment: exact anchor is just the comment; clamped or quoted adds
 test('buildPrComment says where the text is, quotes it, and parseQuote reads it back', () => {
   const body = buildPrComment({ path: 'docs/a.md', start: 40, end: 42, quoteMd: '> far away words', body: 'Typo here?' });
   assert.equal(body, '**`docs/a.md` L40–42**\n\n> far away words\n\nTypo here?');
-  assert.deepEqual(parseQuote(body), { path: 'docs/a.md', about: null, quote: 'far away words', rest: 'Typo here?' });
+  assert.deepEqual(parseQuote(body), { path: 'docs/a.md', lines: { start: 40, end: 42 }, about: null, quote: 'far away words', rest: 'Typo here?' });
 });
 
 test('parseQuote: lead-in lines only, multi-line quotes, no quote, and a quote deeper in the text is not the selection', () => {
-  assert.deepEqual(parseQuote('_Re: node “A”_\n\n_Selected lines 3–9 of `a.md`. GitHub can only anchor lines 5–6 here, but this comment is about all of lines 3–9._\n\n> one\n> two\n>\n> three\n\nBody'), { path: null, about: 'node “A”', quote: 'one\ntwo\n\nthree', rest: 'Body' });
+  assert.deepEqual(parseQuote('_Re: node “A”_\n\n_Selected lines 3–9 of `a.md`. GitHub can only anchor lines 5–6 here, but this comment is about all of lines 3–9._\n\n> one\n> two\n>\n> three\n\nBody'), { path: null, lines: null, about: 'node “A”', quote: 'one\ntwo\n\nthree', rest: 'Body' });
   assert.equal(parseQuote('Just a comment').quote, null);
   assert.equal(parseQuote('I agree with:\n\n> this').quote, null);
   assert.equal(parseQuote('').quote, null);
@@ -649,4 +649,11 @@ test('patchPosition / positionLine: diff positions count every line below the fi
   assert.equal(positionLine(patch, 0), null);
   assert.equal(positionLine(patch, 99), null);
   for (let pos = 1; pos <= 8; pos++) { const at = positionLine(patch, pos); if (at && at.side === 'RIGHT') assert.equal(patchPosition(patch, at.line, 'RIGHT'), pos); }
+});
+
+test('parseQuote reads the line range even when the quote is a fenced block (not findable as prose)', () => {
+  const body = buildPrComment({ path: 'docs/arch.md', start: 32, end: 65, quoteMd: '```\nClients: SDK · CLI\n```', body: 'Convert to D2?' });
+  const q = parseQuote(body);
+  assert.deepEqual({ path: q.path, lines: q.lines, quote: q.quote }, { path: 'docs/arch.md', lines: { start: 32, end: 65 }, quote: null });
+  assert.deepEqual(parseQuote('**`a.md` L7**\n\nhi').lines, { start: 7, end: 7 });
 });
