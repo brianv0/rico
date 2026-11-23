@@ -22,6 +22,33 @@ export function parseCommitRef(input) {
   return { owner: m[1], repo: m[2], sha: m[3].toLowerCase() };
 }
 
+// Branch names: what git allows that is safe in a URL path segment-by-segment, and never a dot segment or ".." anywhere.
+const BRANCH_RE = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*\/$)(?!\/)(?!.*(?:^|\/)\.)[\w./+-]{1,200}$/;
+const isBranch = (b) => BRANCH_RE.test(b) && !/\.lock$/.test(b);
+
+/**
+ * A branch: https://github.com/o/r/tree/<branch>, o/r/tree/<branch> or o/r@<branch> -> {owner, repo, branch} | null.
+ * Rico opens its tip commit. Try parseCommitRef first: a hex name like "abc1234" reads as a commit.
+ */
+export function parseBranchRef(input) {
+  const s = String(input || '').trim();
+  let m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/tree\/([^?#]+?)\/?(?:[?#].*)?$/i.exec(s);
+  if (!m) m = /^([\w.-]+)\/([\w.-]+)(?:@|\/tree\/)([^\s?#]+)$/.exec(s);
+  if (!m || /^\.+$/.test(m[1]) || /^\.+$/.test(m[2])) return null;
+  let branch;
+  try { branch = decodeURIComponent(m[3]); } catch { return null; }
+  return isBranch(branch) ? { owner: m[1], repo: m[2], branch } : null;
+}
+
+/** A branch page path, /github.com/owner/repo/tree/<branch>: it opens the branch's tip commit. -> {instance, owner, repo, branch} | null */
+export function parseBranchPath(pathname) {
+  const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/tree\/(.+?)\/?$/i.exec(String(pathname || ''));
+  if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null;
+  let branch;
+  try { branch = decodeURIComponent(m[4]); } catch { return null; }
+  return isBranch(branch) ? { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], branch } : null;
+}
+
 /** The shareable page path for a commit: /github.com/owner/repo/commit/<sha>. */
 export function commitPath({ owner, repo, sha }, instance = 'github.com') {
   return `/${instance}/${owner}/${repo}/commit/${sha}`;

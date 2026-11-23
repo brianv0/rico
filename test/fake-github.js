@@ -221,6 +221,13 @@ export async function startFake() {
       const isWrite = req.method !== 'GET';
       if (isWrite && fail()) return;
 
+      const bm = /^\/repos\/acme\/docs\/branches\/(.+)$/.exec(u.pathname);
+      if (bm && req.method === 'GET') { // two branches, both at the commit; GitHub decodes an encoded '/' in the name
+        const name = decodeURIComponent(bm[1]);
+        if (!['plan', 'feature/plan-v2'].includes(name)) return json({ message: 'Branch not found' }, 404);
+        ops.push({ op: 'branch', name });
+        return json({ name, commit: { sha: SHA } });
+      }
       if (u.pathname === '/repos/acme/docs' && req.method === 'GET') return json({ full_name: 'acme/docs', private: false });
       let cm = /^\/repos\/acme\/docs\/commits\/([0-9a-f]+)$/.exec(u.pathname);
       if (cm && req.method === 'GET') {

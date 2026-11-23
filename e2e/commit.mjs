@@ -98,6 +98,13 @@ try {
   await page.waitForFunction(() => window.__rico?.state.pr?.kind === 'commit', null, { timeout: 8000 });
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: path.join('/tmp/claude-0/-home-user-rico/fe79f8af-5a9f-5061-b889-1cf9fd7e3416/scratchpad', 'commit.png') });
+  await step('a branch link opens its tip commit, names the branch, and pins the commit in the address bar', async () => {
+    await page.goto(`http://127.0.0.1:${PORT}/github.com/acme/docs/tree/feature/plan-v2`);
+    await page.waitForFunction(() => window.__rico?.state.pr?.branch === 'feature/plan-v2', null, { timeout: 8000 });
+    assert.match(await page.textContent('#pr-meta'), /tip of feature\/plan-v2/);
+    assert.match(await page.textContent('#commit-note'), /latest commit on feature\/plan-v2, not the whole branch/);
+    await page.waitForFunction((sha) => location.pathname === `/github.com/acme/docs/commit/${sha}`, SHA, { timeout: 5000 });
+  });
   await step('no page errors', async () => assert.deepEqual(errors, []));
 } finally {
   await browser.close(); srv.kill(); await fake.close();

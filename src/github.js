@@ -1,6 +1,6 @@
 // The GitHub half of Rico, shared by the local Node server and the Cloudflare Worker.
 // Web-standard APIs only (fetch, Uint8Array): no Node built-ins, so it runs in both.
-import { parsePrRef, parseCommitRef, positionLine } from '../public/lib.js';
+import { parsePrRef, parseCommitRef, parseBranchRef, positionLine } from '../public/lib.js';
 import { fetchIcon } from './icon.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
@@ -409,8 +409,13 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   async function apiPr(q) {
     const cref = parseCommitRef(q.get('ref'));
     if (cref) return apiCommit(cref);
+    const bref = parseBranchRef(q.get('ref'));
+    if (bref) { // a branch has no comments of its own on GitHub: open its tip commit, and say which branch it is the tip of
+      const b = await ghJson(`/repos/${bref.owner}/${bref.repo}/branches/${encodeURIComponent(bref.branch)}`);
+      return { ...(await apiCommit({ owner: bref.owner, repo: bref.repo, sha: b.commit.sha })), branch: b.name || bref.branch };
+    }
     const ref = parsePrRef(q.get('ref'));
-    if (!ref) throw new HttpError(400, 'Could not parse that as a GitHub PR or commit (try https://github.com/owner/repo/pull/123, owner/repo#123 or owner/repo@abc1234).');
+    if (!ref) throw new HttpError(400, 'Could not parse that as a GitHub PR, commit or branch (try https://github.com/owner/repo/pull/123, owner/repo#123, owner/repo@abc1234 or https://github.com/owner/repo/tree/my-branch).');
     const { owner, repo, number } = ref;
     const base = `/repos/${owner}/${repo}/pulls/${number}`;
     const pull = await ghJson(base);

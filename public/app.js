@@ -1,5 +1,5 @@
 import {
-  parsePrRef, parseCommitRef, commitPath, parseCommitPath, patchPosition, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
+  parsePrRef, parseCommitRef, parseBranchRef, parseBranchPath, commitPath, parseCommitPath, patchPosition, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -281,7 +281,7 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 // Opening a file replaces the history entry; loading a different PR (push) adds one, so Back returns to the previous PR.
 const samePr = (at, p) => !!(at && p && at.instance === 'github.com' && (p.kind === 'commit' ? !!at.sha && !at.number && p.sha.startsWith(at.sha) : at.number === p.number)
   && at.owner.toLowerCase() === p.owner.toLowerCase() && at.repo.toLowerCase() === p.repo.toLowerCase());
-const hereAt = () => parsePrPath(location.pathname) || parseCommitPath(location.pathname);
+const hereAt = () => parsePrPath(location.pathname) || parseCommitPath(location.pathname) || parseBranchPath(location.pathname);
 function syncUrl(filename, push = false) {
   if (!state.pr) return;
   const p = state.pr;
@@ -294,9 +294,10 @@ function syncUrl(filename, push = false) {
 
 async function loadPr(ref, wantFile, wantSha = '', push = false) {
   const commit = parseCommitRef(ref);
-  const parsed = commit || parsePrRef(ref);
-  if (!parsed) return status('That does not look like a GitHub PR or commit link (try https://github.com/owner/repo/pull/123, owner/repo#123, or https://github.com/owner/repo/commit/abc1234).', true);
-  status(commit ? 'Loading commit…' : 'Loading PR…');
+  const branch = !commit && parseBranchRef(ref);
+  const parsed = commit || branch || parsePrRef(ref);
+  if (!parsed) return status('That does not look like a GitHub PR, commit or branch link (try https://github.com/owner/repo/pull/123, owner/repo#123, https://github.com/owner/repo/commit/abc1234 or https://github.com/owner/repo/tree/my-branch).', true);
+  status(commit ? 'Loading commit…' : branch ? `Loading the latest commit on ${branch.branch}…` : 'Loading PR…');
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
     state.pr = pr;
@@ -395,12 +396,18 @@ function renderCommitHeader(p) {
   meta.textContent = '';
   const ref = (sha) => { const a = el('a', 'commit-ref', sha.slice(0, 7)); a.href = `${new URL(p.url).origin}/${p.owner}/${p.repo}/commit/${sha}`; a.target = '_blank'; a.rel = 'noopener noreferrer'; return a; };
   meta.append(el('b', null, p.author || 'someone'), ` committed${p.createdAt ? ' ' + ago(p.createdAt) : ''} · `, ref(p.sha));
+  if (p.branch) { // opened as a branch: this is its tip now; the address bar pins this commit
+    const b = el('a', 'commit-ref', p.branch);
+    b.href = `${new URL(p.url).origin}/${p.owner}/${p.repo}/tree/${p.branch.split('/').map(encodeURIComponent).join('/')}`;
+    b.target = '_blank'; b.rel = 'noopener noreferrer';
+    meta.append(' · tip of ', b);
+  }
   if (p.parents?.length) meta.append(` · ${p.parents.length > 1 ? 'parents' : 'parent'} `, ...p.parents.flatMap((s, i) => (i ? [' + ', ref(s)] : [ref(s)])));
   else meta.append(' · no parent (the first commit)');
   // Say plainly where comments go: on the commit page, not in a pull request's conversation (GitHub keeps them apart too)
   const note = $('#commit-note');
   note.textContent = '';
-  note.append(el('span', 'cn-icon'), el('b', null, 'You are reviewing a single commit.'), ` Comments here are commit comments: they appear on the commit’s own page on GitHub, not in any pull request, and each sits on one line. No reviews, suggestions or resolving.`);
+  note.append(el('span', 'cn-icon'), el('b', null, p.branch ? `You are reviewing the latest commit on ${p.branch}, not the whole branch.` : 'You are reviewing a single commit.'), ` Comments here are commit comments: they appear on the commit’s own page on GitHub, not in any pull request, and each sits on one line. No reviews, suggestions or resolving.`);
   note.querySelector('.cn-icon').innerHTML = icon('git-commit');
   if (p.pulls?.length) {
     const line = el('div', 'cn-prs');
@@ -2492,7 +2499,7 @@ window.addEventListener('popstate', () => {
 const h = new URLSearchParams(location.hash.slice(1));
 const here = hereAt();
 if (here) {
-  const ref = here.number ? `${here.owner}/${here.repo}#${here.number}` : `${here.owner}/${here.repo}@${here.sha}`;
+  const ref = here.number ? `${here.owner}/${here.repo}#${here.number}` : here.branch ? `https://github.com/${here.owner}/${here.repo}/tree/${here.branch}` : `${here.owner}/${here.repo}@${here.sha}`;
   $('#pr').value = here.instance === 'github.com' ? ref : '';
   if (here.instance !== 'github.com') status(`Only github.com is supported (this link is for ${here.instance}).`, true);
   else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '');

@@ -297,3 +297,19 @@ test('GET /api/comments?sha=…: a conditional refresh of the commit comments', 
   assert.match(fake.hits.at(-1), /commits\/.*\/comments -> 304/);
   assert.equal((await get(port, '/api/comments?' + new URLSearchParams({ owner: 'acme', repo: 'docs', sha: 'nope' }))).status, 400);
 });
+
+test('GET /api/pr opens a branch as its tip commit, and says which branch', async () => {
+  const r = await get(port, '/api/pr?ref=' + encodeURIComponent('https://github.com/acme/docs/tree/feature/plan-v2'));
+  assert.equal(r.status, 200);
+  const j = JSON.parse(r.body);
+  assert.deepEqual({ kind: j.kind, sha: j.sha, branch: j.branch }, { kind: 'commit', sha: SHA, branch: 'feature/plan-v2' });
+  assert.deepEqual(fake.ops.filter((o) => o.op === 'branch').at(-1), { op: 'branch', name: 'feature/plan-v2' });
+  assert.equal((await get(port, '/api/pr?ref=' + encodeURIComponent('acme/docs@nope'))).status, 404);
+  assert.equal((await get(port, '/api/pr?ref=' + encodeURIComponent('acme/docs@a/../b'))).status, 400);
+});
+
+test('a branch page path (even one that looks like a file) is the app', async () => {
+  const r = await get(port, '/github.com/acme/docs/tree/release/v1.2');
+  assert.equal(r.status, 200);
+  assert.match(r.type, /html/);
+});

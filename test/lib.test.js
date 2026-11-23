@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseCommitRef, commitPath, parseCommitPath, parsePrPath, patchPosition, positionLine,
+  parseCommitRef, parseBranchRef, parseBranchPath, commitPath, parseCommitPath, parsePrPath, patchPosition, positionLine,
   parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups
 } from '../public/lib.js';
 
@@ -656,4 +656,16 @@ test('parseQuote reads the line range even when the quote is a fenced block (not
   const q = parseQuote(body);
   assert.deepEqual({ path: q.path, lines: q.lines, quote: q.quote }, { path: 'docs/arch.md', lines: { start: 32, end: 65 }, quote: null });
   assert.deepEqual(parseQuote('**`a.md` L7**\n\nhi').lines, { start: 7, end: 7 });
+});
+
+test('parseBranchRef / parseBranchPath: branch links (slashes allowed), never dot segments; a hex name is a commit', () => {
+  assert.deepEqual(parseBranchRef('https://github.com/acme/docs/tree/feature/plan-v2'), { owner: 'acme', repo: 'docs', branch: 'feature/plan-v2' });
+  assert.deepEqual(parseBranchRef('github.com/acme/docs/tree/main?x=1'), { owner: 'acme', repo: 'docs', branch: 'main' });
+  assert.deepEqual(parseBranchRef('acme/docs@release/v1.2'), { owner: 'acme', repo: 'docs', branch: 'release/v1.2' });
+  assert.deepEqual(parseBranchRef('acme/docs/tree/main'), { owner: 'acme', repo: 'docs', branch: 'main' });
+  for (const bad of ['acme/docs@../x', 'acme/docs@a/../b', 'acme/docs@-x', 'acme/docs@a//b', 'acme/docs@x.lock', 'acme/docs@.hidden', 'acme/docs#7', '../docs@main']) assert.equal(parseBranchRef(bad), null, bad);
+  assert.ok(parseCommitRef('acme/docs@abc1234')); // checked first by the caller: hex reads as a commit
+  assert.deepEqual(parseBranchPath('/github.com/acme/docs/tree/feature/plan-v2'), { instance: 'github.com', owner: 'acme', repo: 'docs', branch: 'feature/plan-v2' });
+  assert.equal(parseBranchPath('/github.com/acme/docs/tree/a/../b'), null);
+  assert.equal(parseBranchPath('/github.com/acme/docs/7'), null);
 });

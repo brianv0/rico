@@ -27,6 +27,10 @@ anchors them by diff *position*), so:
 
 The address bar reads `/github.com/owner/repo/commit/<sha>`.
 
+**Branches** open as their latest commit: paste `https://github.com/owner/repo/tree/<branch>` (or `owner/repo@<branch>`).
+GitHub has no comments on a branch itself, so this is commit mode on the branch's tip: the header says *tip of <branch>*, the
+banner says it is the latest commit and not the whole branch, and the address bar pins that commit so a shared link does not move.
+
 The address bar always names what you are looking at, so it can be shared: `localhost:4317/github.com/owner/repo/123/abc1234?file=docs/plan.md` (instance, repo, PR, the head commit it was loaded at, and the open file). If the PR has moved on since the link was made, Rico says so. Older links still work: the earlier `…/123@abc1234` form (and its `%40` encoding) and `#pr=…`.
 Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21).
 

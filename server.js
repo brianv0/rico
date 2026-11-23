@@ -45,7 +45,7 @@ function serveStatic(req, res) {
   const stream = (f) => fs.createReadStream(f).on('error', () => res.destroy()).pipe(res); // a vanished file must not crash the server
   if ((!vendor && !file.startsWith(ROOT + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     // a linkable PR path like /github.com/o/r/7@abc1234 is the single-page app; a missing asset stays a 404
-    if (!path.extname(rel) && !rel.startsWith('/api/') && !rel.startsWith('/vendor/')) {
+    if ((!path.extname(rel) || rel.startsWith('/github.com/')) && !rel.startsWith('/api/') && !rel.startsWith('/vendor/')) { // a branch may look like a file (v1.2)
       res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache', ...SEC });
       stream(path.join(ROOT, 'index.html'));
       return;
