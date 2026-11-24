@@ -1,5 +1,5 @@
 import {
-  parsePrRef, parseCommitRef, parseBranchRef, parseBranchPath, commitPath, parseCommitPath, patchPosition, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
+  parsePrRef, parseCommitRef, parseBranchRef, parseBranchPath, isBranchName, commitMessageParts, commitPath, parseCommitPath, patchPosition, previewLines, prPath, parsePrPath, resolveRepoPath, parsePatch, clampRange, wordCount, trimBlock, locateLine, buildLineComment, buildPrComment, parseQuote, findQuote, quoteParts, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope,
   formatQuote, plainQuote, coversWholeLines, buildFileTree, statBlocks, diffAnchor, parsePatchRows,
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
@@ -285,14 +285,16 @@ const hereAt = () => parsePrPath(location.pathname) || parseCommitPath(location.
 function syncUrl(filename, push = false) {
   if (!state.pr) return;
   const p = state.pr;
-  const q = filename ? '?' + new URLSearchParams({ file: filename }) : '';
+  // a commit opened from a branch keeps the branch in its link, so it can follow the branch later (see refreshComments)
+  const params = new URLSearchParams({ ...(p.kind === 'commit' && p.branch ? { branch: p.branch } : {}), ...(filename ? { file: filename } : {}) });
+  const q = params.size ? '?' + params : '';
   const url = (p.kind === 'commit' ? commitPath(p) : prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha)) + q;
   if (location.pathname + location.search + location.hash === url) return;
   if (push && !samePr(hereAt(), p)) history.pushState(null, '', url);
   else history.replaceState(null, '', url);
 }
 
-async function loadPr(ref, wantFile, wantSha = '', push = false) {
+async function loadPr(ref, wantFile, wantSha = '', push = false, wantBranch = '') {
   const commit = parseCommitRef(ref);
   const branch = !commit && parseBranchRef(ref);
   const parsed = commit || branch || parsePrRef(ref);
@@ -300,6 +302,7 @@ async function loadPr(ref, wantFile, wantSha = '', push = false) {
   status(commit ? 'Loading commit…' : branch ? `Loading the latest commit on ${branch.branch}…` : 'Loading PR…');
   try {
     const pr = await api('/api/pr?ref=' + encodeURIComponent(ref)).then(JSON.parse);
+    if (pr.kind === 'commit' && !pr.branch && isBranchName(wantBranch)) pr.branch = wantBranch; // a pinned commit, still following its branch
     state.pr = pr;
     if (pr.kind !== 'commit') rememberPr(pr);
     if (wantSha && pr.headSha && !pr.headSha.startsWith(wantSha)) {
@@ -347,6 +350,7 @@ function renderHeader() {
   $('#toolbar').hidden = false;
   document.body.classList.toggle('is-commit', p.kind === 'commit');
   $('#commit-note').hidden = p.kind !== 'commit';
+  if (p.kind !== 'commit') $('#commit-info').hidden = true;
   $('#c-kind').hidden = p.kind !== 'commit';
   $('#c-add').textContent = p.kind === 'commit' ? 'Comment on commit' : 'Comment';
   $('#legend-where').textContent = p.kind === 'commit' ? 'commit' : 'pull request';
@@ -395,13 +399,46 @@ function renderCommitHeader(p) {
   const meta = $('#pr-meta');
   meta.textContent = '';
   const ref = (sha) => { const a = el('a', 'commit-ref', sha.slice(0, 7)); a.href = `${new URL(p.url).origin}/${p.owner}/${p.repo}/commit/${sha}`; a.target = '_blank'; a.rel = 'noopener noreferrer'; return a; };
-  meta.append(el('b', null, p.author || 'someone'), ` committed${p.createdAt ? ' ' + ago(p.createdAt) : ''} · `, ref(p.sha));
-  if (p.branch) { // opened as a branch: this is its tip now; the address bar pins this commit
+  const msg = commitMessageParts(p.message);
+  const person = (login, avatar) => { const s = el('span', 'person'); s.append(avatarEl(login, avatar), el('b', null, login)); return s; };
+  meta.append(person(p.author || p.authorName || 'someone', p.authorAvatar));
+  if (msg.coAuthors.length) meta.append(` and ${msg.coAuthors.map((c) => c.name).join(', ')}`);
+  meta.append(` authored${p.createdAt ? ' ' + ago(p.createdAt) : ''}`);
+  const differs = p.committer && p.committer !== p.author && p.committerName !== p.authorName;
+  if (differs) meta.append(' and ', person(p.committer, p.committerAvatar), ` committed${p.committedAt ? ' ' + ago(p.committedAt) : ''}`);
+  if (p.verified) { const v = el('span', 'Label Label--success', 'Verified'); v.title = 'GitHub verified this commit’s signature'; meta.append(' ', v); }
+  meta.append(' · ', ref(p.sha));
+  const copy = el('button', 'btn-link copy');
+  copy.type = 'button'; copy.title = 'Copy the full SHA'; copy.setAttribute('aria-label', 'Copy the full SHA');
+  copy.innerHTML = icon('copy');
+  copy.addEventListener('click', () => navigator.clipboard?.writeText(p.sha).catch(() => {}));
+  meta.append(copy);
+  if (p.branch) { // opened from a branch: the address bar pins this commit and keeps following the branch
     const b = el('a', 'commit-ref', p.branch);
     b.href = `${new URL(p.url).origin}/${p.owner}/${p.repo}/tree/${p.branch.split('/').map(encodeURIComponent).join('/')}`;
     b.target = '_blank'; b.rel = 'noopener noreferrer';
-    meta.append(' · tip of ', b);
+    meta.append(' · on ', b, ' ');
+    const latest = el('button', 'btn btn-sm', 'Check for newer');
+    latest.type = 'button';
+    latest.id = 'branch-latest';
+    latest.title = `Look for a newer commit on ${p.branch}`;
+    latest.addEventListener('click', async () => {
+      if (state.stale) return goLatest();
+      latest.disabled = true; latest.textContent = 'Checking…';
+      await refreshComments(true);
+      latest.disabled = false;
+      latest.textContent = state.stale ? 'Go to latest' : 'Up to date';
+      if (!state.stale) setTimeout(() => { if (latest.isConnected && !state.stale) latest.textContent = 'Check for newer'; }, 2500);
+    });
+    meta.append(latest);
   }
+  // the rest of the message, as GitHub shows it under the title (trailers like Co-authored-by sit in the line above)
+  const info = $('#commit-info');
+  info.textContent = '';
+  if (msg.body) info.append(el('pre', 'commit-body', msg.body));
+  const extra = msg.trailers.filter((t) => !/^co-authored-by$/i.test(t.key));
+  if (extra.length) info.append(el('div', 'commit-trailers', extra.map((t) => `${t.key}: ${t.value}`).join('\n')));
+  info.hidden = !info.childNodes.length;
   if (p.parents?.length) meta.append(` · ${p.parents.length > 1 ? 'parents' : 'parent'} `, ...p.parents.flatMap((s, i) => (i ? [' + ', ref(s)] : [ref(s)])));
   else meta.append(' · no parent (the first commit)');
   // Say plainly where comments go: on the commit page, not in a pull request's conversation (GitHub keeps them apart too)
@@ -2337,7 +2374,7 @@ $('#discard').addEventListener('click', async () => {
   } catch (e) { const d = el('div', 'err'); showErr(d, e); $('#result').replaceChildren(d); }
 });
 
-$('#stale-reload').addEventListener('click', () => { const p = state.pr; location.assign(prPath({ owner: p.owner, repo: p.repo, number: p.number }) + location.search); });
+$('#stale-reload').addEventListener('click', () => { const p = state.pr; if (p.kind === 'commit') { if (p.branch) goLatest(); return; } location.assign(prPath({ owner: p.owner, repo: p.repo, number: p.number }) + location.search); });
 
 // ---------- unsent comment, after a reload or sign-in ----------
 async function restoreComposer() {
@@ -2370,11 +2407,12 @@ async function refreshComments(force = false) {
   const p = state.pr;
   let data;
   try {
-    data = await api('/api/comments?' + new URLSearchParams({ owner: p.owner, repo: p.repo, ...(p.kind === 'commit' ? { sha: p.sha } : { number: p.number }), etags: force ? '{}' : JSON.stringify(etags) })).then(JSON.parse);
+    data = await api('/api/comments?' + new URLSearchParams({ owner: p.owner, repo: p.repo, ...(p.kind === 'commit' ? { sha: p.sha, ...(p.branch ? { branch: p.branch } : {}) } : { number: p.number }), etags: force ? '{}' : JSON.stringify(etags) })).then(JSON.parse);
   } catch { return; } // a failed poll is not worth interrupting anyone for
   if (state.pr !== p) return; // another PR was opened meanwhile
   etags = data.etags || etags;
-  if (data.headSha && data.headSha !== p.headSha) showStale(data.headSha);
+  if (data.branchGone) showStale(null, true);
+  else if (data.headSha && data.headSha !== p.headSha) showStale(data.headSha);
   else if (data.headSha && state.stale) { state.stale = null; $('#stale').hidden = true; } // it moved back (a force-push undone)
   if (data.unchanged) return;
   const sig = JSON.stringify([data.comments, data.prComments, data.pendingReview]);
@@ -2406,11 +2444,30 @@ function schedulePoll() {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && state.pr) { refreshComments(); schedulePoll(); } });
 
-function showStale(sha) {
+/** Open the branch's newest commit (a commit opened from a branch), keeping the open file. */
+function goLatest() {
+  const p = state.pr;
+  const file = new URLSearchParams(location.search).get('file');
+  location.assign(`/github.com/${p.owner}/${p.repo}/tree/${p.branch}` + (file ? '?' + new URLSearchParams({ file }) : ''));
+}
+function showStale(sha, gone = false) {
   const bar = $('#stale');
   if (!bar) return;
   state.stale = sha;
   bar.hidden = false;
+  const p = state.pr;
+  const btn1 = $('#stale-reload');
+  btn1.hidden = !!gone;
+  if (p.kind === 'commit') {
+    bar.querySelector('.msg-text').textContent = gone
+      ? `The branch ${p.branch} no longer exists on GitHub. This commit (${p.sha.slice(0, 7)}) and its comments are still here.`
+      : `${p.branch} has moved on to ${sha.slice(0, 7)} since this commit (${p.sha.slice(0, 7)}).`;
+    btn1.textContent = 'Go to latest';
+    const b = $('#branch-latest');
+    if (b) b.textContent = gone ? 'Branch deleted' : 'Go to latest';
+    return;
+  }
+  btn1.textContent = 'Reload';
   bar.querySelector('.msg-text').textContent = `This pull request has new commits (${sha.slice(0, 7)}). Line numbers and comment positions here are from ${state.pr.headSha.slice(0, 7)}.`;
 }
 
@@ -2502,7 +2559,7 @@ if (here) {
   const ref = here.number ? `${here.owner}/${here.repo}#${here.number}` : here.branch ? `https://github.com/${here.owner}/${here.repo}/tree/${here.branch}` : `${here.owner}/${here.repo}@${here.sha}`;
   $('#pr').value = here.instance === 'github.com' ? ref : '';
   if (here.instance !== 'github.com') status(`Only github.com is supported (this link is for ${here.instance}).`, true);
-  else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '');
+  else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '', false, here.number ? '' : new URLSearchParams(location.search).get('branch') || '');
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
 showWho();

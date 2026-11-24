@@ -73,6 +73,8 @@ export async function startFake() {
   const state = {
     comments: COMMENTS.map((c) => ({ ...c })),
     commitComments: COMMIT_COMMENTS.map((c) => ({ ...c })),
+    branchTip: null, // set to move the branches on (the fake still only serves SHA's contents)
+    gone: null, // a branch name that has been deleted
     issueComments: [
       { id: 501, node_id: 'IC_501', user: { login: 'dave', avatar_url: AVATAR }, author_association: 'CONTRIBUTOR', created_at: '2026-11-17T08:00:00Z', updated_at: '2026-11-17T08:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#issuecomment-501', body: 'General note: please also update the changelog.' },
     ],
@@ -226,7 +228,8 @@ export async function startFake() {
         const name = decodeURIComponent(bm[1]);
         if (!['plan', 'feature/plan-v2'].includes(name)) return json({ message: 'Branch not found' }, 404);
         ops.push({ op: 'branch', name });
-        return json({ name, commit: { sha: SHA } });
+        if (name === state.gone) return json({ message: 'Branch not found' }, 404);
+        return cached('br-' + name, () => ({ name, commit: { sha: state.branchTip || SHA } }));
       }
       if (u.pathname === '/repos/acme/docs' && req.method === 'GET') return json({ full_name: 'acme/docs', private: false });
       let cm = /^\/repos\/acme\/docs\/commits\/([0-9a-f]+)$/.exec(u.pathname);
@@ -237,7 +240,7 @@ export async function startFake() {
           { filename: 'docs/removed.md', status: 'modified', additions: 4, deletions: 6, patch: REMOVED_PATCH },
           { filename: 'src/x.js', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1 +1 @@\n-a\n+b' },
         ];
-        return json({ sha: SHA, html_url: `https://github.com/acme/docs/commit/${SHA}`, commit: { message: 'Tighten the plan\n\nAnd drop the old subtitle.', author: { name: 'Bob', date: '2026-11-18T09:00:00Z' }, comment_count: state.commitComments.length }, author: { login: 'bob', avatar_url: AVATAR }, parents: [{ sha: MERGE_BASE }], stats: { additions: 9, deletions: 7 }, files });
+        return json({ sha: SHA, html_url: `https://github.com/acme/docs/commit/${SHA}`, commit: { message: 'Tighten the plan\n\nAnd drop the old subtitle.\n\nCo-authored-by: Carol <carol@example.com>\nSigned-off-by: Bob <bob@example.com>', author: { name: 'Bob', date: '2026-11-18T09:00:00Z' }, committer: { name: 'GitHub', date: '2026-11-18T09:05:00Z' }, verification: { verified: true, reason: 'valid' }, comment_count: state.commitComments.length }, author: { login: 'bob', avatar_url: AVATAR }, committer: { login: 'web-flow', avatar_url: AVATAR }, parents: [{ sha: MERGE_BASE }], stats: { additions: 9, deletions: 7 }, files });
       }
       if (u.pathname === `/repos/acme/docs/commits/${SHA}/pulls`) return json([{ number: 7, title: 'Plan v2', state: 'open', merged_at: null, html_url: 'https://github.com/acme/docs/pull/7' }]);
       if (u.pathname === `/repos/acme/docs/commits/${SHA}/comments` && req.method === 'GET') return cached('cc', () => state.commitComments.map(withReactions));

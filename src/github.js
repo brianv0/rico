@@ -1,6 +1,6 @@
 // The GitHub half of Rico, shared by the local Node server and the Cloudflare Worker.
 // Web-standard APIs only (fetch, Uint8Array): no Node built-ins, so it runs in both.
-import { parsePrRef, parseCommitRef, parseBranchRef, positionLine } from '../public/lib.js';
+import { parsePrRef, parseCommitRef, parseBranchRef, isBranchName, positionLine } from '../public/lib.js';
 import { fetchIcon } from './icon.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
@@ -389,6 +389,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       message: nl < 0 ? '' : message.slice(nl + 1).trim(),
       url: commit.html_url,
       author: commit.author?.login || commit.commit?.author?.name || null,
+      // who wrote it and who committed it (GitHub shows both when they differ: a rebase, a web edit, a cherry-pick)
+      authorName: commit.commit?.author?.name || null,
+      committer: commit.committer?.login || commit.commit?.committer?.name || null,
+      committerName: commit.commit?.committer?.name || null,
+      committerAvatar: commit.committer?.avatar_url || null,
+      committedAt: commit.commit?.committer?.date || null,
+      verified: !!commit.commit?.verification?.verified,
+      verification: commit.commit?.verification?.reason || null,
       authorAvatar: commit.author?.avatar_url || null,
       createdAt: commit.commit?.author?.date || null,
       parents: (commit.parents || []).map((p) => p.sha),
@@ -681,15 +689,22 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   async function apiRefresh(q) {
     const { owner, repo } = repoParams(q);
     const sha = q.get('sha');
-    if (sha != null) { // a commit never moves: only its comments can change
+    if (sha != null) { // a commit never moves: only its comments can change, and (opened from a branch) the branch can move on
       if (!SHA_RE.test(sha)) throw new HttpError(400, 'bad sha');
+      const branch = q.get('branch');
+      if (branch != null && !isBranchName(branch)) throw new HttpError(400, 'bad branch');
       let known = {};
       try { known = JSON.parse(q.get('etags') || '{}') || {}; } catch { /* first poll */ }
-      const r = await gh(`/repos/${owner}/${repo}/commits/${sha}/comments?per_page=100`, { raw: true, etag: typeof known.cc === 'string' ? known.cc : undefined });
-      const etags = { cc: r.etag || '' };
-      if (r.status === 304) return { unchanged: true, etags };
+      const tag = (k) => (typeof known[k] === 'string' ? known[k] : undefined);
+      const [r, b] = await Promise.all([
+        gh(`/repos/${owner}/${repo}/commits/${sha}/comments?per_page=100`, { raw: true, etag: tag('cc') }),
+        branch ? gh(`/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`, { raw: true, etag: tag('br') }).catch((e) => (e.status === 404 ? { status: 404 } : null)) : null,
+      ]);
+      const etags = { cc: r.etag || '', ...(b?.etag ? { br: b.etag } : {}) };
+      const tip = b?.status === 200 ? { headSha: JSON.parse(b.text).commit?.sha || null } : b?.status === 404 ? { branchGone: true } : {};
+      if (r.status === 304) return { unchanged: true, etags, ...tip };
       const { files } = await commitFiles(owner, repo, sha);
-      return { unchanged: false, etags, ...(await loadCommitComments(owner, repo, sha, files)) };
+      return { unchanged: false, etags, ...tip, ...(await loadCommitComments(owner, repo, sha, files)) };
     }
     const number = Number(q.get('number'));
     if (!Number.isInteger(number) || number < 1) throw new HttpError(400, 'bad number');

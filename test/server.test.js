@@ -233,7 +233,7 @@ test('GET /api/pr loads a commit: its markdown files, diffed against its parent,
   const j = JSON.parse(r.body);
   assert.equal(j.kind, 'commit');
   assert.deepEqual({ sha: j.sha, head: j.headSha, base: j.baseSha, title: j.title, author: j.author, n: j.changedFiles }, { sha: SHA, head: SHA, base: MERGE_BASE, title: 'Tighten the plan', author: 'bob', n: 3 });
-  assert.equal(j.message, 'And drop the old subtitle.');
+  assert.match(j.message, /^And drop the old subtitle\.\n\nCo-authored-by/);
   assert.deepEqual(j.files.map((f) => f.filename), ['docs/plan.md', 'docs/removed.md']);
   assert.equal(j.isPrivate, false);
   const by = Object.fromEntries(j.comments.map((c) => [c.id, c]));
@@ -312,4 +312,26 @@ test('a branch page path (even one that looks like a file) is the app', async ()
   const r = await get(port, '/github.com/acme/docs/tree/release/v1.2');
   assert.equal(r.status, 200);
   assert.match(r.type, /html/);
+});
+
+test('GET /api/pr on a commit: who authored and committed it, and its signature', async () => {
+  const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs@abc1234')).body);
+  assert.deepEqual({ a: j.author, c: j.committer, cn: j.committerName, v: j.verified, r: j.verification }, { a: 'bob', c: 'web-flow', cn: 'GitHub', v: true, r: 'valid' });
+  assert.match(j.message, /Co-authored-by: Carol/);
+});
+
+test('GET /api/comments?sha=…&branch=…: follows the branch tip (conditionally) and reports a deleted branch', async () => {
+  const q = (o) => '/api/comments?' + new URLSearchParams({ owner: 'acme', repo: 'docs', sha: SHA, branch: 'plan', ...o });
+  const first = JSON.parse((await get(port, q({ etags: '{}' }))).body);
+  assert.equal(first.headSha, SHA);
+  const again = JSON.parse((await get(port, q({ etags: JSON.stringify(first.etags) }))).body);
+  assert.equal(again.unchanged, true);
+  assert.equal(again.headSha, undefined); // the branch answered 304 too: nothing new
+  fake.state.branchTip = 'f'.repeat(40); fake.state.version++;
+  const moved = JSON.parse((await get(port, q({ etags: JSON.stringify(first.etags) }))).body);
+  assert.equal(moved.headSha, 'f'.repeat(40));
+  fake.state.gone = 'plan';
+  assert.equal(JSON.parse((await get(port, q({ etags: '{}' }))).body).branchGone, true);
+  fake.state.gone = null; fake.state.branchTip = null; fake.state.version++;
+  assert.equal((await get(port, q({ branch: 'a/../b' }))).status, 400);
 });
