@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Distinct signed-in GitHub users of the hosted Rico (DAU, WAU, MAU and their recent history) and the comments each one
 // posted through Rico, from the Workers Analytics Engine dataset the Worker writes (see record() in src/worker.js).
-// Users are pseudonymous ids (an HMAC of the login): the dataset never holds logins.
+// Users are GitHub logins (the first points, from 2026-11-24, carry a 32-hex pseudonymous id instead).
 //
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage            # production (active_users)
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage -- --stage # stage (active_users_stage)
@@ -38,7 +38,7 @@ const [dau, wau, mau, daily, weekly, byKind, byUser, seen] = await Promise.all([
   sql(`SELECT toStartOfWeek(timestamp) AS week, count(DISTINCT index1) AS users FROM ${table} WHERE timestamp > NOW() - INTERVAL '90' DAY GROUP BY week ORDER BY week`),
   sql(`SELECT blob3 AS kind, SUM(_sample_interval) AS n FROM ${table} WHERE blob2 = 'comment' AND timestamp > NOW() - INTERVAL '30' DAY GROUP BY kind`),
   sql(`SELECT index1 AS user, blob3 AS kind, SUM(_sample_interval) AS n FROM ${table} WHERE blob2 = 'comment' AND timestamp > NOW() - INTERVAL '90' DAY GROUP BY user, kind`),
-  sql(`SELECT index1 AS user, MAX(timestamp) AS last FROM ${table} WHERE timestamp > NOW() - INTERVAL '90' DAY GROUP BY user`),
+  sql(`SELECT index1 AS user, MAX(timestamp) AS last, SUM(_sample_interval) AS loads FROM ${table} WHERE timestamp > NOW() - INTERVAL '90' DAY AND blob2 != 'comment' GROUP BY user`),
 ]);
 
 console.log(`${table}: distinct signed-in GitHub users`);
@@ -57,13 +57,16 @@ console.log(`\nComments posted through Rico, last 30 days: ${comments30}`);
 for (const k of KINDS) console.log(`  ${k.padEnd(8)} ${kindCount[k] || 0}`);
 
 // every user seen in the last 90 days, with their comments by kind (0 if they only read)
-const users = new Map(seen.map((r) => [r.user, { last: String(r.last).slice(0, 10), total: 0, ...Object.fromEntries(KINDS.map((k) => [k, 0])) }]));
+const blank = () => ({ last: '', loads: 0, total: 0, ...Object.fromEntries(KINDS.map((k) => [k, 0])) });
+const users = new Map(seen.map((r) => [r.user, { ...blank(), last: String(r.last).slice(0, 10), loads: Number(r.loads) }]));
 for (const r of byUser) {
-  const u = users.get(r.user) || users.set(r.user, { last: '', total: 0, ...Object.fromEntries(KINDS.map((k) => [k, 0])) }).get(r.user);
+  const u = users.get(r.user) || users.set(r.user, blank()).get(r.user);
   u[r.kind] = (u[r.kind] || 0) + Number(r.n);
   u.total += Number(r.n);
 }
-const rows = [...users].sort((a, b) => b[1].total - a[1].total || b[1].last.localeCompare(a[1].last));
-console.log(`\nPer user, last 90 days (${rows.length} users; ids are pseudonymous):`);
-console.log(`  ${'user'.padEnd(12)} ${'comments'.padStart(8)} ${KINDS.map((k) => k.padStart(8)).join(' ')}  last seen`);
-for (const [id, u] of rows) console.log(`  ${id.slice(0, 12)} ${String(u.total).padStart(8)} ${KINDS.map((k) => String(u[k]).padStart(8)).join(' ')}  ${u.last}`);
+// top users first: most comments, then most app loads
+const rows = [...users].sort((a, b) => b[1].total - a[1].total || b[1].loads - a[1].loads || b[1].last.localeCompare(a[1].last));
+const w = Math.max(4, ...rows.map(([id]) => id.length));
+console.log(`\nTop users, last 90 days (${rows.length} users, most comments first):`);
+console.log(`  ${'user'.padEnd(w)} ${'comments'.padStart(8)} ${KINDS.map((k) => k.padStart(8)).join(' ')} ${'loads'.padStart(6)}  last seen`);
+for (const [id, u] of rows) console.log(`  ${id.padEnd(w)} ${String(u.total).padStart(8)} ${KINDS.map((k) => String(u[k]).padStart(8)).join(' ')} ${String(u.loads).padStart(6)}  ${u.last}`);

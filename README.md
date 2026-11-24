@@ -243,11 +243,10 @@ the KV entry**, so a copied cookie stops working immediately. In the default mod
 
 **Active users and comments.** With the `AU` Analytics Engine binding (dataset `active_users`; Cloudflare creates it on the
 first write), every signed-in app load, and every comment posted through Rico (line, general, reply, or added to a pending
-review), records one data point keyed by a pseudonymous id, an HMAC of the GitHub login under `SESSION_SECRET`. The login
-is never stored. `CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage) prints
-DAU, WAU, MAU, per-day / per-week history, comment totals by kind, and each user's comment counts and last visit, for up
-to the 3 months Analytics Engine keeps. The token needs *Account Analytics: Read*. Rotating `SESSION_SECRET` signs
-everyone out and also starts new ids, so counts spanning the rotation overcount.
+review), records one data point with the user's **GitHub login**, so the most active users can be named.
+`CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage) prints DAU, WAU, MAU,
+per-day / per-week history, comment totals by kind, and the top users by comments, with their app loads and last visit,
+for up to the 3 months Analytics Engine keeps. The token needs *Account Analytics: Read*.
 
 **Preview mode.** Signed-out visitors can open public pull requests read-only (a "Preview · read-only" badge and a
 Sign in button show in the header); commenting, replying and posting a review need sign-in. Private repositories are

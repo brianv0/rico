@@ -143,37 +143,29 @@ async function api(request, env, url) {
   }
   if (url.pathname === '/api/me' && res.ok) {
     const me = await res.json();
-    await record(env, me.login, 'load');
+    record(env, me.login, 'load');
     return json(200, { ...me, hosted: true });
   }
   if (request.method === 'POST' && res.ok && Object.hasOwn(COMMENT_KINDS, url.pathname)) {
     const out = await res.clone().json().catch(() => ({}));
-    await record(env, (out.comment || out).user, 'comment', COMMENT_KINDS[url.pathname]);
+    record(env, (out.comment || out).user, 'comment', COMMENT_KINDS[url.pathname]);
   }
   return res;
 }
 
 // ---- usage ----------------------------------------------------------------------------------------
-// Distinct signed-in users (DAU / WAU / MAU) and the comments they post, when the AU Analytics Engine dataset (active_users)
-// is bound. Each data point is keyed by a pseudonymous id, HMAC(SESSION_SECRET, login): the login itself is never stored,
-// and the id cannot be reversed by guessing logins without the secret. Query it with `npm run usage`.
-//   index1 = blob1: the user id
+// Distinct signed-in users (DAU / WAU / MAU) and the comments each one posts, when the AU Analytics Engine dataset
+// (active_users) is bound, so the most active users can be named. Query it with `npm run usage`.
+//   index1: the GitHub login, lowercased (logins are case-insensitive); blob1: the login as GitHub spells it
 //   blob2: 'load' (an app load: /api/me) or 'comment' (a comment posted through Rico)
 //   blob3: for a comment, which kind: 'line', 'general', 'reply' or 'pending' (added to a pending review)
-// Points written before blob2 existed have it empty: they are app loads.
+// The first points (2026-11-24, before logins were stored) carry a 32-hex pseudonymous id instead, and some no blob2.
 const COMMENT_KINDS = { '/api/comment': 'line', '/api/pr-comment': 'general', '/api/reply': 'reply', '/api/pending/add': 'pending' };
 
-async function userId(env, login) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('rico-usage-v1:' + env.SESSION_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(String(login).toLowerCase())));
-  return Array.from(mac.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function record(env, login, event, kind = '') {
-  if (!env.AU || !login || login === 'ghost') return;
+function record(env, login, event, kind = '') {
+  if (!env.AU || typeof login !== 'string' || !login || login === 'ghost') return;
   try {
-    const id = await userId(env, login);
-    env.AU.writeDataPoint({ indexes: [id], blobs: [id, event, kind], doubles: [1] }); // fire-and-forget, never blocks or fails the request
+    env.AU.writeDataPoint({ indexes: [login.toLowerCase()], blobs: [login, event, kind], doubles: [1] }); // fire-and-forget
   } catch { /* usage counting must never break the app */ }
 }
 

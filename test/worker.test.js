@@ -94,7 +94,7 @@ test('api: signed out is preview mode; signed in reaches GitHub with the user to
   assert.equal(calls.findLast((c) => c.url.endsWith('/user')).opts.headers.Authorization, 'Bearer gho_usertoken');
 });
 
-test('usage: each signed-in /api/me writes one pseudonymous id to AU; preview and failures write nothing', async () => {
+test('usage: each signed-in /api/me writes the login to AU; preview and failures write nothing', async () => {
   const points = [];
   const usageEnv = { ...env, AU: { writeDataPoint: (p) => points.push(p) } };
   await worker.fetch(req('/api/me'), usageEnv); // signed out
@@ -103,10 +103,8 @@ test('usage: each signed-in /api/me writes one pseudonymous id to AU; preview an
   await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
   await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
   assert.equal(points.length, 2);
-  const [id] = points[0].indexes;
-  assert.match(id, /^[0-9a-f]{32}$/);
-  assert.equal(points[1].indexes[0], id, 'the same user gets the same id');
-  assert.ok(!JSON.stringify(points).includes('octo'), 'the login itself is never written');
+  assert.deepEqual(points[0], { indexes: ['octo'], blobs: ['octo', 'load', ''], doubles: [1] });
+  assert.deepEqual(points[1], points[0], 'the same user, the same index');
   const broken = { ...env, AU: { writeDataPoint: () => { throw new Error('down'); } } };
   assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), broken)).status, 200, 'a failing dataset never breaks the app');
 });
@@ -117,11 +115,10 @@ test('usage: a comment posted through Rico is counted for its author, by kind; a
   const { cookie } = await signIn();
   const post = (p, body, c = cookie) => worker.fetch(req(p, { method: 'POST', headers: { 'X-Rico': '1', Cookie: c, Origin: ORIGIN }, body: JSON.stringify(body) }), usageEnv);
   await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
-  const [id] = points[0].indexes;
-  assert.deepEqual(points[0].blobs, [id, 'load', '']);
+  const id = 'octo';
   assert.equal((await post('/api/pr-comment', { owner: 'o', repo: 'r', number: 1, text: 'hi' })).status, 200);
   assert.equal((await post('/api/comment', { owner: 'o', repo: 'r', number: 1, comment: { commit_id: 'abc1234', path: 'a.md', line: 3, body: 'x' } })).status, 200);
-  assert.deepEqual(points.slice(1).map((p) => p.blobs), [[id, 'comment', 'general'], [id, 'comment', 'line']], 'same user id as their app loads');
+  assert.deepEqual(points.slice(1).map((p) => p.blobs), [[id, 'comment', 'general'], [id, 'comment', 'line']], 'keyed by the same login as their app loads');
   assert.notEqual((await post('/api/pr-comment', { owner: 'o', repo: 'gone', number: 1, text: 'hi' })).status, 200);
   assert.notEqual((await post('/api/pr-comment', { owner: 'o', repo: 'r', number: 1, text: 'hi' }, '')).status, 200);
   assert.equal((await post('/api/review', { owner: 'o', repo: 'r', number: 1, review: { event: 'COMMENT' } })).status, 200);
