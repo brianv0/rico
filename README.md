@@ -241,6 +241,13 @@ KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone c
 the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
 (30 days).
 
+**Active users.** With the `USAGE` Analytics Engine dataset bound (it is in `wrangler.toml`; Cloudflare creates the dataset
+on the first write), every signed-in app load records one data point keyed by a pseudonymous id, an HMAC of the GitHub login
+under `SESSION_SECRET`. The login is never stored. Count distinct users with
+`CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage). The token needs *Account
+Analytics: Read*. It prints DAU, WAU, MAU and per-day / per-week history for up to the 3 months Analytics Engine keeps.
+Rotating `SESSION_SECRET` signs everyone out and also starts new ids, so counts spanning the rotation overcount.
+
 **Preview mode.** Signed-out visitors can open public pull requests read-only (a "Preview · read-only" badge and a
 Sign in button show in the header); commenting, replying and posting a review need sign-in. Private repositories are
 never shown without it. GitHub allows only 60 anonymous requests an hour per IP, and a Worker shares IPs, so set a

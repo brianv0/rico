@@ -11,6 +11,7 @@
     "test": "node --test test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js test/icon.test.js",
     "test:d2": "node --test test/d2lib.test.js test/d2svg.test.js test/tala-*.test.js",
     "build": "node scripts/build.mjs",
+    "usage": "node scripts/usage.mjs",
     "dev:cf": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "deploy:stage": "npm run build && wrangler deploy --env stage",

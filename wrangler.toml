@@ -31,6 +31,11 @@ OAUTH_SCOPE = "repo"
 binding = "SESSIONS"
 id = "4cc5499ef6ed4dc5bc4ba5eff5c02ed3"
 
+# Distinct signed-in users (DAU / WAU / MAU) as pseudonymous ids, read with `npm run usage`. Created on first write.
+[[analytics_engine_datasets]]
+binding = "USAGE"
+dataset = "rico_usage"
+
 # Staging: the same Worker as its own deployment at https://stage.ricorico.dev (`npm run deploy:stage`).
 # It needs its own GitHub OAuth app (callback https://stage.ricorico.dev/auth/callback) and its own secrets:
 #   npx wrangler secret put GITHUB_CLIENT_SECRET --env stage
@@ -47,3 +52,7 @@ OAUTH_SCOPE = "repo"
 [[env.stage.kv_namespaces]]
 binding = "SESSIONS"
 id = "752131a96ec94725bd79ceb2461921bd"   # stage-SESSIONS, separate from production
+
+[[env.stage.analytics_engine_datasets]]
+binding = "USAGE"
+dataset = "rico_usage_stage"

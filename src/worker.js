@@ -141,8 +141,30 @@ async function api(request, env, url) {
     const body = await res.json().catch(() => ({}));
     return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true });
   }
-  if (url.pathname === '/api/me' && res.ok) return json(200, { ...(await res.json()), hosted: true });
+  if (url.pathname === '/api/me' && res.ok) {
+    const me = await res.json();
+    await recordActive(env, me.login);
+    return json(200, { ...me, hosted: true });
+  }
   return res;
+}
+
+// ---- usage ----------------------------------------------------------------------------------------
+// Distinct signed-in users (DAU / WAU / MAU): every app load calls /api/me, and when the USAGE Analytics Engine dataset
+// is bound each call writes one data point keyed by a pseudonymous id, HMAC(SESSION_SECRET, login). The login itself is
+// never stored, and the id cannot be reversed by guessing logins without the secret. Query it with `npm run usage`.
+async function userId(env, login) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('rico-usage-v1:' + env.SESSION_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(String(login).toLowerCase())));
+  return Array.from(mac.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function recordActive(env, login) {
+  if (!env.USAGE || !login) return;
+  try {
+    const id = await userId(env, login);
+    env.USAGE.writeDataPoint({ indexes: [id], blobs: [id], doubles: [1] }); // fire-and-forget, never blocks or fails the request
+  } catch { /* usage counting must never break the app */ }
 }
 
 const worker = {

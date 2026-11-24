@@ -91,6 +91,23 @@ test('api: signed out is preview mode; signed in reaches GitHub with the user to
   assert.equal(calls.findLast((c) => c.url.endsWith('/user')).opts.headers.Authorization, 'Bearer gho_usertoken');
 });
 
+test('usage: each signed-in /api/me writes one pseudonymous id to USAGE; preview and failures write nothing', async () => {
+  const points = [];
+  const usageEnv = { ...env, USAGE: { writeDataPoint: (p) => points.push(p) } };
+  await worker.fetch(req('/api/me'), usageEnv); // signed out
+  assert.equal(points.length, 0);
+  const { cookie } = await signIn();
+  await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
+  await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
+  assert.equal(points.length, 2);
+  const [id] = points[0].indexes;
+  assert.match(id, /^[0-9a-f]{32}$/);
+  assert.equal(points[1].indexes[0], id, 'the same user gets the same id');
+  assert.ok(!JSON.stringify(points).includes('octo'), 'the login itself is never written');
+  const broken = { ...env, USAGE: { writeDataPoint: () => { throw new Error('down'); } } };
+  assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), broken)).status, 200, 'a failing dataset never breaks the app');
+});
+
 test('api: a forged or tampered session cookie is just signed out; a revoked token asks to sign in again', async () => {
   assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=AAAA' } }), env)).json()).preview, true);
   const revoked = await seal(env.SESSION_SECRET, { t: 'gho_revoked' }, 1e6);
