@@ -13,10 +13,14 @@ after(async () => { for (const f of cleanups) await f(); });
 /** A fresh fake GitHub and a Rico server in front of it; every test gets its own state. */
 async function setup() {
   const fake = await startFake();
-  const port = 5000 + Math.floor(Math.random() * 3000);
-  const p = spawn(process.execPath, ['server.js'], { cwd: root, env: { PATH: '/nonexistent', PORT: String(port), GITHUB_TOKEN: 't', GITHUB_API_URL: `http://127.0.0.1:${fake.port}` } });
-  await new Promise((r, j) => { p.stdout.on('data', (d) => String(d).includes('running') && r()); p.on('exit', () => j(new Error('rico exited'))); });
-  cleanups.push(async () => { p.kill(); await fake.close(); });
+  const p = spawn(process.execPath, ['server.js'], { cwd: root, env: { PATH: '/nonexistent', PORT: '0', GITHUB_TOKEN: 't', GITHUB_API_URL: `http://127.0.0.1:${fake.port}` } });
+  cleanups.push(async () => { p.kill(); await fake.close(); }); // before the wait, so a failed start still closes the fake
+  // port 0: the OS picks a free port (random ports collided now and then), and Rico prints the one it got
+  const port = await new Promise((r, j) => {
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; const m = /running at http:\/\/localhost:(\d+)/.exec(out); if (m) r(Number(m[1])); });
+    p.on('exit', (code) => j(new Error(`rico exited (${code})`)));
+  });
   const call = async (method, url, body, headers = { 'X-Rico': '1' }) => {
     const r = await fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
     const text = await r.text();

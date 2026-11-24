@@ -12,10 +12,14 @@ let fake;
 const procs = [];
 
 async function startRico(env) {
-  const port = 5000 + Math.floor(Math.random() * 3000);
-  const p = spawn(process.execPath, ['server.js'], { cwd: root, env: { PATH: '/nonexistent', PORT: String(port), ...env } });
+  const p = spawn(process.execPath, ['server.js'], { cwd: root, env: { PATH: '/nonexistent', PORT: '0', ...env } });
   procs.push(p);
-  await new Promise((r, j) => { p.stdout.on('data', (d) => String(d).includes('running') && r()); p.on('exit', () => j(new Error('rico exited'))); });
+  // port 0: the OS picks a free port (random ports collided now and then), and Rico prints the one it got
+  const port = await new Promise((r, j) => {
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; const m = /running at http:\/\/localhost:(\d+)/.exec(out); if (m) r(Number(m[1])); });
+    p.on('exit', (code) => j(new Error(`rico exited (${code})`)));
+  });
   return port;
 }
 const get = (port, p, headers = {}) => new Promise((resolve, reject) => {

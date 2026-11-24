@@ -107,7 +107,7 @@ const server = http.createServer(async (req, res) => {
 
 const argPort = process.argv.indexOf('--port');
 const port = Number(argPort > 0 ? process.argv[argPort + 1] : process.env.PORT || 4317);
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Rico running at http://localhost:${port}`);
+server.listen(port, '127.0.0.1', () => { // port 0 picks a free one (the tests do this); print the real port
+  console.log(`Rico running at http://localhost:${server.address().port}`);
   if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) console.log('Using `gh auth token` for GitHub access (or set GITHUB_TOKEN).');
 });
