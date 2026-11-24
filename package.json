@@ -8,8 +8,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js test/icon.test.js",
-    "test:d2": "node --test test/d2lib.test.js test/d2svg.test.js test/tala-*.test.js",
+    "test": "node --test --test-timeout=30000 test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js test/icon.test.js",
+    "test:d2": "node --test --test-timeout=120000 test/d2lib.test.js test/d2svg.test.js test/tala-*.test.js",
     "build": "node scripts/build.mjs",
     "usage": "node scripts/usage.mjs",
     "dev:cf": "npm run build && wrangler dev",
@@ -20,7 +20,7 @@
     "deploy:stage:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml --env stage"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.12.0",
