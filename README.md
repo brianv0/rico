@@ -241,7 +241,7 @@ KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone c
 the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
 (30 days).
 
-**Active users.** With the `USAGE` Analytics Engine dataset bound (it is in `wrangler.toml`; Cloudflare creates the dataset
+**Active users.** With the `AU` Analytics Engine binding (dataset `active_users`) (it is in `wrangler.toml`; Cloudflare creates the dataset
 on the first write), every signed-in app load records one data point keyed by a pseudonymous id, an HMAC of the GitHub login
 under `SESSION_SECRET`. The login is never stored. Count distinct users with
 `CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage). The token needs *Account

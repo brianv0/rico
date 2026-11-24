@@ -2,8 +2,8 @@
 // Distinct signed-in GitHub users of the hosted Rico: DAU, WAU, MAU and their recent history, from the Workers Analytics
 // Engine dataset the Worker writes on every signed-in app load (see recordActive in src/worker.js).
 //
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage            # production (rico_usage)
-//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage -- --stage # stage (rico_usage_stage)
+//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage            # production (active_users)
+//   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage -- --stage # stage (active_users_stage)
 //
 // The token needs the "Account Analytics: Read" permission. Analytics Engine keeps data for 3 months.
 const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -12,7 +12,7 @@ if (!account || !token) {
   console.error('Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (with Account Analytics: Read).');
   process.exit(1);
 }
-const table = process.argv.includes('--stage') ? 'rico_usage_stage' : 'rico_usage';
+const table = process.argv.includes('--stage') ? 'active_users_stage' : 'active_users';
 
 async function sql(query) {
   const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/analytics_engine/sql`, {

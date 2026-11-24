@@ -150,7 +150,7 @@ async function api(request, env, url) {
 }
 
 // ---- usage ----------------------------------------------------------------------------------------
-// Distinct signed-in users (DAU / WAU / MAU): every app load calls /api/me, and when the USAGE Analytics Engine dataset
+// Distinct signed-in users (DAU / WAU / MAU): every app load calls /api/me, and when the AU Analytics Engine dataset (active_users)
 // is bound each call writes one data point keyed by a pseudonymous id, HMAC(SESSION_SECRET, login). The login itself is
 // never stored, and the id cannot be reversed by guessing logins without the secret. Query it with `npm run usage`.
 async function userId(env, login) {
@@ -160,10 +160,10 @@ async function userId(env, login) {
 }
 
 async function recordActive(env, login) {
-  if (!env.USAGE || !login) return;
+  if (!env.AU || !login) return;
   try {
     const id = await userId(env, login);
-    env.USAGE.writeDataPoint({ indexes: [id], blobs: [id], doubles: [1] }); // fire-and-forget, never blocks or fails the request
+    env.AU.writeDataPoint({ indexes: [id], blobs: [id], doubles: [1] }); // fire-and-forget, never blocks or fails the request
   } catch { /* usage counting must never break the app */ }
 }
 
