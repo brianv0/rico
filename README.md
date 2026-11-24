@@ -241,12 +241,13 @@ KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone c
 the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
 (30 days).
 
-**Active users.** With the `AU` Analytics Engine binding (dataset `active_users`) (it is in `wrangler.toml`; Cloudflare creates the dataset
-on the first write), every signed-in app load records one data point keyed by a pseudonymous id, an HMAC of the GitHub login
-under `SESSION_SECRET`. The login is never stored. Count distinct users with
-`CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage). The token needs *Account
-Analytics: Read*. It prints DAU, WAU, MAU and per-day / per-week history for up to the 3 months Analytics Engine keeps.
-Rotating `SESSION_SECRET` signs everyone out and also starts new ids, so counts spanning the rotation overcount.
+**Active users and comments.** With the `AU` Analytics Engine binding (dataset `active_users`; Cloudflare creates it on the
+first write), every signed-in app load, and every comment posted through Rico (line, general, reply, or added to a pending
+review), records one data point keyed by a pseudonymous id, an HMAC of the GitHub login under `SESSION_SECRET`. The login
+is never stored. `CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage) prints
+DAU, WAU, MAU, per-day / per-week history, comment totals by kind, and each user's comment counts and last visit, for up
+to the 3 months Analytics Engine keeps. The token needs *Account Analytics: Read*. Rotating `SESSION_SECRET` signs
+everyone out and also starts new ids, so counts spanning the rotation overcount.
 
 **Preview mode.** Signed-out visitors can open public pull requests read-only (a "Preview · read-only" badge and a
 Sign in button show in the header); commenting, replying and posting a review need sign-in. Private repositories are

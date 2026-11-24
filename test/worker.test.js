@@ -21,6 +21,9 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.hostname === 'api.github.com' && /^\/repos\/o\/(pub|priv)\/pulls\/1$/.test(u.pathname)) {
     return Response.json({ title: 'T', state: 'open', head: { sha: 'abc1234', ref: 'h' }, base: { sha: 'def5678', ref: 'main', repo: { private: u.pathname.includes('priv') } }, user: { login: 'u' } });
   }
+  if (u.hostname === 'api.github.com' && opts.method === 'POST' && /^\/repos\/o\/r\/(issues|pulls)\/1\/comments$/.test(u.pathname)) {
+    return Response.json({ id: 77, user: { login: 'octo' }, body: 'x', created_at: 't', html_url: 'h' }, { status: 201 });
+  }
   if (u.hostname === 'api.github.com' && /\/pulls\/1\/(files|comments)$/.test(u.pathname)) return Response.json([]);
   if (u.hostname === 'api.github.com' && u.pathname.startsWith('/repos/o/gone')) return Response.json({ message: 'Not Found' }, { status: 404 });
   if (u.hostname === 'api.github.com' && u.pathname === '/repos/o/r/pulls/1/reviews') return Response.json({ id: 9, html_url: 'h', state: 'COMMENTED' });
@@ -106,6 +109,23 @@ test('usage: each signed-in /api/me writes one pseudonymous id to AU; preview an
   assert.ok(!JSON.stringify(points).includes('octo'), 'the login itself is never written');
   const broken = { ...env, AU: { writeDataPoint: () => { throw new Error('down'); } } };
   assert.equal((await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), broken)).status, 200, 'a failing dataset never breaks the app');
+});
+
+test('usage: a comment posted through Rico is counted for its author, by kind; a failed or signed-out post is not', async () => {
+  const points = [];
+  const usageEnv = { ...env, AU: { writeDataPoint: (p) => points.push(p) } };
+  const { cookie } = await signIn();
+  const post = (p, body, c = cookie) => worker.fetch(req(p, { method: 'POST', headers: { 'X-Rico': '1', Cookie: c, Origin: ORIGIN }, body: JSON.stringify(body) }), usageEnv);
+  await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), usageEnv);
+  const [id] = points[0].indexes;
+  assert.deepEqual(points[0].blobs, [id, 'load', '']);
+  assert.equal((await post('/api/pr-comment', { owner: 'o', repo: 'r', number: 1, text: 'hi' })).status, 200);
+  assert.equal((await post('/api/comment', { owner: 'o', repo: 'r', number: 1, comment: { commit_id: 'abc1234', path: 'a.md', line: 3, body: 'x' } })).status, 200);
+  assert.deepEqual(points.slice(1).map((p) => p.blobs), [[id, 'comment', 'general'], [id, 'comment', 'line']], 'same user id as their app loads');
+  assert.notEqual((await post('/api/pr-comment', { owner: 'o', repo: 'gone', number: 1, text: 'hi' })).status, 200);
+  assert.notEqual((await post('/api/pr-comment', { owner: 'o', repo: 'r', number: 1, text: 'hi' }, '')).status, 200);
+  assert.equal((await post('/api/review', { owner: 'o', repo: 'r', number: 1, review: { event: 'COMMENT' } })).status, 200);
+  assert.equal(points.length, 3, 'failures, signed-out posts and non-comment writes add nothing');
 });
 
 test('api: a forged or tampered session cookie is just signed out; a revoked token asks to sign in again', async () => {
