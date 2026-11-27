@@ -49,6 +49,7 @@ export const TASKS8 = [
   '# Tasks: Login', '', '## Phase 1: Setup', '', '- [ ] T001 Create the project in src/', '- [ ] T002 [P] Configure linting', '',
   '## Phase 2: User Story 1', '', '- [ ] T010 [US1] Write the login test in tests/login.test.ts (FR-001)', '- [ ] T011 [US1] Implement login in src/login.ts after T010', '',
 ].join('\n');
+export const CHECKLIST8 = '# Specification Quality Checklist\n\n- [x] Requirements are testable\n- [ ] No [NEEDS CLARIFICATION] markers remain\n';
 export const CONSTITUTION8 = '# Constitution\n\n## I. Test first\n\nTests come before code.\n';
 const lines8 = (t) => t.replace(/\n$/, '').split('\n');
 const add8 = (t) => `@@ -0,0 +1,${lines8(t).length} @@\n` + lines8(t).map((l) => '+' + l).join('\n');
@@ -329,8 +330,9 @@ export async function startFake() {
           if (state.dirs.has(`${ref}:${path}`)) return json(state.dirs.get(`${ref}:${path}`));
           if (state.contents.has(`${ref}:${path}`)) return text(state.contents.get(`${ref}:${path}`));
           if (ref === SHA8) {
-            const f8 = { 'specs/001-login/spec.md': SPEC8, 'specs/001-login/plan.md': PLAN8, 'specs/001-login/tasks.md': TASKS8, '.specify/memory/constitution.md': CONSTITUTION8 };
+            const f8 = { 'specs/001-login/spec.md': SPEC8, 'specs/001-login/plan.md': PLAN8, 'specs/001-login/tasks.md': TASKS8, 'specs/001-login/checklists/requirements.md': CHECKLIST8, '.specify/memory/constitution.md': CONSTITUTION8 };
             if (path === 'specs/001-login') return json(['spec.md', 'plan.md', 'tasks.md'].map((name) => ({ name, path: `specs/001-login/${name}`, type: 'file' })).concat([{ name: 'contracts', path: 'specs/001-login/contracts', type: 'dir' }]));
+            if (path === 'specs/001-login/checklists') return json([{ name: 'requirements.md', path: 'specs/001-login/checklists/requirements.md', type: 'file' }]);
             if (path === '.specify/memory') return json([{ name: 'constitution.md', path: '.specify/memory/constitution.md', type: 'file' }]);
             if (f8[path] !== undefined) return text(f8[path]);
             if (/^(specs|\.specify)\//.test(path)) return json({ message: 'Not Found' }, 404);

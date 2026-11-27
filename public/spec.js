@@ -158,7 +158,7 @@ export function referencePlan(info, changed = new Set()) {
   if (info.id === 'speckit') {
     for (const u of info.units) {
       if (u.key === 'constitution') continue;
-      out.dirs.push({ dir: u.dir, unit: u.key });
+      out.dirs.push({ dir: u.dir, unit: u.key }, { dir: `${u.dir}/checklists`, unit: u.key }); // spec.md sits in the feature folder, requirements.md in its checklists/
     }
     if (info.units.some((u) => u.key !== 'constitution')) probe(SPECKIT_CONSTITUTION[0], 'constitution', '_before', -1);
   } else if (info.id === 'openspec') {
@@ -231,13 +231,17 @@ const fenced = (lines) => {
   });
 };
 
-/** Open questions a reviewer is being asked to settle: `[NEEDS CLARIFICATION: …]`, TBD, TODO (not inside code). -> [{line, kind, text}] */
+/**
+ * Open questions a reviewer is being asked to settle: `[NEEDS CLARIFICATION: …]`, TBD, TODO (not inside code). A question has its
+ * reason after the colon; Spec Kit's own checklist says "No [NEEDS CLARIFICATION] markers remain", which is not one.
+ * -> [{line, kind, text}]
+ */
 export function findMarkers(lines) {
   const code = fenced(lines);
   const out = [];
   lines.forEach((l, i) => {
     if (code[i]) return;
-    for (const m of l.matchAll(/\[NEEDS CLARIFICATION(?::\s*([^\]]*))?\]|\bTBD\b|\bTODO\b/g)) out.push({ line: i + 1, kind: m[0].startsWith('[') ? 'clarify' : 'todo', text: (m[1] || m[0]).trim() });
+    for (const m of l.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]\s][^\]]*)\]|\bTBD\b|\bTODO\b/g)) out.push({ line: i + 1, kind: m[0].startsWith('[') ? 'clarify' : 'todo', text: (m[1] || m[0]).trim() });
   });
   return out;
 }

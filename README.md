@@ -203,7 +203,7 @@ headless tests missed: Submit hidden below the fold in a normal window, and the 
 the screen when the page was scrolled to the top.
 
 ### Against real GitHub
-`brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape:
+`brianv0/rico` has five `[test]` pull requests (never meant to merge), each a different diff shape:
 
 | PR | Covers |
 |----|--------|
@@ -211,6 +211,7 @@ the screen when the page was scrolled to the top.
 | [#2](https://github.com/brianv0/rico/pull/2) | a new file with a relative PNG, plus a modified file |
 | [#3](https://github.com/brianv0/rico/pull/3) | rename + edit, a pure rename (no patch at all), a deletion |
 | [#4](https://github.com/brianv0/rico/pull/4) | a 2,000-line document (scale) |
+| [#12](https://github.com/brianv0/rico/pull/12) | a fake Spec Kit feature: its plan, research, data model, contract, quickstart and tasks, with the spec, checklist and constitution already in the base branch (`test/spec-kit-spec`); for spec review |
 
 ```bash
 npm start                         # with GITHUB_TOKEN set

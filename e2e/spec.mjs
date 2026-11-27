@@ -34,17 +34,17 @@ try {
   // ---------------------------------------------------------------- Spec Kit
   await step('a Spec Kit PR is recognised, and its unchanged neighbours (spec.md, the constitution) join as steps in reading order', async () => {
     await open('/github.com/acme/docs/8');
-    await page.waitForFunction(() => window.__rico.state.spec?.refs.length === 2 && window.__rico.state.spec.steps.length === 4, null, { timeout: 10000 });
+    await page.waitForFunction(() => window.__rico.state.spec?.refs.length === 3 && window.__rico.state.spec.steps.length === 5, null, { timeout: 10000 });
     assert.match(await page.textContent('#spec-menu summary'), /Spec review · Spec Kit/);
-    const want = ['.specify/memory/constitution.md', 'specs/001-login/spec.md', 'specs/001-login/plan.md', 'specs/001-login/tasks.md'];
+    const want = ['.specify/memory/constitution.md', 'specs/001-login/spec.md', 'specs/001-login/checklists/requirements.md', 'specs/001-login/plan.md', 'specs/001-login/tasks.md'];
     assert.deepEqual(await cardPaths(), want);
     const collapsed = await R(() => [...document.querySelectorAll('#cards .file-card')].map((c) => c.classList.contains('collapsed')));
-    assert.deepEqual(collapsed, [true, true, false, false]); // the references wait to be opened
+    assert.deepEqual(collapsed, [true, true, true, false, false]); // the references wait to be opened
     assert.match(await page.textContent('#cards .file-card[data-path$="spec.md"] .file-header'), /Unchanged · for reference/);
     assert.equal(await page.locator('#cards .file-card[data-path$="spec.md"] .viewed').isHidden(), true);
-    assert.deepEqual(await R(() => [...document.querySelectorAll('#files .tree-file.step')].map((r) => r.querySelector('b').textContent)), ['Constitution', 'Spec', 'Plan', 'Tasks']);
-    assert.match(await page.textContent('#spec-pos'), /Step 3 of 4 · Plan/); // it opened on the first file that changed
-    assert.equal(await page.locator('#files .tree-file.step.ref').count(), 2);
+    assert.deepEqual(await R(() => [...document.querySelectorAll('#files .tree-file.step')].map((r) => r.querySelector('b').textContent)), ['Constitution', 'Spec', 'Checklist', 'Plan', 'Tasks']);
+    assert.match(await page.textContent('#spec-pos'), /Step 4 of 5 · Plan/); // it opened on the first file that changed
+    assert.equal(await page.locator('#files .tree-file.step.ref').count(), 3);
   });
 
   await step('open questions are marked, counted and ticked on the scrollbar; ids link to where they are defined', async () => {
@@ -70,7 +70,7 @@ try {
     await page.waitForFunction(() => window.__rico.state.file?.filename === 'specs/001-login/tasks.md');
     assert.equal(await R(() => window.__rico.state.viewed.has('specs/001-login/plan.md')), true);
     assert.equal(await page.locator('#cards .file-card[data-path$="plan.md"]').evaluate((c) => c.classList.contains('collapsed')), true);
-    assert.match(await page.textContent('#spec-pos'), /Step 4 of 4 · Tasks/);
+    assert.match(await page.textContent('#spec-pos'), /Step 5 of 5 · Tasks/);
     assert.equal((await page.textContent('#spec-next')).trim(), 'Finish review');
     assert.match(await page.textContent('#cards .file-card[data-path$="tasks.md"] .file-next .hint'), /map to a task/);
     await page.click('#spec-next');
@@ -91,7 +91,7 @@ try {
     assert.equal(await page.locator('.file-next:visible').count(), 0);
     await page.click('#spec-menu summary');
     await page.click('#spec-menu .menu-item:has-text("Auto-detect")');
-    await page.waitForFunction(() => window.__rico.state.spec?.on && window.__rico.state.spec.steps.length === 4, null, { timeout: 8000 });
+    await page.waitForFunction(() => window.__rico.state.spec?.on && window.__rico.state.spec.steps.length === 5, null, { timeout: 8000 });
   });
 
   // ---------------------------------------------------------------- a second round of review

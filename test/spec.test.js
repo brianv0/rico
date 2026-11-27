@@ -77,10 +77,13 @@ test('buildSteps: changed files and unchanged references in review order, other 
 test('references: Spec Kit lists the feature folder and probes the constitution; OpenSpec probes the current spec of each delta', () => {
   const sk = detectSpec(['specs/001-login/plan.md']);
   const plan = referencePlan(sk, new Set(['specs/001-login/plan.md']));
-  assert.deepEqual(plan.dirs, [{ dir: 'specs/001-login', unit: 'specs/001-login' }]);
+  assert.deepEqual(plan.dirs, [{ dir: 'specs/001-login', unit: 'specs/001-login' }, { dir: 'specs/001-login/checklists', unit: 'specs/001-login' }]);
   assert.deepEqual(plan.probes.map((p) => p.path), ['.specify/memory/constitution.md']);
   const listing = [{ name: 'spec.md', type: 'file' }, { name: 'plan.md', type: 'file' }, { name: 'notes.txt', type: 'file' }, { name: 'contracts', type: 'dir' }, { name: 'tasks.md', type: 'file' }];
   assert.deepEqual(referencesFromListing(sk, 'specs/001-login', listing, new Set(['specs/001-login/plan.md'])).map((r) => [r.path, r.role]), [['specs/001-login/spec.md', 'spec'], ['specs/001-login/tasks.md', 'tasks']]);
+  // the listing of checklists/ (names are relative to that folder, paths are not)
+  const cl = referencesFromListing(sk, 'specs/001-login', [{ name: 'requirements.md', path: 'specs/001-login/checklists/requirements.md', type: 'file' }], new Set());
+  assert.deepEqual(cl.map((r) => [r.path, r.role]), [['specs/001-login/checklists/requirements.md', 'checklist']]);
 
   const os = detectSpec(['openspec/changes/c/specs/auth/spec.md', 'openspec/changes/archive/old/specs/billing/spec.md']);
   const p2 = referencePlan(os, new Set());
@@ -101,6 +104,12 @@ test('markers: open questions are found outside code fences only', () => {
   assert.deepEqual(findMarkers(lines).map((m) => [m.line, m.kind]), [[2, 'clarify'], [3, 'todo'], [9, 'todo']]);
   assert.equal(findMarkers(lines)[0].text, 'auth method not specified - email/password, SSO, OAuth?');
   assert.deepEqual(summarize(lines), { questions: 1, todos: 2, ids: 1 });
+});
+
+test('markers: a question has a reason; Spec Kit\'s checklist line that merely names the marker is not one', () => {
+  assert.deepEqual(findMarkers(['- [ ] No [NEEDS CLARIFICATION] markers remain', '- [x] Requirements are testable']), []);
+  assert.deepEqual(findMarkers(['text [NEEDS CLARIFICATION: ] empty']), []);
+  assert.deepEqual(findMarkers(['text [NEEDS CLARIFICATION: which one?] more']).map((m) => [m.kind, m.text]), [['clarify', 'which one?']]);
 });
 
 test('ids: requirements, tasks and stories are indexed where they are defined, never inside code', () => {

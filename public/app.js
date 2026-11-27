@@ -2720,7 +2720,7 @@ function flash(node, cls = 'spec-flash') { node.classList.add(cls); setTimeout((
 
 // ids and open questions, drawn into the rendered text. They only wrap text nodes (the words stay the same), so selecting and
 // commenting across them works as before.
-const SPEC_SRC = `\\[NEEDS CLARIFICATION(?::[^\\]]*)?\\]|\\bTBD\\b|\\bTODO\\b|${ID_SRC}`;
+const SPEC_SRC = `\\[NEEDS CLARIFICATION:\\s*[^\\]\\s][^\\]]*\\]|\\bTBD\\b|\\bTODO\\b|${ID_SRC}`;
 function undecorateSpec(root) {
   for (const n of root.querySelectorAll('.spec-q, .spec-id')) n.replaceWith(document.createTextNode(n.textContent));
   root.normalize();
@@ -3065,11 +3065,16 @@ function updateQueue() {
   const bar = $('#queue-bar');
   const items = queueItems();
   state.queue = items;
+  const sig = items.map((it) => `${it.th.id}:${it.reply ? 'r' : ''}${it.changed ? 'c' : ''}:${it.th.msgs.length}`).join('|');
+  if (bar.dataset.sig === sig && (items.length ? !bar.hidden : bar.hidden)) return; // nothing changed: leave the list alone (it may be open, or in the middle of a click)
+  bar.dataset.sig = sig;
+  const wasOpen = !!bar.querySelector('details[open]');
   bar.textContent = '';
   if (!items.length) { bar.hidden = true; return; }
   bar.hidden = false;
   const menu = el('details', 'menu');
   menu.id = 'queue-menu';
+  menu.open = wasOpen;
   const sum = el('summary', 'btn');
   sum.innerHTML = `${icon('comment-discussion')} Needs you <span class="Counter">${items.length}</span>`;
   sum.title = 'Threads waiting on you. Press ] and [ to step through them.';

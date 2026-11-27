@@ -139,6 +139,31 @@ const SWEEP = () => {
     const ms = await page.evaluate(() => { const ps = [...document.querySelectorAll('#doc p')]; const p = ps[Math.floor(ps.length * 0.9)]; p.scrollIntoView(); const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); const n = w.nextNode(); const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, 20); const t = performance.now(); window.__rico.describeSelection(r); return performance.now() - t; });
     assert.ok(ms < 50, ms + 'ms');
   });
+  // ---------------- PR 12: a fake Spec Kit feature (the spec is already in the base branch) ----------------
+  await page.goto(`http://localhost:${process.env.PORT || 4317}/github.com/brianv0/rico/12`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForFunction(() => window.__rico?.state.spec?.refs?.length >= 3, null, { timeout: 60000 });
+  await page.waitForTimeout(1500);
+  await step('PR12: recognised as Spec Kit, with the unchanged constitution, spec and checklist read beside the changed files', async () => {
+    const t = await page.evaluate(() => ({ pill: document.querySelector('#spec-menu summary').textContent, steps: window.__rico.state.spec.steps.map((x) => x.label + (x.ref ? '*' : '')) }));
+    assert.match(t.pill, /Spec review · Spec Kit/);
+    assert.deepEqual(t.steps, ['Constitution*', 'Spec*', 'Checklist*', 'Plan', 'Research', 'Data model', 'Quickstart', 'Tasks']);
+  });
+  await step('PR12: the two open questions are found (the checklist line that only names the marker is not one), none inside code', async () => {
+    assert.equal(await page.locator('#cards .spec-q:not(.todo)').count(), 2);
+    assert.equal(await page.locator('#cards pre .spec-q, #cards code .spec-q').count(), 0);
+  });
+  await step('PR12: ids link across files (FR-001 in the plan goes to the spec) and open the reference', async () => {
+    await page.locator('#cards .file-card[data-path$="plan.md"] .spec-id[data-id="FR-001"]').first().click();
+    await page.waitForFunction(() => window.__rico.state.file.filename.endsWith('/spec.md'));
+    assert.equal(await page.locator('#cards .file-card[data-path$="spec.md"]').evaluate((c) => c.classList.contains('collapsed')), false);
+  });
+  await step('PR12: the yaml contract is in the tree but not a review step', async () => {
+    await page.click('#tree-mode button[data-tree="files"]');
+    assert.equal(await page.locator('#files .tree-file', { hasText: 'digest-api.yaml' }).count(), 1);
+    assert.equal(await page.locator('#cards .file-card[data-path$=".yaml"]').count(), 0);
+  });
   await step('no page errors across all PRs', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
   await browser.close();
   process.exit(failed ? 1 : 0);
