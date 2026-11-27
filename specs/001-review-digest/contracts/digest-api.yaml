@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: Rico digest API
+  version: 0.1.0
+paths:
+  /api/digest:
+    get:
+      summary: Threads waiting on the signed-in viewer
+      parameters:
+        - name: exclude
+          in: query
+          description: Comma-separated owner/name pairs to leave out (FR-004)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Digest items, grouped by pull request on the page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/DigestItem" }
+        "401":
+          description: Not signed in
+components:
+  schemas:
+    DigestItem:
+      type: object
+      required: [pr, path, lastAuthor, textChanged, url]
+      properties:
+        pr: { type: object }
+        path: { type: string }
+        line: { type: integer, nullable: true }
+        lastAuthor: { type: object }
+        lastBody: { type: string }
+        textChanged: { type: boolean }
+        url: { type: string }
