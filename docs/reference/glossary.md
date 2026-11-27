@@ -3,6 +3,9 @@
 **Anchor**
 : The line, or range of lines, a review comment is attached to on GitHub.
 
+**Draft**
+: A comment you have written but not yet submitted. Drafts are kept in your browser.
+
 **Block**
 : A top-level unit of rendered markdown: a paragraph, heading, list item, table row or code block.
 
@@ -17,3 +20,6 @@
 
 **Thread**
 : A comment plus the replies under it.
+
+**Summary**
+: The text of the review itself. Selections that cannot be anchored to a diff line are appended to it.
