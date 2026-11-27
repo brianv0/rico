@@ -1494,15 +1494,37 @@ function layoutBars(root) {
     root.prepend(layer);
   }
   const base = root.getBoundingClientRect().top;
+  // two columns: the PR's own diff at the document's edge, and, beside the text, what changed since the baseline (amber; dashed
+  // red where text was removed), so "changed in this PR" and "changed since I looked" can be told apart down the whole page
+  const kindOf = (e) => (e.classList.contains('rm') ? 'del' : e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out');
+  const sinceKind = (e) => (e.classList.contains('since-gone') ? 'sgone' : 'since');
+  const what = state.since ? ({ review: 'your review', visit: 'your last visit' }[state.since.kind] || state.since.sha.slice(0, 7)) : '';
+  const bars = [
+    ...barRuns(root, '[data-l].chg, [data-l].ctx, [data-l].out, .rm', kindOf),
+    ...(state.since ? barRuns(root, '[data-l].since, .since-gone', sinceKind) : []),
+  ].map((x) => {
+    const bar = document.createElement('i');
+    bar.className = x.kind;
+    bar.style.top = (x.top - base + 2) + 'px';
+    bar.style.height = Math.max(4, x.bottom - x.top - 4) + 'px';
+    if (x.kind === 'since') bar.title = `Changed since ${what}`;
+    if (x.kind === 'sgone') bar.title = `Text removed since ${what}`;
+    return bar;
+  });
+  layer.replaceChildren(...bars);
+}
+
+/** Group the elements matching `selector` into bars: tight neighbours of one kind share a bar. -> [{kind, top, bottom}] (viewport px) */
+function barRuns(root, selector, kindOf) {
   const runs = [];
-  for (const e of root.querySelectorAll('[data-l].chg, [data-l].ctx, [data-l].out, .rm')) {
+  for (const e of root.querySelectorAll(selector)) {
     const del = e.classList.contains('rm');
     if (del ? e.parentElement.closest('.rm') : e.closest('.rm')) continue; // only the outermost removed element gets a bar
     const r = e.getBoundingClientRect();
     if (!r.height) continue; // collapsed (a closed <details>) or hidden
     const cs = getComputedStyle(e);
     const bottom = r.bottom - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderBottomWidth) || 0);
-    const kind = del ? 'del' : e.classList.contains('chg') ? 'chg' : e.classList.contains('ctx') ? 'ctx' : 'out';
+    const kind = kindOf(e);
     const heading = !del && /^H[1-6]$/.test(e.tagName);
     // Neighbouring blocks of the same kind share one bar when they sit tight together (list items, table rows);
     // paragraph breaks and headings always start a new bar.
@@ -1513,14 +1535,7 @@ function layoutBars(root) {
       last.rawBottom = Math.max(last.rawBottom, r.bottom);
     } else runs.push({ kind, heading, top: r.top, bottom, rawBottom: r.bottom });
   }
-  const bars = runs.map((x) => {
-    const bar = document.createElement('i');
-    bar.className = x.kind;
-    bar.style.top = (x.top - base + 2) + 'px';
-    bar.style.height = Math.max(4, x.bottom - x.top - 4) + 'px';
-    return bar;
-  });
-  layer.replaceChildren(...bars);
+  return runs;
 }
 
 // ---------- margin layout: aligned beside the text, or synced (sticky, non-linear scroll) when comments outgrow the doc ----------
@@ -1670,6 +1685,25 @@ function drawTicks() {
       t.title = `${it.th.msgs[0].user}: ${it.th.msgs[0].body.replace(/\s+/g, ' ').slice(0, 60)}`;
       t.addEventListener('click', () => window.scrollTo({ top: y - innerHeight * 0.3, behavior: 'smooth' }));
       box.append(t);
+    }
+    if (state.since) { // what changed since the baseline: one mark per stretch, so a long document shows where to look
+      const runs = [];
+      for (const e of v.doc.querySelectorAll('[data-l].since, .since-gone')) {
+        const r = e.getBoundingClientRect();
+        if (!r.height) continue;
+        const top = r.top + scrollY;
+        const last = runs[runs.length - 1];
+        if (last && top - last.bottom <= 40) last.bottom = Math.max(last.bottom, top + r.height); else runs.push({ top, bottom: top + r.height });
+      }
+      for (const run of runs) {
+        const t = el('button', 'tick since');
+        t.type = 'button';
+        t.style.top = (run.top / total) * 100 + '%';
+        t.style.height = `max(4px, ${((run.bottom - run.top) / total) * 100}%)`;
+        t.title = 'Changed since ' + ({ review: 'your review', visit: 'your last visit' }[state.since.kind] || state.since.sha.slice(0, 7));
+        t.addEventListener('click', () => window.scrollTo({ top: run.top - innerHeight * 0.3, behavior: 'smooth' }));
+        box.append(t);
+      }
     }
     for (const q of v.doc.querySelectorAll('.spec-q:not(.todo)')) { // open questions: the places a spec still needs an answer
       const t = el('button', 'tick q');

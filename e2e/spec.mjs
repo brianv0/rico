@@ -160,9 +160,38 @@ try {
     assert.equal(await page.locator('.file-card[data-path="docs/complex.md"]').evaluate((c) => c.classList.contains('since-new')), true);
   });
 
+  await step('the gutter: an amber column beside the text for what changed since, apart from the PR\'s own bars', async () => {
+    const g = await R(() => {
+      const d = document.getElementById('doc');
+      const dr = d.getBoundingClientRect();
+      const blk = (t) => [...d.querySelectorAll('[data-l]')].find((e) => !e.querySelector('[data-l]') && e.textContent.startsWith(t));
+      const bars = [...d.querySelectorAll('.rico-bars i')].map((b) => { const r = b.getBoundingClientRect(); return { k: b.className, x: Math.round(r.left - dr.left), top: r.top, bottom: r.bottom, title: b.title }; });
+      const over = (b, e) => { const r = e.getBoundingClientRect(); return b.top < r.bottom && b.bottom > r.top; };
+      const first = blk('First paragraph here.');
+      const second = blk('Second paragraph is hard wrapped');
+      const gone = d.querySelector('.since-gone');
+      return {
+        since: bars.filter((b) => b.k === 'since'), sgone: bars.filter((b) => b.k === 'sgone'), pr: bars.filter((b) => ['chg', 'ctx', 'out'].includes(b.k)),
+        onFirst: bars.filter((b) => b.k === 'since' && over(b, first)).length,
+        sinceOnSecond: bars.filter((b) => b.k === 'since' && over(b, second)).length, prOnSecond: bars.filter((b) => b.k === 'chg' && over(b, second)).length,
+        goneBar: bars.filter((b) => b.k === 'sgone' && over(b, gone)).length,
+      };
+    });
+    assert.equal(g.onFirst, 1); // the reworded paragraph
+    assert.equal(g.sinceOnSecond, 0); // only re-wrapped: in the PR's diff, not changed since
+    assert.ok(g.prOnSecond >= 1);
+    assert.equal(g.goneBar, 1); // the removed intro has its own (dashed) bar
+    assert.ok(Math.min(...g.since.map((b) => b.x)) > Math.max(...g.pr.map((b) => b.x)), 'the since column sits nearer the text than the PR column');
+    assert.match(g.since[0].title, /Changed since your review/);
+    assert.match(g.sgone[0].title, /Text removed since your review/);
+    await page.waitForFunction(() => document.querySelectorAll('#ticks .tick.since').length >= 1, null, { timeout: 4000 }); // and down the scrollbar, to see where to look in a long file
+    assert.match(await page.locator('#ticks .tick.since').first().getAttribute('title'), /Changed since your review/);
+  });
+
   await step('choosing the whole PR clears the marks; the baseline is in the link', async () => {
     await page.selectOption('#since-sel', '');
     await page.waitForFunction(() => document.querySelectorAll('#cards .since, #cards .sdel, #cards .since-gone').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('#doc .rico-bars i.since, #doc .rico-bars i.sgone, #ticks .tick.since').length === 0, null, { timeout: 4000 }); // the gutter and the scrollbar clear with it
     assert.doesNotMatch(new URL(page.url()).search, /since=/);
     assert.equal(await page.locator('#legend-since').isHidden(), true);
     assert.equal(await R(() => window.__rico.state.threads.find((x) => x.id === 902).sinceChanged), false);
