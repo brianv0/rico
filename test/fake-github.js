@@ -33,6 +33,26 @@ export const PATCH = [
   '@@ -11,2 +12,3 @@', ' const a = 1;', '+const b = 2;', ' ```',
 ].join('\n');
 
+// A second PR, laid out the way Spec Kit writes a feature: plan.md and tasks.md change; spec.md and the constitution do not.
+export const SHA8 = 'a8a8a8a8a8a8a8';
+export const BASE8 = 'b8b8b8b8b8b8b8';
+export const SPEC8 = [
+  '# Feature Specification: Login', '', '### User Story 1 - Sign in with a password (Priority: P1)', '', 'A user can sign in.', '', '## Requirements', '',
+  '- **FR-001**: System MUST accept an email and password.', '- **FR-002**: System MUST lock the account after five failures.',
+  '- **FR-003**: System MUST support [NEEDS CLARIFICATION: SSO, OAuth or neither?]', '', '- **SC-001**: Users sign in within two seconds.', '',
+].join('\n');
+export const PLAN8 = [
+  '# Implementation Plan: Login', '', '**Language**: TypeScript or [NEEDS CLARIFICATION: Go?]', '', 'This plan covers FR-001 and FR-002 using a session cookie.', '',
+  '## Constitution Check', '', 'Follows the project rules.', '',
+].join('\n');
+export const TASKS8 = [
+  '# Tasks: Login', '', '## Phase 1: Setup', '', '- [ ] T001 Create the project in src/', '- [ ] T002 [P] Configure linting', '',
+  '## Phase 2: User Story 1', '', '- [ ] T010 [US1] Write the login test in tests/login.test.ts (FR-001)', '- [ ] T011 [US1] Implement login in src/login.ts after T010', '',
+].join('\n');
+export const CONSTITUTION8 = '# Constitution\n\n## I. Test first\n\nTests come before code.\n';
+const lines8 = (t) => t.replace(/\n$/, '').split('\n');
+const add8 = (t) => `@@ -0,0 +1,${lines8(t).length} @@\n` + lines8(t).map((l) => '+' + l).join('\n');
+
 const C = (o) => ({ side: 'RIGHT', path: 'docs/plan.md', author_association: 'MEMBER', user: { login: 'alice', avatar_url: AVATAR }, created_at: '2026-11-18T10:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#discussion_r' + o.id, line: null, original_line: null, ...o });
 export const COMMENTS = [
   C({ id: 101, line: 6, start_line: 3, original_line: 6, original_start_line: 3, body: 'Is this **too long**?' }),
@@ -78,6 +98,10 @@ export async function startFake() {
     issueComments: [
       { id: 501, node_id: 'IC_501', user: { login: 'dave', avatar_url: AVATAR }, author_association: 'CONTRIBUTOR', created_at: '2026-11-17T08:00:00Z', updated_at: '2026-11-17T08:00:00Z', html_url: 'https://github.com/acme/docs/pull/7#issuecomment-501', body: 'General note: please also update the changelog.' },
     ],
+    contents: new Map(), // `${ref}:${path}` -> text, served before the built-in files: lets a test give a file a history
+    dirs: new Map(), // `${ref}:${dir}` -> [{name, path, type}]
+    reviews: [], // submitted reviews on PR 7, as GitHub lists them
+    viewedFiles: null, // {path: 'VIEWED' | 'UNVIEWED' | 'DISMISSED'}; null = GraphQL has no viewed state (the field is missing)
     pending: null, // {id, databaseId}
     resolved: new Set(),
     reactions: new Map(), // comment id -> [{content, mine}]
@@ -121,6 +145,18 @@ export async function startFake() {
       const err = (m) => json({ errors: [{ message: m }], data: null });
       if (!state.graphql) return json({ message: 'GraphQL is not available' }, 403);
       const pendingNode = () => (state.pending ? [{ id: state.pending.id, databaseId: state.pending.databaseId, viewerDidAuthor: true }] : []);
+      if (q.includes('viewerViewedState')) {
+        if (state.viewedFiles === null) return err("Field 'viewerViewedState' doesn't exist on type 'PullRequestChangedFile'");
+        return data({ repository: { pullRequest: { id: 'PR_7', files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: Object.entries(state.viewedFiles).map(([path, st]) => ({ path, viewerViewedState: st })) } } } });
+      }
+      if (q.includes('markFileAsViewed') || q.includes('unmarkFileAsViewed')) {
+        const on = !q.includes('unmarkFileAsViewed');
+        state.viewedFiles = { ...(state.viewedFiles || {}), [v.p]: on ? 'VIEWED' : 'UNVIEWED' };
+        ops.push({ op: on ? 'viewed' : 'unviewed', path: v.p, pr: v.id });
+        bump();
+        return data({ [on ? 'markFileAsViewed' : 'unmarkFileAsViewed']: { clientMutationId: null } });
+      }
+      if (q.includes('reviewThreads') && v.number === 8) return data({ viewer: { login: 'me' }, repository: { pullRequest: { id: 'PR_8', reviews: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } });
       if (q.includes('reviewThreads')) {
         const roots = state.comments.filter((c) => !c.in_reply_to_id);
         const nodes = roots.map((r) => {
@@ -267,6 +303,39 @@ export async function startFake() {
         if (c.user.login !== 'me') return json({ message: 'Must have admin rights to Repository.' }, 403);
         if (req.method === 'PATCH') { c.body = body.body; c.updated_at = new Date().toISOString(); ops.push({ op: 'edit-commit-comment', id: c.id, body: body.body }); bump(); return json(withReactions(c)); }
         if (req.method === 'DELETE') { state.commitComments = state.commitComments.filter((x) => x.id !== c.id); ops.push({ op: 'delete-commit-comment', id: c.id }); bump(); res.writeHead(204); return res.end(); }
+      }
+      if (u.pathname === '/repos/acme/docs/pulls/8' && req.method === 'GET') {
+        return cached('pull8', () => ({ title: 'Login spec', state: 'open', draft: false, merged: false, commits: 1, changed_files: 4, additions: 40, deletions: 0, comments: 0, review_comments: 0, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/8', user: { login: 'claude-bot', avatar_url: AVATAR }, head: { sha: SHA8, ref: 'spec/login' }, base: { ref: 'main', sha: BASE8 } }));
+      }
+      if (u.pathname === `/repos/acme/docs/compare/${BASE8}...${SHA8}`) return json({ merge_base_commit: { sha: BASE8 } });
+      if (u.pathname === '/repos/acme/docs/pulls/8/files') {
+        return json([
+          { filename: 'specs/001-login/plan.md', status: 'added', additions: lines8(PLAN8).length, deletions: 0, patch: add8(PLAN8) },
+          { filename: 'specs/001-login/tasks.md', status: 'added', additions: lines8(TASKS8).length, deletions: 0, patch: add8(TASKS8) },
+          { filename: 'specs/001-login/contracts/api.yaml', status: 'added', additions: 3, deletions: 0, patch: '@@ -0,0 +1,3 @@\n+openapi: 3.0.0\n+info: {}\n+paths: {}' },
+          { filename: 'src/login.ts', status: 'added', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+export {}' },
+        ]);
+      }
+      if (u.pathname === '/repos/acme/docs/pulls/8/comments' && req.method === 'GET') return cached('rc8', () => []);
+      if (u.pathname === '/repos/acme/docs/issues/8/comments' && req.method === 'GET') return cached('ic8', () => []);
+      if (u.pathname === '/repos/acme/docs/pulls/8/reviews' && req.method === 'GET') return json([]);
+      if (u.pathname === '/repos/acme/docs/pulls/7/reviews' && req.method === 'GET') return json(state.reviews);
+      { // directories and files at a given commit: anything a test registered, then PR 8's tree
+        const cm8 = /^\/repos\/acme\/docs\/contents\/(.+)$/.exec(u.pathname);
+        const ref = u.searchParams.get('ref');
+        if (cm8 && req.method === 'GET') {
+          const path = decodeURIComponent(cm8[1]);
+          if (ref === 'deadbeefdead') return json({ message: 'No commit found for the ref deadbeefdead' }, 404); // a commit that was force-pushed away
+          if (state.dirs.has(`${ref}:${path}`)) return json(state.dirs.get(`${ref}:${path}`));
+          if (state.contents.has(`${ref}:${path}`)) return text(state.contents.get(`${ref}:${path}`));
+          if (ref === SHA8) {
+            const f8 = { 'specs/001-login/spec.md': SPEC8, 'specs/001-login/plan.md': PLAN8, 'specs/001-login/tasks.md': TASKS8, '.specify/memory/constitution.md': CONSTITUTION8 };
+            if (path === 'specs/001-login') return json(['spec.md', 'plan.md', 'tasks.md'].map((name) => ({ name, path: `specs/001-login/${name}`, type: 'file' })).concat([{ name: 'contracts', path: 'specs/001-login/contracts', type: 'dir' }]));
+            if (path === '.specify/memory') return json([{ name: 'constitution.md', path: '.specify/memory/constitution.md', type: 'file' }]);
+            if (f8[path] !== undefined) return text(f8[path]);
+            if (/^(specs|\.specify)\//.test(path)) return json({ message: 'Not Found' }, 404);
+          }
+        }
       }
       if (u.pathname === '/repos/acme/docs/pulls/7' && req.method === 'GET') {
         return cached('pull', () => ({ title: 'Plan v2', state: 'open', draft: false, merged: false, commits: 2, changed_files: 7, additions: 130, deletions: 9, comments: state.issueComments.length, review_comments: state.comments.length, created_at: '2026-11-18T09:00:00Z', html_url: 'https://github.com/acme/docs/pull/7', user: { login: 'bob', avatar_url: AVATAR }, head: { sha: state.headSha, ref: 'plan' }, base: { ref: 'main', sha: BASE_SHA } }));

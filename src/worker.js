@@ -90,7 +90,7 @@ async function callback(request, env, url) {
 // Preview mode: signed-out visitors can read PUBLIC pull requests (never post). Requests use the optional PREVIEW_TOKEN
 // secret (a token with no private access, only to lift GitHub's anonymous rate limit) or none, and good responses are
 // cached at the edge for a minute so many visitors share one GitHub call.
-const PREVIEW_GET = new Set(['/api/pr', '/api/file', '/api/raw', '/api/comments', '/api/icon']);
+const PREVIEW_GET = new Set(['/api/pr', '/api/file', '/api/dir', '/api/raw', '/api/comments', '/api/icon']);
 const PREVIEW_HINT = ' Preview mode only reads public repositories; sign in with GitHub for private ones.';
 
 async function preview(env, request, url) {

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startFake, SHA, FILE, PNG, AVATAR, MERGE_BASE } from './fake-github.js';
+import { startFake, SHA, SHA8, FILE, PNG, AVATAR, MERGE_BASE } from './fake-github.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let fake;
@@ -145,7 +145,7 @@ test('GET /api/pr includes markdown review comments in compact form', async () =
   assert.deepEqual({ canUpdate, canDelete, pending, reactions, nodeId, thread: thread.id }, { canUpdate: false, canDelete: false, pending: false, reactions: [], nodeId: 'PRRC_101', thread: 'PRRT_101' });
   assert.deepEqual(base, {
     id: 101, replyTo: null, path: 'docs/plan.md', line: 6, originalLine: 6, startLine: 3, originalStartLine: 3,
-    side: 'RIGHT', user: 'alice', body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101', avatar: AVATAR, assoc: 'MEMBER',
+    side: 'RIGHT', user: 'alice', bot: false, commit: null, originalCommit: null, body: 'Is this **too long**?', createdAt: '2026-11-18T10:00:00Z', url: 'https://github.com/acme/docs/pull/7#discussion_r101', avatar: AVATAR, assoc: 'MEMBER',
   });
   assert.equal(j.comments[1].replyTo, 101);
   assert.equal(j.comments[2].line, null);
@@ -338,4 +338,79 @@ test('GET /api/comments?sha=…&branch=…: follows the branch tip (conditionall
   assert.equal(JSON.parse((await get(port, q({ etags: '{}' }))).body).branchGone, true);
   fake.state.gone = null; fake.state.branchTip = null; fake.state.version++;
   assert.equal((await get(port, q({ branch: 'a/../b' }))).status, 400);
+});
+
+test('GET /api/dir lists a directory at a commit, and validates its input', async () => {
+  const q = (o) => '/api/dir?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: 'specs/001-login', ref: SHA8, ...o });
+  const ok = await get(port, q({}));
+  assert.equal(ok.status, 200);
+  const names = JSON.parse(ok.body).map((e) => `${e.name}:${e.type}`);
+  assert.deepEqual(names, ['spec.md:file', 'plan.md:file', 'tasks.md:file', 'contracts:dir']);
+  assert.equal((await get(port, q({ path: '../x' }))).status, 400);
+  assert.equal((await get(port, q({ path: '' }))).status, 400);
+  assert.equal((await get(port, q({ ref: 'main' }))).status, 400);
+  assert.equal((await get(port, q({ path: 'specs/none' }))).status, 404);
+});
+
+test('GET /api/pr: the commit each comment was made on, and whether a bot wrote it', async () => {
+  fake.state.comments.find((c) => c.id === 101).original_commit_id = SHA;
+  fake.state.comments.find((c) => c.id === 101).commit_id = SHA;
+  fake.state.comments.find((c) => c.id === 102).user = { login: 'review-bot[bot]', type: 'Bot', avatar_url: AVATAR };
+  fake.state.version++;
+  const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
+  const c101 = j.comments.find((c) => c.id === 101);
+  const c102 = j.comments.find((c) => c.id === 102);
+  assert.deepEqual({ o: c101.originalCommit, c: c101.commit, b: c101.bot }, { o: SHA, c: SHA, b: false });
+  assert.equal(c102.bot, true);
+  assert.equal(j.comments.find((c) => c.id === 103).originalCommit, null);
+});
+
+test('GET /api/pr: the viewer baseline is the commit of their latest submitted review or comment', async () => {
+  fake.state.reviews = [];
+  fake.state.comments = fake.state.comments.filter((c) => c.user.login !== 'me');
+  fake.state.version++;
+  assert.equal(JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body).viewerBaseline, null);
+  fake.state.reviews = [
+    { id: 1, user: { login: 'me' }, commit_id: 'aaaa1111', submitted_at: '2026-11-10T10:00:00Z', state: 'COMMENTED' },
+    { id: 2, user: { login: 'someone-else' }, commit_id: 'ffff9999', submitted_at: '2026-11-12T10:00:00Z', state: 'APPROVED' },
+    { id: 3, user: { login: 'me' }, commit_id: 'bbbb2222', submitted_at: '2026-11-11T10:00:00Z', state: 'CHANGES_REQUESTED' },
+    { id: 4, user: { login: 'me' }, commit_id: 'cccc3333', submitted_at: null, state: 'PENDING' },
+  ];
+  const b = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body).viewerBaseline;
+  assert.deepEqual({ sha: b.sha, kind: b.kind }, { sha: 'bbbb2222', kind: 'review' });
+  fake.state.reviews = [];
+});
+
+test('GET /api/pr: viewed files come from GitHub, and are null (not an error) when GitHub has no such field', async () => {
+  fake.state.viewedFiles = null;
+  const none = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
+  assert.equal(none.viewedFiles, null);
+  assert.equal(none.files.length, 5); // everything else still loads
+  fake.state.viewedFiles = { 'docs/plan.md': 'VIEWED', 'docs/complex.md': 'DISMISSED', 'docs/github.md': 'UNVIEWED' };
+  const some = JSON.parse((await get(port, '/api/pr?ref=acme/docs%237')).body);
+  assert.deepEqual(some.viewedFiles, { 'docs/plan.md': 'VIEWED', 'docs/complex.md': 'DISMISSED', 'docs/github.md': 'UNVIEWED' });
+});
+
+test('POST /api/viewed marks and unmarks a file on GitHub, and validates input', async () => {
+  fake.state.viewedFiles = {};
+  const base = { owner: 'acme', repo: 'docs', number: 7, path: 'docs/plan.md' };
+  assert.equal((await post(port, '/api/viewed', { ...base, viewed: true })).status, 200);
+  assert.deepEqual(fake.state.viewedFiles, { 'docs/plan.md': 'VIEWED' });
+  assert.equal((await post(port, '/api/viewed', { ...base, viewed: false })).status, 200);
+  assert.deepEqual(fake.state.viewedFiles, { 'docs/plan.md': 'UNVIEWED' });
+  assert.deepEqual(fake.ops.filter((o) => /viewed/.test(o.op)).map((o) => [o.op, o.path]), [['viewed', 'docs/plan.md'], ['unviewed', 'docs/plan.md']]);
+  assert.equal((await post(port, '/api/viewed', { ...base, path: '../x', viewed: true })).status, 400);
+  assert.equal((await post(port, '/api/viewed', { ...base, number: 'x', viewed: true })).status, 400);
+  assert.equal((await post(port, '/api/viewed', { ...base, viewed: true, sha: SHA })).status, 400); // commits have no viewed marks
+  fake.state.viewedFiles = null;
+});
+
+test('a Spec Kit PR loads with its markdown files, and its unchanged neighbours can be read at the head commit', async () => {
+  const j = JSON.parse((await get(port, '/api/pr?ref=acme/docs%238')).body);
+  assert.deepEqual(j.files.map((f) => f.filename), ['specs/001-login/plan.md', 'specs/001-login/tasks.md']);
+  assert.equal(j.allFiles.length, 4);
+  assert.equal(j.headSha, SHA8);
+  const spec = await get(port, '/api/file?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: 'specs/001-login/spec.md', ref: SHA8 }));
+  assert.match(spec.body, /\[NEEDS CLARIFICATION: SSO/);
+  assert.equal((await get(port, '/api/file?' + new URLSearchParams({ owner: 'acme', repo: 'docs', path: '.specify/memory/missing.md', ref: SHA8 }))).status, 404);
 });
