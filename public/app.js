@@ -2859,6 +2859,7 @@ function chooseBaselines(pr, wantSince) {
 function renderSinceBar() {
   const bar = $('#since-bar');
   bar.textContent = '';
+  document.body.classList.toggle('since-on', !!state.since && state.pr?.kind !== 'commit'); // the PR's own marks step back while this layer is on
   if (!state.pr || state.pr.kind === 'commit' || !state.baselines.length) { bar.hidden = true; $('#legend-since').hidden = true; return; }
   bar.hidden = false;
   const label = el('label', 'since-label', 'Changes ');
@@ -2872,7 +2873,8 @@ function renderSinceBar() {
   bar.append(label);
   if (state.since) {
     const n = [...views.values()].reduce((a, v) => a + (v.sinceCount || 0), 0);
-    const c = el('span', 'since-count', `${n} block${n === 1 ? '' : 's'} changed`);
+    const nf = [...views.values()].filter((v) => v.sinceNew).length;
+    const c = el('span', 'since-count', `${n} block${n === 1 ? '' : 's'} changed${nf ? ` · ${nf} new file${nf === 1 ? '' : 's'}` : ''}`);
     c.id = 'since-count';
     bar.append(c);
   }
@@ -2923,6 +2925,7 @@ function repaintSince(v) { if (state.since && v.sinceLines?.sha === state.since.
 
 function clearSince(v) {
   v.card.classList.remove('since-new');
+  v.sinceNew = false;
   for (const e of v.doc.querySelectorAll('.since')) e.classList.remove('since');
   for (const e of v.doc.querySelectorAll('.sdel, .since-gone')) e.remove();
   for (const e of v.doc.querySelectorAll('.sa')) e.replaceWith(...e.childNodes);
@@ -2933,9 +2936,8 @@ function clearSince(v) {
 function paintSinceWith(v, old) {
   clearSince(v);
   const leaves = leafBlocks(v.doc).filter((e) => !isRemoved(e)).map((e) => ({ e, b: blockLines(e) }));
-  if (old === null) { // the file is new since then
-    for (const l of leaves) l.e.classList.add('since');
-    v.sinceCount = leaves.length;
+  if (old === null) { // the file is new since then: said once on its header, not on every block
+    v.sinceNew = true;
     v.card.classList.add('since-new');
   } else {
     const { added, runs } = sinceChanges(old, v.lines);

@@ -133,7 +133,7 @@ of normal review: comments still go to GitHub as before, and every feature falls
   (or since your last visit, or any commit: `?since=<sha>` in the link): changed blocks get an amber bar in the gutter, beside the text and
   apart from the PR's own green/blue/grey bars (a dashed red bar where a paragraph was removed), with a matching mark on the scrollbar
   strip so a long file shows where to look; inserted words are underlined, removed words shown as ghost text and removed paragraphs
-  as a one-line note. A paragraph that was only re-wrapped is not marked. Ghost text
+  as a one-line note. A paragraph that was only re-wrapped is not marked, and a file that is new since then is said once on its header. While this is on the PR's own bars and green tint fade, so the amber is the one clear signal. Ghost text
   is not part of the document, so selecting and anchoring never see it. Commenting is unchanged: it is still against the PR's diff.
   A baseline that was force-pushed away is dropped with a message.
 - **Outdated comments, found again.** GitHub files a comment as *outdated* when its lines change, and shows it where they used to be.

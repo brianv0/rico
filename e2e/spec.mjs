@@ -158,6 +158,9 @@ try {
     assert.equal(await page.locator('#legend-since').isVisible(), true);
     // files that did not exist then are new since then
     assert.equal(await page.locator('.file-card[data-path="docs/complex.md"]').evaluate((c) => c.classList.contains('since-new')), true);
+    assert.equal(await page.locator('.file-card[data-path="docs/complex.md"] .since').count(), 0); // said once, on the header: not on every block
+    await page.waitForFunction(() => /\d+ blocks? changed · 4 new files/.test(document.getElementById('since-count')?.textContent || ''), null, { timeout: 5000 }); // the slowest file counts when it has loaded
+    assert.equal(await R(() => document.body.classList.contains('since-on')), true); // the PR's own marks step back while this layer is on
   });
 
   await step('the gutter: an amber column beside the text for what changed since, apart from the PR\'s own bars', async () => {
@@ -194,6 +197,7 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('#doc .rico-bars i.since, #doc .rico-bars i.sgone, #ticks .tick.since').length === 0, null, { timeout: 4000 }); // the gutter and the scrollbar clear with it
     assert.doesNotMatch(new URL(page.url()).search, /since=/);
     assert.equal(await page.locator('#legend-since').isHidden(), true);
+    assert.equal(await R(() => document.body.classList.contains('since-on')), false);
     assert.equal(await R(() => window.__rico.state.threads.find((x) => x.id === 902).sinceChanged), false);
     await page.selectOption('#since-sel', OLD);
     await page.waitForSelector('#cards .since');

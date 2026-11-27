@@ -501,17 +501,19 @@ mark.spec-q.todo { background: var(--since-bg); border-bottom-color: var(--since
 
 /* what changed since the baseline */
 .k.since { background: var(--since); }
-/* the amber column in the gutter (layoutBars) beside the text; the tint is only a light echo of it */
-.markdown-body [data-l].since { background: color-mix(in srgb, var(--since) 7%, transparent); }
+/* One clear signal: the amber column in the gutter (layoutBars) says which blocks changed, the words say how. While it is on the
+   PR's own marks step back: its bars fade and its green tint goes. */
+body.since-on .markdown-body [data-l].chg { background: none; }
+body.since-on .rico-bars i:not(.since):not(.sgone) { opacity: .35; }
 .rico-bars i.since, .rico-bars i.sgone { left: -9px; pointer-events: auto; }
 .rico-bars i.since { background: var(--since); }
 .rico-bars i.sgone { background: repeating-linear-gradient(to bottom, var(--danger) 0 3px, transparent 3px 5px); }
 .rico-bars i.since::before, .rico-bars i.sgone::before { content: ""; position: absolute; inset: 0 -4px; } /* a wider target for the tooltip */
 #ticks .tick.since { right: 11px; width: 4px; background: var(--since); opacity: .9; }
-.markdown-body .sa { text-decoration: underline; text-decoration-color: var(--since); text-decoration-thickness: 2px; text-underline-offset: 2px; background: var(--since-bg); }
+.markdown-body .sa { text-decoration: underline; text-decoration-color: var(--since); text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .markdown-body .sdel { user-select: none; pointer-events: none; text-decoration: none; }
-.markdown-body .sdel::before { content: attr(data-t); color: var(--danger); text-decoration: line-through; background: var(--diff-del-bg); margin: 0 2px; font-size: .95em; }
-.markdown-body .since-gone { user-select: none; pointer-events: none; margin: 4px 0; padding: 2px 8px; font-size: 12px; color: var(--fg-muted); background: var(--diff-del-bg); border-radius: 3px; }
+.markdown-body .sdel::before { content: attr(data-t); color: color-mix(in srgb, var(--danger) 70%, var(--fg-muted)); text-decoration: line-through; margin: 0 2px; font-size: .92em; }
+.markdown-body .since-gone { user-select: none; pointer-events: none; margin: 2px 0; font-size: 12px; font-style: italic; color: var(--fg-muted); }
 .markdown-body .since-gone::before { content: attr(data-t); }
 .file-card.since-new .file-header .fname::after { content: "new since then"; margin-left: 8px; font-size: 11px; color: var(--since); }
 
