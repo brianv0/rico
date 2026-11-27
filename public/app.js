@@ -6,6 +6,8 @@ import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
 import { initSuggest, rememberPr } from './suggest.js';
 import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
+import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, buildIdIndex, ID_SRC, ROLE_HINT, ROLE_LABEL } from './spec.js';
+import { sinceChanges, reanchor, inlineDiff, pairBlocks } from './anchor.js';
 
 const $ = (s) => document.querySelector(s);
 // The page shows every changed markdown file as a card (like GitHub). All the selection / anchoring /
@@ -181,8 +183,15 @@ const state = {
   pendingReview: null, // the viewer's pending GitHub review on this PR: {id, databaseId} | null
   canThread: false, // GraphQL worked: thread ids and permissions are known
   pending: null, // composer draft: {start, end, quote, anchor, range}
-  viewed: new Set(), // files marked "Viewed" (kept in this browser)
+  viewed: new Set(), // files marked "Viewed" (on GitHub when it says so, else kept in this browser)
+  dismissed: new Set(), // files GitHub ticked as viewed that have changed since
+  viewedSync: false, // viewed marks are GitHub's (GraphQL answered)
   closedDirs: new Set(), // collapsed folders in the file tree
+  spec: null, // spec review: {info, on, changed, refs, refFiles, steps, ids}
+  treeMode: 'steps', // sidebar: the review steps, or every file
+  since: null, // the baseline commit the page marks changes against: {sha, kind, label} | null
+  baselines: [], // the baselines on offer
+  reanchored: new Map(), // `${thread id}@${head}` -> where its text is now (see anchor.js)
 };
 const views = new Map(); // path -> file view {file, card, doc, margin, lines, diff, ...}
 let cur = null; // the active view
@@ -254,11 +263,18 @@ const storeKey = () => `${prKey()}:${state.pr.headSha}`;
 function save() {
   try { localStorage.setItem(storeKey(), JSON.stringify({ summary: $('#summary').value })); } catch { /* private mode */ }
 }
-const viewedKey = () => storeKey() + ':viewed';
+const viewedKey = () => prKey() + ':viewed'; // per PR, not per commit: a push no longer forgets what you have read
 function saveViewed() { try { localStorage.setItem(viewedKey(), JSON.stringify([...state.viewed])); } catch { /* ignore */ } }
 function restore() {
   state.viewed = new Set();
-  try { state.viewed = new Set(JSON.parse(localStorage.getItem(viewedKey()) || '[]')); } catch { /* ignore */ }
+  state.dismissed = new Set();
+  try { state.viewed = new Set(JSON.parse(localStorage.getItem(viewedKey()) || localStorage.getItem(storeKey() + ':viewed') || '[]')); } catch { /* ignore */ }
+  const vf = state.pr.viewedFiles; // GitHub's own marks win, so they follow the reviewer between github.com and here
+  state.viewedSync = !!vf && state.pr.kind !== 'commit';
+  if (vf) {
+    state.viewed = new Set(Object.entries(vf).filter(([, st]) => st === 'VIEWED').map(([f]) => f));
+    state.dismissed = new Set(Object.entries(vf).filter(([, st]) => st === 'DISMISSED').map(([f]) => f));
+  }
   $('#summary').value = '';
   try {
     const v = JSON.parse(localStorage.getItem(storeKey()) || 'null');
@@ -286,7 +302,7 @@ function syncUrl(filename, push = false) {
   if (!state.pr) return;
   const p = state.pr;
   // a commit opened from a branch keeps the branch in its link, so it can follow the branch later (see refreshComments)
-  const params = new URLSearchParams({ ...(p.kind === 'commit' && p.branch ? { branch: p.branch } : {}), ...(filename ? { file: filename } : {}) });
+  const params = new URLSearchParams({ ...(p.kind === 'commit' && p.branch ? { branch: p.branch } : {}), ...(filename ? { file: filename } : {}), ...(state.since && p.kind !== 'commit' ? { since: state.since.sha.slice(0, 7) } : {}) });
   const q = params.size ? '?' + params : '';
   const url = (p.kind === 'commit' ? commitPath(p) : prPath({ owner: p.owner, repo: p.repo, number: p.number }, p.headSha)) + q;
   if (location.pathname + location.search + location.hash === url) return;
@@ -315,10 +331,15 @@ async function loadPr(ref, wantFile, wantSha = '', push = false, wantBranch = ''
     state.lastSig = JSON.stringify([pr.comments, pr.prComments, pr.pendingReview]);
     etags = {};
     restore();
+    state.reanchored = new Map();
+    setupSpec(pr);
+    chooseBaselines(pr, push ? '' : new URLSearchParams(location.search).get('since') || '');
     renderHeader();
     renderPanel();
     buildCards();
     renderFiles();
+    renderSpecBar();
+    renderSinceBar();
     if (!pr.files.length) {
       syncUrl('', push);
       $('#cards').innerHTML = `<p class="empty">This ${pr.kind === 'commit' ? 'commit' : 'PR'} changes no markdown files.</p>`;
@@ -326,16 +347,19 @@ async function loadPr(ref, wantFile, wantSha = '', push = false, wantBranch = ''
       status('');
       return;
     }
-    const first = pr.files.find((x) => x.filename === wantFile) || pr.files[0];
+    const order = orderedFiles();
+    const first = order.find((x) => x.filename === wantFile) || order[0];
     syncUrl(wantFile && first.filename === wantFile ? wantFile : '', push);
     use(views.get(first.filename)); // active before anything renders
-    const eager = [first, ...pr.files.filter((f) => f !== first)].slice(0, EAGER);
+    const eager = [first, ...order.filter((f) => f !== first)].slice(0, state.spec?.on ? 16 : EAGER);
     await Promise.all(eager.map((f) => loadView(views.get(f.filename)).catch((e) => status(e.message, true))));
     // Do NOT force the first file active again here: the user may have opened another file while these loads ran.
     if (wantFile && cur === views.get(first.filename)) scrollToCard(first.filename);
     renderFiles();
+    renderSpecBar();
     restoreComposer();
     schedulePoll();
+    resolveRefs(); // spec review: the unchanged neighbours (spec.md beside plan.md), added as they are found
   } catch (e) {
     status(e.message, true);
     return;
@@ -480,6 +504,10 @@ function renderFiles() {
   nav.textContent = '';
   const p = state.pr;
   if (!p) return;
+  const steps = !!state.spec?.on && state.treeMode === 'steps';
+  $('#tree-mode').hidden = !state.spec?.on;
+  for (const b of $('#tree-mode').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.tree === state.treeMode));
+  if (steps) return renderSteps(nav);
   const all = p.allFiles || p.files;
   const reviewable = new Set(p.files.map((f) => f.filename));
   const filter = $('#tree-filter').value.trim().toLowerCase();
@@ -509,7 +537,7 @@ function renderFiles() {
       const stCls = { added: 'st-added', removed: 'st-removed', renamed: 'st-renamed' }[f.status] || 'st-modified';
       const count = state.threads.filter((t) => t.path === n.path).length;
       const inner = `${icon(stIcon, { cls: stCls })}<span class="nm" title="${esc(n.path)}">${esc(n.name)}</span>`
-        + (state.viewed.has(n.path) ? `<span class="tick" title="Viewed">${icon('check')}</span>` : '')
+        + (state.viewed.has(n.path) ? `<span class="tick" title="Viewed">${icon('check')}</span>` : state.dismissed.has(n.path) ? `<span class="tick changed" title="Viewed before, but changed since" aria-label="Changed since you viewed it">●</span>` : '')
         + (count ? `<span class="Counter" title="${count} comment${count > 1 ? 's' : ''}">${count}</span>` : '');
       let row;
       if (reviewable.has(n.path)) {
@@ -542,7 +570,7 @@ function buildCards() {
   views.clear();
   cur = null; doc = null; margin = null;
   hideComposer();
-  for (const f of state.pr.files) {
+  for (const f of orderedFiles()) {
     const v = makeView(f);
     views.set(f.filename, v);
     host.append(v.card);
@@ -569,17 +597,19 @@ function makeView(f) {
   copy.innerHTML = icon('copy');
   copy.addEventListener('click', () => { navigator.clipboard?.writeText(f.filename).catch(() => {}); });
   const stat = el('span', 'diffstat');
-  stat.innerHTML = `<span class="add">+${f.additions}</span><span class="del">−${f.deletions}</span><span class="sqs">${[...statBlocks(f.additions, f.deletions)].map((c) => `<i class="sq ${c === 'n' ? '' : c}"></i>`).join('')}</span>`;
+  if (f.ref) stat.innerHTML = `<span class="badge ref" title="This file is not part of the PR. It is here to read beside the changes; comments on it go on the pull request.">Unchanged · for reference</span>`;
+  else stat.innerHTML = `<span class="add">+${f.additions}</span><span class="del">−${f.deletions}</span><span class="sqs">${[...statBlocks(f.additions, f.deletions)].map((c) => `<i class="sq ${c === 'n' ? '' : c}"></i>`).join('')}</span>`;
   const seg = el('div', 'seg');
   seg.setAttribute('role', 'group');
   seg.setAttribute('aria-label', 'Display');
   const mk = (label, mode, pressed) => { const b = el('button', null, label); b.type = 'button'; b.dataset.mode = mode; b.setAttribute('aria-pressed', String(pressed)); return b; };
-  seg.append(mk('Rendered', 'rendered', true), mk('Source diff', 'source', false));
+  seg.append(mk('Rendered', 'rendered', true), ...(f.ref ? [] : [mk('Source diff', 'source', false)]));
   const viewed = el('label', 'viewed');
   const vcb = el('input');
   vcb.type = 'checkbox';
   vcb.checked = state.viewed.has(f.filename);
   viewed.append(vcb, ' Viewed');
+  viewed.hidden = !!f.ref;
   head.append(chev, name, copy, stat, seg, viewed);
 
   const v = {
@@ -600,15 +630,15 @@ function makeView(f) {
   more.type = 'button';
   more.addEventListener('click', () => openFile(f.filename));
   v.doc.append(more);
-  card.append(head, body, v.src);
-  card.classList.toggle('collapsed', vcb.checked);
+  v.vcb = vcb;
+  v.chev = chev;
+  v.next = el('div', 'file-next'); // spec review: on to the next artifact
+  v.next.hidden = true;
+  card.append(head, body, v.src, v.next);
+  card.classList.toggle('collapsed', vcb.checked || !!f.ref);
+  if (f.ref) chev.setAttribute('aria-expanded', 'false');
   chev.addEventListener('click', () => { const c = card.classList.toggle('collapsed'); chev.setAttribute('aria-expanded', String(!c)); if (!c) openFile(f.filename); });
-  vcb.addEventListener('change', () => {
-    if (vcb.checked) state.viewed.add(f.filename); else state.viewed.delete(f.filename);
-    card.classList.toggle('collapsed', vcb.checked); // GitHub collapses a file once it is viewed
-    chev.setAttribute('aria-expanded', String(!vcb.checked));
-    saveViewed(); renderFiles();
-  });
+  vcb.addEventListener('change', () => setViewed(f.filename, vcb.checked));
   seg.addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (b) setMode(v, b.dataset.mode); });
   return v;
 }
@@ -664,6 +694,7 @@ async function loadView(v) {
       v.text = text;
       v.loaded = true;
       withView(v, () => renderDoc(text));
+      afterViewLoad(v);
       new ResizeObserver(() => { cancelAnimationFrame(v.raf); v.raf = requestAnimationFrame(() => withView(v, layoutMargin)); }).observe(v.doc);
     })().finally(() => { v.loading = null; });
   }
@@ -684,6 +715,7 @@ async function openFile(filename) {
   syncUrl(filename);
   scrollToCard(filename);
   renderFiles();
+  renderSpecBar();
 }
 
 function setMode(v, mode) {
@@ -950,7 +982,9 @@ function renderDoc(text) {
   doc.innerHTML = safeHtml(md.render(text));
   $('#legend').hidden = false;
   renderRemoved(cur);
+  decorateSpec(cur);
   paintBlocks();
+  repaintSince(cur);
   renderDiagrams(cur); // async; diagrams fill in when their renderer is ready
 }
 
@@ -1006,6 +1040,7 @@ const issueThread = (c) => ({ id: 'i' + c.id, kind: 'issue', msgs: [c], side: 'R
 function applyComments(data) {
   const local = [...state.threads, ...state.leftThreads].filter((t) => t.local);
   const g = groupThreads(data.comments || []);
+  for (const t of g.threads) applyReanchor(t);
   state.threads = g.threads;
   state.leftThreads = g.left;
   state.removed = g.removed;
@@ -1196,7 +1231,7 @@ function threadCard(th, rerender) {
   const owner = cur; // the file this thread belongs to (callbacks may run while another file is active)
   rerender = rerender || (() => refreshView(owner));
   const resolved = !!th.info?.resolved;
-  const card = el('div', 'thread' + (th.outdated ? ' outdated' : '') + (th.pending ? ' pending' : '') + (th.kind === 'issue' ? ' pr-level' : '') + (resolved ? ' resolved' : '') + (th.local ? ' local' : ''));
+  const card = el('div', 'thread' + (th.outdated ? ' outdated' : '') + (movedOrChanged(th) ? ' reanchored' + (th.reanchor.how === 'fuzzy' ? ' fuzzy' : '') : '') + (th.pending ? ' pending' : '') + (th.kind === 'issue' ? ' pr-level' : '') + (resolved ? ' resolved' : '') + (th.local ? ' local' : ''));
   card.dataset.id = th.id;
   if (resolved && !th.open) { // a resolved thread folds to one line, like Google Docs
     const first = th.msgs[0];
@@ -1218,9 +1253,11 @@ function threadCard(th, rerender) {
   const mid = el('div', 'mid');
   th.msgs.forEach((m, i) => {
     const d = msgEl(m, th, rerender);
-    if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : 'Outdated'));
+    if (i === 0 && (th.outdated || th.fileLevel)) d.querySelector('.who').append(el('span', 'badge', th.fileLevel ? 'File comment' : movedOrChanged(th) ? (th.reanchor.how === 'fuzzy' ? 'Outdated · probably here' : 'Outdated · moved') : state.reanchored.get(rkey(th)) === null ? 'Outdated · text not found' : 'Outdated'));
+    if (m.bot) d.querySelector('.who')?.append(el('span', 'badge bot', 'agent'));
     if (i === 0 && th.kind === 'issue') d.querySelector('.who').append(el('span', 'badge', `On the ${where()}`));
     if (folded && i > 0 && i < n - 1) mid.append(d); else card.append(d);
+    if (i === 0 && th.reanchor) { const tn = thenNowEl(th); if (tn) card.append(tn); }
     if (folded && i === 0) {
       const more = btn('', 'more linkish');
       const who = [...new Set(th.msgs.slice(1, -1).map((x) => x.user))];
@@ -1421,6 +1458,8 @@ function renderMargin() {
       }
     }
     it.blocks = blocks;
+    it.th.sinceChanged = !!(state.since && blocks.some((b) => b.classList.contains('since')));
+    if (it.th.sinceChanged) it.card.querySelector('.who')?.append(el('span', 'badge changed', 'Text changed'));
     const q = parseQuote(it.th.msgs[0].body).quote; // outdated lines found no block of their own, so there is nothing exact to show
     it.ranges = q && it.exact !== false ? quoteRanges(blocks, q) : [];
     it.card.addEventListener('mouseenter', () => { if (it.ranges.length) hoverRanges(it.ranges); else it.blocks.forEach((b) => b.classList.add('hl')); });
@@ -1441,6 +1480,7 @@ function renderMargin() {
   paintQuoteHighlights();
   layoutMargin();
   scheduleTicks();
+  scheduleQueue();
 }
 
 // Change bars: one fixed gutter column at the document's left edge, whatever the nesting, so they read as a clean
@@ -1629,6 +1669,14 @@ function drawTicks() {
       t.style.top = (y / total) * 100 + '%';
       t.title = `${it.th.msgs[0].user}: ${it.th.msgs[0].body.replace(/\s+/g, ' ').slice(0, 60)}`;
       t.addEventListener('click', () => window.scrollTo({ top: y - innerHeight * 0.3, behavior: 'smooth' }));
+      box.append(t);
+    }
+    for (const q of v.doc.querySelectorAll('.spec-q:not(.todo)')) { // open questions: the places a spec still needs an answer
+      const t = el('button', 'tick q');
+      t.type = 'button';
+      t.style.top = ((q.getBoundingClientRect().top + scrollY) / total) * 100 + '%';
+      t.title = 'Open question: ' + q.textContent.slice(0, 80);
+      t.addEventListener('click', () => { q.scrollIntoView({ block: 'center' }); flash(q); });
       box.append(t);
     }
   }
@@ -2471,6 +2519,591 @@ function showStale(sha, gone = false) {
   bar.querySelector('.msg-text').textContent = `This pull request has new commits (${sha.slice(0, 7)}). Line numbers and comment positions here are from ${state.pr.headSha.slice(0, 7)}.`;
 }
 
+// ---------- viewed marks ----------
+function setViewed(path, on) {
+  if (on) state.viewed.add(path); else state.viewed.delete(path);
+  state.dismissed.delete(path);
+  const v = views.get(path);
+  if (v) { v.vcb.checked = on; v.card.classList.toggle('collapsed', on); v.chev.setAttribute('aria-expanded', String(!on)); } // GitHub collapses a file once it is viewed
+  saveViewed();
+  renderFiles();
+  renderSpecBar();
+  if (state.viewedSync) { // GitHub's own mark: it follows the reviewer to github.com, and GitHub clears it when the file changes
+    apiPost('/api/viewed', { owner: state.pr.owner, repo: state.pr.repo, number: state.pr.number, path, viewed: on }).catch((e) => status(`Could not save the viewed mark on GitHub: ${e.message}`, true));
+  }
+}
+
+// ---------- spec review: the artifacts of an AI spec-driven workflow, in reading order ----------
+// Spec Kit, OpenSpec and Superpowers all write markdown into the repo and ask a person to read it before the agent goes on.
+// spec.js recognises the workflow from the changed paths; this turns that into a stepper, the unchanged neighbours (spec.md
+// beside plan.md), and links between the ids and open questions inside the documents.
+const specPref = () => { try { return localStorage.getItem('rico:spec') || 'auto'; } catch { return 'auto'; } };
+const setSpecPref = (v) => { try { localStorage.setItem('rico:spec', v); } catch { /* ignore */ } };
+
+function setupSpec(pr) {
+  state.spec = null;
+  if (pr.kind === 'commit') return;
+  const pref = specPref();
+  const paths = (pr.allFiles || []).filter((f) => f.status !== 'removed').map((f) => f.filename);
+  const detected = detectSpec(paths);
+  const info = pref === 'off' ? null : pref === 'auto' ? detected : detectSpec(paths, pref);
+  const on = !!info && (info.confidence === 'high' || pref !== 'auto'); // a guess from one stray file is offered, not imposed
+  const changed = new Set(pr.files.map((f) => f.filename));
+  state.spec = { pref, detected, info, on, changed, refs: [], refFiles: [], ids: new Map(), steps: buildSteps(on ? info : null, changed, []) };
+}
+
+/** The files as cards, in the order they are read: the PR's own order, or the spec review steps. */
+function orderedFiles() {
+  const s = state.spec;
+  if (!s?.on) return state.pr.files;
+  const byPath = new Map([...state.pr.files, ...s.refFiles].map((f) => [f.filename, f]));
+  return s.steps.map((st) => byPath.get(st.path)).filter(Boolean);
+}
+
+const refPrKey = () => `${state.pr.owner}/${state.pr.repo}@${state.pr.headSha}`;
+const dirCache = new Map();
+function listDir(dir) {
+  if (!dir) return Promise.resolve([]);
+  const k = `${refPrKey()}:${dir}`;
+  if (!dirCache.has(k)) dirCache.set(k, api('/api/dir?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, path: dir, ref: state.pr.headSha })).then(JSON.parse).catch(() => []));
+  return dirCache.get(k);
+}
+async function fileExists(path) {
+  const i = path.lastIndexOf('/');
+  return (await listDir(i < 0 ? '' : path.slice(0, i))).some((e) => e.path === path && e.type === 'file');
+}
+
+/** Find the unchanged neighbours (spec.md next to plan.md, the constitution, the current spec of each change) and add them as steps. */
+async function resolveRefs() {
+  const s = state.spec;
+  const p = state.pr;
+  if (!s?.on || !s.info || p.kind === 'commit') return;
+  const plan = referencePlan(s.info, s.changed);
+  const found = [];
+  await Promise.all([
+    ...plan.dirs.map(async ({ dir, unit }) => { found.push(...referencesFromListing(s.info, unit, await listDir(dir), s.changed)); }),
+    ...plan.probes.map(async (pr) => { if (await fileExists(pr.path)) found.push(pr); }),
+  ]);
+  if (state.spec !== s || state.pr !== p) return; // another PR was opened meanwhile
+  addRefs(found);
+}
+
+function addRefs(found) {
+  const s = state.spec;
+  const fresh = found.filter((r) => !s.changed.has(r.path) && !s.refs.some((x) => x.path === r.path));
+  if (!fresh.length) return;
+  s.refs.push(...fresh);
+  for (const r of fresh) s.refFiles.push({ filename: r.path, status: 'reference', additions: 0, deletions: 0, previous: null, patch: null, ref: true, role: r.role });
+  s.steps = buildSteps(s.info, s.changed, s.refs);
+  for (const f of s.refFiles) if (!views.has(f.filename)) views.set(f.filename, makeView(f));
+  const host = $('#cards');
+  for (const f of orderedFiles()) { const v = views.get(f.filename); if (v) host.append(v.card); } // re-append in order: moves the cards
+  renderFiles();
+  renderSpecBar();
+  for (const r of fresh) loadView(views.get(r.path)).catch(() => {}); // their open questions and ids matter to the reading
+}
+
+const stepIndex = (path = cur?.file.filename) => (state.spec?.on ? state.spec.steps.findIndex((x) => x.path === path) : -1);
+
+function renderSteps(nav) {
+  const s = state.spec;
+  const own = s.steps.filter((x) => !x.ref);
+  $('#viewed-count').textContent = `${own.filter((x) => state.viewed.has(x.path)).length} / ${own.length} files viewed`;
+  const filter = $('#tree-filter').value.trim().toLowerCase();
+  let unit = null;
+  s.steps.forEach((st, i) => {
+    if (filter && !st.path.toLowerCase().includes(filter)) return;
+    if (st.unit !== unit) { unit = st.unit; if (st.unitTitle) nav.append(el('div', 'step-unit', st.unitTitle)); }
+    const v = views.get(st.path);
+    const row = el('button', 'tree-file step' + (st.ref ? ' ref' : ''));
+    row.type = 'button';
+    row.dataset.path = st.path;
+    if (cur && cur.file.filename === st.path) row.setAttribute('aria-current', 'true');
+    const q = v?.markers?.filter((m) => m.kind === 'clarify').length || 0;
+    const n = state.threads.filter((t) => t.path === st.path).length;
+    row.innerHTML = `<span class="stepno">${i + 1}</span><span class="nm" title="${esc(st.path)}"><b>${esc(st.label)}</b> <small>${esc(st.path.split('/').pop())}</small></span>`
+      + (st.ref ? '<span class="reftag" title="Not changed in this PR">unchanged</span>' : '')
+      + (q ? `<span class="qcount" title="${q} open question${q > 1 ? 's' : ''}">? ${q}</span>` : '')
+      + (state.viewed.has(st.path) ? `<span class="tick" title="Viewed">${icon('check')}</span>` : state.dismissed.has(st.path) ? '<span class="tick changed" title="Viewed before, but changed since">●</span>' : '')
+      + (n ? `<span class="Counter" title="${n} comment${n > 1 ? 's' : ''}">${n}</span>` : '');
+    row.addEventListener('click', () => openFile(st.path));
+    nav.append(row);
+  });
+}
+
+function renderSpecBar() {
+  const bar = $('#spec-bar');
+  const s = state.spec;
+  bar.textContent = '';
+  refreshFooters();
+  if (!s || (!s.detected && s.pref === 'auto')) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const menu = el('details', 'menu');
+  menu.id = 'spec-menu';
+  const sum = el('summary', 'btn spec-pill', s.on ? `Spec review · ${s.info.name}` : s.pref === 'off' ? 'Spec review: off' : s.detected ? `${s.detected.name}? Review in order` : 'Spec review: off');
+  const pop = el('div', 'menu-pop spec-pop');
+  const opt = (label, value, pressed, title) => {
+    const b = el('button', 'menu-item', label);
+    b.type = 'button';
+    if (title) b.title = title;
+    b.setAttribute('aria-pressed', String(!!pressed));
+    b.addEventListener('click', () => { setSpecPref(value); menu.open = false; reloadPr(); });
+    return b;
+  };
+  if (!s.on && s.detected) pop.append(opt(`Review ${s.detected.name} in order`, s.detected.id, false, 'Read the artifacts as a sequence: spec, plan, tasks'));
+  pop.append(el('div', 'menu-head', 'Workflow'), opt('Auto-detect', 'auto', s.pref === 'auto'), opt('Spec Kit', 'speckit', s.pref === 'speckit'), opt('OpenSpec', 'openspec', s.pref === 'openspec'), opt('Superpowers', 'superpowers', s.pref === 'superpowers'), opt('Off: plain file list', 'off', s.pref === 'off'));
+  menu.append(sum, pop);
+  bar.append(menu);
+  if (!s.on) return;
+  const i = stepIndex();
+  const total = s.steps.length;
+  const prev = btn('‹', 'btn btn-icon', 'Previous step');
+  prev.id = 'spec-prev';
+  prev.disabled = i <= 0;
+  prev.addEventListener('click', () => goStep(-1));
+  const st = s.steps[i];
+  const pos = el('span', 'spec-pos', i < 0 ? `${total} steps` : `Step ${i + 1} of ${total} · ${st.label}`);
+  pos.id = 'spec-pos';
+  if (st && ROLE_HINT[st.role]) pos.title = ROLE_HINT[st.role];
+  const nx = btn(i >= 0 && i === total - 1 ? 'Finish review' : 'Next ›', 'btn btn-primary', i >= 0 && i < total - 1 ? `Mark viewed and go to ${s.steps[i + 1].label}` : 'Open the review dialog');
+  nx.id = 'spec-next';
+  nx.addEventListener('click', () => goStep(1));
+  bar.append(prev, pos, nx);
+  const qn = s.steps.reduce((a, x) => a + (views.get(x.path)?.markers?.filter((m) => m.kind === 'clarify').length || 0), 0);
+  if (qn) {
+    const q = btn(`${qn} open question${qn > 1 ? 's' : ''}`, 'linkish qlink', 'Jump to the next [NEEDS CLARIFICATION]');
+    q.id = 'spec-q';
+    q.addEventListener('click', nextQuestion);
+    bar.append(q);
+  }
+}
+
+/** Under each card: what to look for here, and the way on to the next artifact. */
+function refreshFooters() {
+  const s = state.spec;
+  for (const v of views.values()) { v.next.textContent = ''; v.next.hidden = true; }
+  if (!s?.on) return;
+  s.steps.forEach((st, i) => {
+    const v = views.get(st.path);
+    if (!v) return;
+    v.next.hidden = false;
+    if (ROLE_HINT[st.role]) v.next.append(el('span', 'hint', ROLE_HINT[st.role]));
+    const nx = s.steps[i + 1];
+    const b = btn(nx ? `Next: ${nx.label} · ${nx.path.split('/').pop()} →` : 'Finish review', 'btn');
+    b.addEventListener('click', () => goStep(1, st.path));
+    v.next.append(b);
+  });
+}
+
+async function goStep(d, from = cur?.file.filename) {
+  const s = state.spec;
+  if (!s?.on) return;
+  const i = stepIndex(from);
+  if (d > 0 && i >= 0 && !s.steps[i].ref && !state.viewed.has(s.steps[i].path)) setViewed(s.steps[i].path, true);
+  const j = i + d;
+  if (j < 0) return;
+  if (j >= s.steps.length) { setPop(true); return; } // the last step: time to finish the review
+  await openFile(s.steps[j].path);
+}
+
+async function nextQuestion() {
+  const qs = [...document.querySelectorAll('#cards .spec-q:not(.todo)')];
+  if (!qs.length) return;
+  state.qi = ((state.qi ?? -1) + 1) % qs.length;
+  const q = qs[state.qi];
+  const card = q.closest('.file-card');
+  if (card?.classList.contains('collapsed')) await openFile(card.dataset.path);
+  q.scrollIntoView({ block: 'center' });
+  flash(q);
+}
+function flash(node, cls = 'spec-flash') { node.classList.add(cls); setTimeout(() => node.classList.remove(cls), 1800); }
+
+// ids and open questions, drawn into the rendered text. They only wrap text nodes (the words stay the same), so selecting and
+// commenting across them works as before.
+const SPEC_SRC = `\\[NEEDS CLARIFICATION(?::[^\\]]*)?\\]|\\bTBD\\b|\\bTODO\\b|${ID_SRC}`;
+function undecorateSpec(root) {
+  for (const n of root.querySelectorAll('.spec-q, .spec-id')) n.replaceWith(document.createTextNode(n.textContent));
+  root.normalize();
+}
+function decorateSpec(v) {
+  const s = state.spec;
+  if (!v?.doc || !v.loaded) return;
+  undecorateSpec(v.doc);
+  if (!s?.on) return;
+  v.markers = findMarkers(v.lines);
+  const skip = 'pre, code, .away, .rm, .wdel, .sdel, figure.dia, .load-more';
+  const w = document.createTreeWalker(v.doc, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement && !n.parentElement.closest(skip) && new RegExp(SPEC_SRC).test(n.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) });
+  const nodes = [];
+  for (let n = w.nextNode(); n; n = w.nextNode()) nodes.push(n);
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    let at = 0;
+    let any = false;
+    for (const m of n.data.matchAll(new RegExp(SPEC_SRC, 'g'))) {
+      const t = m[0];
+      let node;
+      if (/^(\[|TBD$|TODO$)/.test(t)) {
+        node = el('mark', 'spec-q' + (t.startsWith('[') ? '' : ' todo'), t);
+        node.title = t.startsWith('[') ? 'An open question: someone has to settle this before the plan can go on' : 'Still to do';
+      } else {
+        const id = t.replace(/\s+/g, ' ');
+        const def = s.ids.get(id);
+        if (!def) continue;
+        const blk = n.parentElement.closest('[data-l]');
+        if (def.path === v.file.filename && blk && overlaps(blockLines(blk), def.line, def.line)) continue; // this is where it is defined
+        node = el('span', 'spec-id', t);
+        node.dataset.id = id;
+        node.tabIndex = 0;
+        node.setAttribute('role', 'link');
+        node.title = `Go to where ${id} is defined (${def.path.split('/').pop()}, line ${def.line})`;
+      }
+      frag.append(n.data.slice(at, m.index), node);
+      at = m.index + t.length;
+      any = true;
+    }
+    if (any) { frag.append(n.data.slice(at)); n.replaceWith(frag); }
+  }
+}
+
+/** The id table follows reading order and grows as files load; documents already drawn are decorated again when it does. */
+function afterViewLoad(v) {
+  const s = state.spec;
+  if (s?.on) {
+    const before = s.ids.size;
+    s.ids = buildIdIndex(s.steps.map((st) => ({ path: st.path, lines: views.get(st.path)?.lines })).filter((e) => e.lines?.length));
+    for (const o of views.values()) if (o.loaded && (o === v || s.ids.size !== before) && o.mode !== 'source') decorateSpec(o);
+    for (const r of referencesFromText(s.info, v.file.filename, v.text)) fileExists(r.path).then((ok) => { if (ok && state.spec === s) addRefs([r]); });
+    renderFiles();
+    renderSpecBar();
+  }
+  paintSince(v);
+  reanchorThreads(v);
+}
+
+async function gotoId(id) {
+  const d = state.spec?.ids.get(id);
+  if (!d) return status(`${id} is not defined in these files.`, true);
+  await openFile(d.path);
+  const v = views.get(d.path);
+  const b = leafBlocks(v.doc).find((e) => !isRemoved(e) && overlaps(blockLines(e), d.line, d.line));
+  if (b) { b.scrollIntoView({ block: 'center' }); flash(b); }
+}
+$('#cards').addEventListener('click', (e) => { const t = e.target.closest?.('.spec-id'); if (t) { e.preventDefault(); gotoId(t.dataset.id); } });
+$('#cards').addEventListener('keydown', (e) => { const t = e.target.closest?.('.spec-id'); if (t && e.key === 'Enter') { e.preventDefault(); gotoId(t.dataset.id); } });
+$('#tree-mode').addEventListener('click', (e) => { const b = e.target.closest('button[data-tree]'); if (b) { state.treeMode = b.dataset.tree; renderFiles(); } });
+
+function reloadPr() {
+  const p = state.pr;
+  if (!p) return;
+  loadPr(`${p.owner}/${p.repo}#${p.number}`, state.file?.filename || null, '', false);
+}
+
+// ---------- what changed since you last looked ----------
+// The page shows the PR's whole diff (what GitHub lets you comment on). On top of that, "changes since" marks the words that
+// changed after a baseline commit: your last review, your last visit, or any commit in the link. It is only drawn: commenting
+// works exactly as before, against the PR's diff.
+const sameSha = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+function chooseBaselines(pr, wantSince) {
+  state.since = null;
+  state.baselines = [];
+  if (pr.kind === 'commit' || !pr.headSha) return;
+  const seenKey = `rico:seen:${pr.owner}/${pr.repo}#${pr.number}`;
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem(seenKey) || '{}') || {}; } catch { /* ignore */ }
+  let prev = seen.prev || '';
+  if (seen.head && seen.head !== pr.headSha) prev = seen.head; // the head you saw last time, now behind
+  try { localStorage.setItem(seenKey, JSON.stringify({ head: pr.headSha, prev })); } catch { /* ignore */ }
+  const list = [];
+  const b = pr.viewerBaseline;
+  if (b && !sameSha(b.sha, pr.headSha)) list.push({ sha: b.sha, kind: 'review', label: `since your ${b.kind} (${b.sha.slice(0, 7)})` });
+  if (prev && !sameSha(prev, pr.headSha) && !list.some((x) => sameSha(x.sha, prev))) list.push({ sha: prev, kind: 'visit', label: `since your last visit (${prev.slice(0, 7)})` });
+  if (wantSince && !sameSha(wantSince, pr.headSha) && !list.some((x) => sameSha(x.sha, wantSince))) list.push({ sha: wantSince, kind: 'link', label: `since ${wantSince.slice(0, 7)}` });
+  state.baselines = list;
+  state.since = (wantSince ? list.find((x) => sameSha(x.sha, wantSince)) : list.find((x) => x.kind === 'review')) || null;
+}
+
+function renderSinceBar() {
+  const bar = $('#since-bar');
+  bar.textContent = '';
+  if (!state.pr || state.pr.kind === 'commit' || !state.baselines.length) { bar.hidden = true; $('#legend-since').hidden = true; return; }
+  bar.hidden = false;
+  const label = el('label', 'since-label', 'Changes ');
+  const sel = el('select');
+  sel.id = 'since-sel';
+  sel.setAttribute('aria-label', 'Mark what changed since');
+  sel.append(new Option('in the whole PR', ''), ...state.baselines.map((b) => new Option(b.label, b.sha)));
+  sel.value = state.since ? state.since.sha : '';
+  sel.addEventListener('change', () => setSince(sel.value));
+  label.append(sel);
+  bar.append(label);
+  if (state.since) {
+    const n = [...views.values()].reduce((a, v) => a + (v.sinceCount || 0), 0);
+    const c = el('span', 'since-count', `${n} block${n === 1 ? '' : 's'} changed`);
+    c.id = 'since-count';
+    bar.append(c);
+  }
+  $('#legend-since').hidden = !state.since;
+  $('#legend-since-what').textContent = state.since ? ({ review: 'your review', visit: 'your last visit' }[state.since.kind] || state.since.sha.slice(0, 7)) : '';
+}
+
+function setSince(sha) {
+  state.since = sha ? state.baselines.find((b) => b.sha === sha) || null : null;
+  syncUrl(state.file?.filename || '');
+  for (const v of views.values()) {
+    if (!v.loaded) continue;
+    if (state.since) paintSince(v);
+    else { clearSince(v); withView(v, renderMargin); }
+  }
+  renderSinceBar();
+}
+
+function sinceLines(v, sha) {
+  v.sinceCache = v.sinceCache || new Map();
+  if (!v.sinceCache.has(sha)) {
+    v.sinceCache.set(sha, api('/api/file?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, path: v.file.filename, ref: sha }))
+      .then((t) => t.split(/\r?\n/))
+      .catch((e) => { if (e.status === 404 && !/no commit found/i.test(e.message)) return null; throw e; })); // null: the file did not exist then
+  }
+  return v.sinceCache.get(sha);
+}
+
+async function paintSince(v) {
+  if (!v.loaded) return;
+  const since = state.since;
+  if (!since) { clearSince(v); return; }
+  let old;
+  try { old = await sinceLines(v, since.sha); } catch (e) {
+    if (state.since !== since) return;
+    state.baselines = state.baselines.filter((b) => b !== since);
+    state.since = null;
+    for (const o of views.values()) if (o.loaded) clearSince(o);
+    renderSinceBar();
+    status(/no commit found|not found/i.test(e.message) ? `The commit ${since.sha.slice(0, 7)} is no longer in the repository (a force-push?), so the changes since then cannot be shown.` : e.message, true);
+    return;
+  }
+  if (state.since !== since) return;
+  v.sinceLines = { sha: since.sha, lines: old };
+  paintSinceWith(v, old);
+}
+function repaintSince(v) { if (state.since && v.sinceLines?.sha === state.since.sha) paintSinceWith(v, v.sinceLines.lines); }
+
+function clearSince(v) {
+  v.card.classList.remove('since-new');
+  for (const e of v.doc.querySelectorAll('.since')) e.classList.remove('since');
+  for (const e of v.doc.querySelectorAll('.sdel, .since-gone')) e.remove();
+  for (const e of v.doc.querySelectorAll('.sa')) e.replaceWith(...e.childNodes);
+  v.doc.normalize();
+  v.sinceCount = 0;
+}
+
+function paintSinceWith(v, old) {
+  clearSince(v);
+  const leaves = leafBlocks(v.doc).filter((e) => !isRemoved(e)).map((e) => ({ e, b: blockLines(e) }));
+  if (old === null) { // the file is new since then
+    for (const l of leaves) l.e.classList.add('since');
+    v.sinceCount = leaves.length;
+    v.card.classList.add('since-new');
+  } else {
+    const { added, runs } = sinceChanges(old, v.lines);
+    for (const l of leaves) {
+      let ch = false;
+      for (let n = l.b.s; n <= l.b.e && !ch; n++) ch = added.has(n);
+      if (ch) { l.e.classList.add('since'); v.sinceCount++; }
+    }
+    if (runs.length) {
+      const oldRoot = el('div');
+      oldRoot.innerHTML = safeHtml(md.render(old.join('\n')));
+      const oldLeaves = leafBlocks(oldRoot).map((e) => { const [a, z] = e.dataset.l.split('-').map(Number); return { e, b: trimBlock(old, a, z) }; });
+      // every old block the diff touched, against every new block it touched: one paragraph can show up as a removal in one
+      // stretch and an addition in another, so the pairing is by what the blocks say
+      const olds = [];
+      for (const run of runs) if (run.oldFrom) for (const l of oldLeaves) if (overlaps(l.b, run.oldFrom, run.oldTo) && !olds.some((x) => x.l === l)) olds.push({ l, afterNew: run.afterNew });
+      const news = leaves.filter((l) => l.e.classList.contains('since'));
+      const pairs = pairBlocks(olds.map((x) => x.l.e.textContent), news.map((l) => l.e.textContent));
+      for (const [i, j] of pairs) {
+        const o = olds[i].l.e;
+        const w = news[j].e;
+        if (o.tagName === w.tagName && o.textContent.replace(/\s+/g, ' ').trim() === w.textContent.replace(/\s+/g, ' ').trim()) { // only re-wrapped: the words are the same, so nothing changed
+          w.classList.remove('since');
+          v.sinceCount--;
+          continue;
+        }
+        mergeSince(o, w);
+      }
+      const paired = new Set(pairs.map(([i]) => i));
+      olds.forEach((x, i) => { if (!paired.has(i)) ghostGone(v, x.l.e.textContent, leaves, x.afterNew); }); // removed, with nothing that replaced it
+    }
+  }
+  withView(v, renderMargin); // the cards say "text changed" for the blocks that did
+  renderSinceBar();
+  scheduleTicks();
+}
+
+// Words that changed since the baseline: inserted words are underlined, removed words are drawn as ghost text from an
+// attribute (so they are not in the document's text: selecting, copying and anchoring never see them).
+function mergeSince(oldEl, newEl) {
+  if (oldEl.tagName !== newEl.tagName || !/^(P|H[1-6]|LI)$/.test(newEl.tagName) || newEl.querySelector('ul,ol') || oldEl.querySelector('ul,ol') || newEl.classList.contains('wmerge') || newEl.querySelector('.wdel')) return;
+  const oldText = oldEl.textContent;
+  const { groups, same } = diffGroups(oldText, newEl.textContent, 3);
+  if (!same || !groups.length) return; // rewritten: the whole block is marked, which says it
+  wrapRanges(newEl, groups.filter((g) => g.ins).map((g) => g.ins), 'sa');
+  for (const g of groups.filter((x) => x.del)) ghostWords(newEl, g.at, oldText.slice(g.del[0], g.del[1]).replace(/\s+/g, ' '));
+}
+function ghostWords(root, at, text) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let ref = null;
+  for (let n = w.nextNode(), pos = 0; n; n = w.nextNode()) {
+    const end = pos + n.data.length;
+    if (at >= pos && at < end) { ref = at > pos ? n.splitText(at - pos) : n; break; }
+    pos = end;
+  }
+  let anchor = ref;
+  while (anchor && anchor.parentNode !== root && !anchor.previousSibling && anchor.parentNode.classList.contains('sa')) anchor = anchor.parentNode; // before the insertion, not inside it
+  const d = el('del', 'sdel');
+  d.dataset.t = text;
+  d.setAttribute('aria-hidden', 'true');
+  (anchor ? anchor.parentNode : root).insertBefore(d, anchor || null);
+}
+function ghostGone(v, text, leaves, afterNew) {
+  const g = el('div', 'since-gone');
+  g.dataset.t = `Removed since ${state.since?.kind === 'review' ? 'your review' : 'then'}: ${text.replace(/\s+/g, ' ').trim().slice(0, 160)}`;
+  g.setAttribute('aria-hidden', 'true');
+  const next = leaves.find((l) => l.b.s > afterNew);
+  let top = next && next.e;
+  while (top && top.parentNode !== v.doc) top = top.parentNode;
+  v.doc.insertBefore(g, top || null);
+}
+
+// ---------- comments whose lines have moved on ----------
+// GitHub files a comment as "outdated" when the lines it was on change, and shows it where those lines used to be. Here the
+// text it was about is found again in the current file (see reanchor in anchor.js), so the thread sits beside it, and says
+// what changed in that passage since.
+const origCache = new Map();
+function origLines(path, sha) {
+  const k = `${state.pr.owner}/${state.pr.repo}:${sha}:${path}`;
+  if (!origCache.has(k)) origCache.set(k, api('/api/file?' + new URLSearchParams({ owner: state.pr.owner, repo: state.pr.repo, path, ref: sha })).then((t) => t.split(/\r?\n/)));
+  return origCache.get(k);
+}
+const rkey = (th) => `${th.id}@${state.pr.headSha}`;
+function applyReanchor(th) {
+  if (!state.pr || !th.outdated || th.kind !== 'review' || th.side !== 'RIGHT') return;
+  const r = state.reanchored.get(rkey(th));
+  if (!r) return;
+  th.reanchor = r;
+  th.origText = r.origText;
+  th.start = r.start;
+  th.end = r.end;
+}
+const movedOrChanged = (th) => !!th.reanchor && (th.reanchor.how !== 'exact' || th.reanchor.start !== th.reanchor.origStart);
+async function reanchorThreads(v) {
+  const p = state.pr;
+  const path = v.file.filename;
+  let did = false;
+  for (const th of state.threads.filter((t) => t.path === path && t.outdated && !t.fileLevel && !t.local && t.side === 'RIGHT')) {
+    const key = rkey(th);
+    const root = th.msgs[0];
+    if (!root.originalCommit) continue; // GitHub did not say which commit it was made on: nothing to look the text up in
+    if (!state.reanchored.has(key)) {
+      let res = null;
+      try {
+        const orig = await origLines(path, root.originalCommit);
+        const slice = orig.slice(th.start - 1, th.end);
+        const r = reanchor(slice, v.lines, { quote: parseQuote(root.body).quote, hint: th.start });
+        if (r) res = { ...r, origStart: th.start, origEnd: th.end, origText: slice.join('\n') };
+      } catch { /* the old commit is gone, or GitHub refused: the thread stays where GitHub put it */ }
+      if (state.pr !== p) return;
+      state.reanchored.set(key, res);
+    }
+    applyReanchor(th);
+    did = true;
+  }
+  if (did && state.pr === p) withView(v, renderMargin);
+}
+
+/** "What changed here": the passage a comment was made on, then and now, for a reworded passage. */
+function thenNowEl(th) {
+  const r = th.reanchor;
+  const v = views.get(th.path);
+  if (!r || !v?.lines) return null;
+  const norm = (t) => t.replace(/\s+/g, ' ').trim();
+  const then = norm(r.origText);
+  const now = norm(v.lines.slice(r.start - 1, r.end).join('\n'));
+  if (!then || then === now) return null; // moved or re-wrapped, not changed
+  const { parts, same } = inlineDiff(then, now);
+  const d = el('details', 'thennow');
+  d.append(el('summary', null, r.how === 'fuzzy' ? 'What changed here (best match)' : 'What changed here'));
+  const body = el('div', 'tn');
+  if (same) for (const p of parts) body.append(p.t === 'same' ? document.createTextNode(p.text) : el(p.t === 'del' ? 'del' : 'ins', null, p.text));
+  else { body.append(el('div', 'tn-then', then), el('div', 'tn-now', now)); }
+  d.append(body);
+  return d;
+}
+
+// ---------- needs you ----------
+// The threads that are waiting on you: someone answered (an agent, usually), or the text you commented on changed.
+let queueTimer = 0;
+const scheduleQueue = () => { if (!queueTimer) queueTimer = setTimeout(() => { queueTimer = 0; updateQueue(); }, 0); };
+function queueItems() {
+  const me = state.me;
+  if (!me || !state.pr || state.pr.kind === 'commit') return [];
+  const isAuthor = state.pr.author === me;
+  const order = new Map([...views.keys()].map((k, i) => [k, i]));
+  const items = [];
+  for (const th of state.threads) {
+    if (th.kind !== 'review' || th.local || th.pending || th.info?.resolved) continue;
+    const last = th.msgs[th.msgs.length - 1];
+    const mine = th.msgs.some((m) => m.user === me);
+    if (!mine && !isAuthor) continue; // other people's threads on other people's PRs are not yours to answer
+    const reply = last.user !== me;
+    const changed = !!th.sinceChanged || (th.outdated && !th.reanchor) || (!!th.reanchor && th.reanchor.how !== 'exact' && th.reanchor.how !== 'rewrapped');
+    if (!reply && !(mine && changed)) continue;
+    items.push({ th, reply, changed, bot: reply && !!last.bot });
+  }
+  return items.sort((a, b) => (order.get(a.th.path) ?? 1e9) - (order.get(b.th.path) ?? 1e9) || a.th.start - b.th.start);
+}
+function updateQueue() {
+  const bar = $('#queue-bar');
+  const items = queueItems();
+  state.queue = items;
+  bar.textContent = '';
+  if (!items.length) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const menu = el('details', 'menu');
+  menu.id = 'queue-menu';
+  const sum = el('summary', 'btn');
+  sum.innerHTML = `${icon('comment-discussion')} Needs you <span class="Counter">${items.length}</span>`;
+  sum.title = 'Threads waiting on you. Press ] and [ to step through them.';
+  const pop = el('div', 'menu-pop queue-pop');
+  for (const it of items) {
+    const last = it.th.msgs[it.th.msgs.length - 1];
+    const b = el('button', 'menu-item queue-item');
+    b.type = 'button';
+    const why = [it.reply ? `${last.user}${it.bot ? ' (agent)' : ''} replied` : '', it.changed ? 'text changed' : ''].filter(Boolean).join(' · ');
+    b.innerHTML = `<span class="qwhere">${esc(it.th.path.split('/').pop())} · line ${it.th.start}</span><span class="qwhy">${esc(why)}</span><span class="qtext">${esc((parseQuote(last.body).rest || last.body).replace(/\s+/g, ' ').slice(0, 100))}</span>`;
+    b.addEventListener('click', () => { menu.open = false; state.qi = items.indexOf(it); focusThread(it.th); });
+    pop.append(b);
+  }
+  menu.append(sum, pop);
+  bar.append(menu);
+}
+async function focusThread(th) {
+  await openFile(th.path);
+  const v = views.get(th.path);
+  const it = v?.marginItems?.find((m) => String(m.th.id) === String(th.id));
+  if (it?.blocks?.[0]) it.blocks[0].scrollIntoView({ block: 'center' });
+  const card = v?.margin.querySelector(`.thread[data-id="${CSS.escape(String(th.id))}"]`);
+  if (card) { flash(card, 'flash'); (card.querySelector('.tacts button') || card).focus?.({ preventScroll: true }); }
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.key !== ']' && e.key !== '[') || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (e.target.closest?.('input, textarea, select, summary, [contenteditable]')) return;
+  const q = state.queue || [];
+  if (!q.length) return;
+  state.qi = ((state.qi ?? -1) + (e.key === ']' ? 1 : -1) + q.length) % q.length;
+  e.preventDefault();
+  focusThread(q[state.qi].th);
+});
+
 // ---------- review dialog, tree controls ----------
 const pop = $('#review-pop');
 // The dialog hangs off the toolbar, which only sticks once the page has scrolled: size it to the room that is
@@ -2576,4 +3209,4 @@ const setMergeWords = (on) => {
 };
 $('#merge-toggle')?.addEventListener('click', () => setMergeWords(!mergeWordsOn));
 $('#merge-toggle')?.setAttribute('aria-pressed', String(mergeWordsOn));
-window.__rico = { setMergeWords, setMarginMode: (m) => { marginMode = m; try { localStorage.setItem('rico:margin', m); } catch { /* ignore */ } layoutAll(); labelMargin(); }, setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };
+window.__rico = { setSince, goStep, gotoId, focusThread, updateQueue, queueItems, setViewed, nextQuestion, setMergeWords, setMarginMode: (m) => { marginMode = m; try { localStorage.setItem('rico:margin', m); } catch { /* ignore */ } layoutAll(); labelMargin(); }, setPollMs: (n) => { pollMs = n; schedulePoll(); }, state, views, use, openFile, describeSelection, groupThreads, applyComments, refreshComments, postThread };

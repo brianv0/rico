@@ -48,7 +48,10 @@
   <div class="toolbar-in">
     <button id="tree-toggle" class="btn btn-icon" type="button" title="Toggle file tree" aria-label="Toggle file tree" aria-expanded="true"></button>
     <span id="totals"></span>
+    <span id="spec-bar" class="bar" hidden></span>
+    <span id="since-bar" class="bar" hidden></span>
     <span class="spacer"></span>
+    <span id="queue-bar" class="bar" hidden></span>
     <div class="review-wrap">
       <button id="review-btn" class="btn btn-primary" type="button" aria-haspopup="dialog" aria-expanded="false"><span id="rc-label">Review changes</span> <span id="rc-count" class="Counter" hidden></span><span id="rc-caret"></span></button>
       <div id="review-pop" class="Popover" role="dialog" aria-label="Finish your review" hidden>
@@ -75,6 +78,10 @@
   <aside id="side">
     <div class="tree-head">
       <input id="tree-filter" type="search" aria-label="Filter changed files" placeholder="Filter changed files">
+      <div id="tree-mode" class="seg" role="group" aria-label="Sidebar" hidden>
+        <button type="button" data-tree="steps" aria-pressed="true">Review steps</button>
+        <button type="button" data-tree="files" aria-pressed="false">All files</button>
+      </div>
       <div id="viewed-count"></div>
     </div>
     <nav id="files" aria-label="Changed files"></nav>
@@ -86,6 +93,7 @@
       <span><i class="k del"></i>removed</span>
       <span><i class="k ctx"></i>commentable context</span>
       <span><i class="k out"></i>outside the diff (posted on the <span id="legend-where">pull request</span>)</span>
+      <span id="legend-since" hidden><i class="k since"></i>changed since <span id="legend-since-what">your review</span></span>
       <button id="merge-toggle" class="linkish" type="button" aria-pressed="true" title="Show removed and inserted words together in one paragraph, like GitHub, or as separate red and green blocks">Inline word diff</button>
     </div>
     <div id="stale" class="banner" role="status" hidden><span class="msg-text"></span> <button id="stale-reload" class="btn" type="button">Reload</button></div>
