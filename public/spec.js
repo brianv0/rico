@@ -95,7 +95,10 @@ function detectOpenspec(paths) {
     if (m) { main.push({ path, role: 'main-spec', order: 10, domain: m[1] }); matched++; }
   }
   const units = [...changes.values()];
-  for (const u of units) u.files.sort((a, b) => a.order - b.order || natural(a.domain || a.path, b.domain || b.path));
+  for (const u of units) {
+    u.files.sort((a, b) => a.order - b.order || natural(a.domain || a.path, b.domain || b.path));
+    u.files.filter((f) => f.role === 'delta').forEach((f, i) => { f.order = 20 + i * 0.01; }); // each delta its own place, so its current spec can sit right after it
+  }
   if (main.length) units.push({ key: 'openspec/specs', title: 'Main specs', dir: 'openspec/specs', order: 1, files: main.sort((a, b) => natural(a.domain, b.domain)), sure: true });
   units.sort((a, b) => a.order - b.order || natural(a.title, b.title));
   return { units, matched, confidence: 'high' };
@@ -154,7 +157,7 @@ export function referencePlan(info, changed = new Set()) {
   const out = { dirs: [], probes: [] };
   if (!info) return out;
   const known = new Set(changed);
-  const probe = (path, role, unit, order) => { if (!known.has(path) && !out.probes.some((p) => p.path === path)) out.probes.push({ path, role, unit, order }); };
+  const probe = (path, role, unit, order, domain = '') => { if (!known.has(path) && !out.probes.some((p) => p.path === path)) out.probes.push({ path, role, unit, order, domain }); };
   if (info.id === 'speckit') {
     for (const u of info.units) {
       if (u.key === 'constitution') continue;
@@ -162,7 +165,7 @@ export function referencePlan(info, changed = new Set()) {
     }
     if (info.units.some((u) => u.key !== 'constitution')) probe(SPECKIT_CONSTITUTION[0], 'constitution', '_before', -1);
   } else if (info.id === 'openspec') {
-    for (const u of info.units) for (const f of u.files) if (f.role === 'delta' && f.domain && !u.key.includes('/archive/')) probe(`openspec/specs/${f.domain}/spec.md`, 'current', u.key, f.order + 0.5);
+    for (const u of info.units) for (const f of u.files) if (f.role === 'delta' && f.domain && !u.key.includes('/archive/')) probe(`openspec/specs/${f.domain}/spec.md`, 'current', u.key, f.order + 0.005, f.domain);
   }
   return out;
 }
@@ -199,7 +202,7 @@ export function referencesFromText(info, path, text) {
  * by feature / change, with any other changed markdown last.
  *   changed:    Set of reviewable (markdown, not removed) changed paths
  *   references: [{path, role, unit, order}] already confirmed to exist
- *   -> [{path, role, label, ref: boolean, unit: key | '', unitTitle}]
+ *   -> [{path, role, label, sub (the capability, for OpenSpec specs), ref: boolean, unit: key | '', unitTitle}]
  */
 export function buildSteps(info, changed, references = []) {
   const steps = [];
@@ -207,16 +210,16 @@ export function buildSteps(info, changed, references = []) {
   const add = (s) => { if (!seen.has(s.path)) { seen.add(s.path); steps.push(s); } };
   if (info) {
     const before = references.filter((r) => r.unit === '_before').sort((a, b) => a.order - b.order);
-    for (const r of before) add({ path: r.path, role: r.role, label: ROLE_LABEL[r.role] || r.role, ref: true, unit: '', unitTitle: '' });
+    for (const r of before) add({ path: r.path, role: r.role, label: ROLE_LABEL[r.role] || r.role, sub: '', ref: true, unit: '', unitTitle: '' });
     for (const u of info.units) {
       const items = [
-        ...u.files.filter((f) => changed.has(f.path)).map((f) => ({ path: f.path, role: f.role, order: f.order, ref: false })),
-        ...references.filter((r) => r.unit === u.key).map((r) => ({ path: r.path, role: r.role, order: r.order, ref: true })),
+        ...u.files.filter((f) => changed.has(f.path)).map((f) => ({ path: f.path, role: f.role, order: f.order, ref: false, sub: f.domain || '' })),
+        ...references.filter((r) => r.unit === u.key).map((r) => ({ path: r.path, role: r.role, order: r.order, ref: true, sub: r.domain || '' })),
       ].sort((a, b) => a.order - b.order || natural(a.path, b.path));
-      for (const it of items) add({ path: it.path, role: it.role, label: ROLE_LABEL[it.role] || it.role, ref: it.ref, unit: u.key, unitTitle: u.title });
+      for (const it of items) add({ path: it.path, role: it.role, label: ROLE_LABEL[it.role] || it.role, sub: it.sub, ref: it.ref, unit: u.key, unitTitle: u.title });
     }
   }
-  for (const p of [...changed].sort(natural)) add({ path: p, role: 'other', label: ROLE_LABEL.other, ref: false, unit: '', unitTitle: info ? 'Other files' : '' });
+  for (const p of [...changed].sort(natural)) add({ path: p, role: 'other', label: ROLE_LABEL.other, sub: '', ref: false, unit: '', unitTitle: info ? 'Other files' : '' });
   return steps;
 }
 
@@ -274,6 +277,16 @@ export function buildIdIndex(entries) {
   const map = new Map();
   for (const e of entries) for (const d of indexIds(e.lines)) if (!map.has(d.id)) map.set(d.id, { path: e.path, line: d.line, kind: d.kind });
   return map;
+}
+
+/**
+ * One table per unit (a Spec Kit feature, an OpenSpec change, a Superpowers plan): FR-001 or "Task 1" in one means that unit's own,
+ * never another's. entries: [{path, unit, lines}] in review order  ->  Map(unit -> Map(id -> {path, line, kind}))
+ */
+export function buildIdIndexByUnit(entries) {
+  const by = new Map();
+  for (const e of entries) { const k = e.unit || ''; if (!by.has(k)) by.set(k, []); by.get(k).push(e); }
+  return new Map([...by].map(([k, list]) => [k, buildIdIndex(list)]));
 }
 
 /** Counts for the step list: open markers and defined ids in one document. */

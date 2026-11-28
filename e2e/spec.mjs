@@ -35,7 +35,7 @@ try {
   await step('a Spec Kit PR is recognised, and its unchanged neighbours (spec.md, the constitution) join as steps in reading order', async () => {
     await open('/github.com/acme/docs/8');
     await page.waitForFunction(() => window.__rico.state.spec?.refs.length === 3 && window.__rico.state.spec.steps.length === 5, null, { timeout: 10000 });
-    assert.match(await page.textContent('#spec-menu summary'), /Spec review · Spec Kit/);
+    assert.match(await page.textContent('#spec-menu summary'), /Review flow · Spec Kit/);
     const want = ['.specify/memory/constitution.md', 'specs/001-login/spec.md', 'specs/001-login/checklists/requirements.md', 'specs/001-login/plan.md', 'specs/001-login/tasks.md'];
     assert.deepEqual(await cardPaths(), want);
     const collapsed = await R(() => [...document.querySelectorAll('#cards .file-card')].map((c) => c.classList.contains('collapsed')));
@@ -87,7 +87,7 @@ try {
     await page.click('#spec-menu .menu-item:has-text("Off")');
     await page.waitForFunction(() => window.__rico.state.pr && window.__rico.state.spec?.pref === 'off' && window.__rico.state.spec.on === false && window.__rico.views.size === 2, null, { timeout: 8000 });
     assert.deepEqual(await cardPaths(), ['specs/001-login/plan.md', 'specs/001-login/tasks.md']); // the PR's own order, no references
-    assert.match(await page.textContent('#spec-menu summary'), /Spec review: off/);
+    assert.match(await page.textContent('#spec-menu summary'), /Review flow: off/);
     assert.equal(await page.locator('.file-next:visible').count(), 0);
     await page.click('#spec-menu summary');
     await page.click('#spec-menu .menu-item:has-text("Auto-detect")');

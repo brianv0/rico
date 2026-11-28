@@ -6,7 +6,7 @@ import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
 import { initSuggest, rememberPr } from './suggest.js';
 import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
-import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, buildIdIndex, ID_SRC, ROLE_HINT, ROLE_LABEL } from './spec.js';
+import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, buildIdIndexByUnit, ID_SRC, ROLE_HINT, ROLE_LABEL } from './spec.js';
 import { sinceChanges, reanchor, inlineDiff, pairBlocks } from './anchor.js';
 
 const $ = (s) => document.querySelector(s);
@@ -2583,7 +2583,7 @@ function setupSpec(pr) {
   const info = pref === 'off' ? null : pref === 'auto' ? detected : detectSpec(paths, pref);
   const on = !!info && (info.confidence === 'high' || pref !== 'auto'); // a guess from one stray file is offered, not imposed
   const changed = new Set(pr.files.map((f) => f.filename));
-  state.spec = { pref, detected, info, on, changed, refs: [], refFiles: [], ids: new Map(), steps: buildSteps(on ? info : null, changed, []) };
+  state.spec = { pref, detected, info, on, changed, refs: [], refFiles: [], idsByUnit: new Map(), steps: buildSteps(on ? info : null, changed, []) };
 }
 
 /** The files as cards, in the order they are read: the PR's own order, or the spec review steps. */
@@ -2655,7 +2655,7 @@ function renderSteps(nav) {
     if (cur && cur.file.filename === st.path) row.setAttribute('aria-current', 'true');
     const q = v?.markers?.filter((m) => m.kind === 'clarify').length || 0;
     const n = state.threads.filter((t) => t.path === st.path).length;
-    row.innerHTML = `<span class="stepno">${i + 1}</span><span class="nm" title="${esc(st.path)}"><b>${esc(st.label)}</b> <small>${esc(st.path.split('/').pop())}</small></span>`
+    row.innerHTML = `<span class="stepno">${i + 1}</span><span class="nm" title="${esc(st.path)}"><b>${esc(st.label)}</b> <small>${esc(st.sub || st.path.split('/').pop())}</small></span>`
       + (st.ref ? '<span class="reftag" title="Not changed in this PR">unchanged</span>' : '')
       + (q ? `<span class="qcount" title="${q} open question${q > 1 ? 's' : ''}">? ${q}</span>` : '')
       + (state.viewed.has(st.path) ? `<span class="tick" title="Viewed">${icon('check')}</span>` : state.dismissed.has(st.path) ? '<span class="tick changed" title="Viewed before, but changed since">●</span>' : '')
@@ -2674,7 +2674,7 @@ function renderSpecBar() {
   bar.hidden = false;
   const menu = el('details', 'menu');
   menu.id = 'spec-menu';
-  const sum = el('summary', 'btn spec-pill', s.on ? `Spec review · ${s.info.name}` : s.pref === 'off' ? 'Spec review: off' : s.detected ? `${s.detected.name}? Review in order` : 'Spec review: off');
+  const sum = el('summary', 'btn spec-pill', s.on ? `Review flow · ${s.info.name}` : s.detected && s.pref !== 'off' ? `Review flow: ${s.detected.name}?` : 'Review flow: off');
   const pop = el('div', 'menu-pop spec-pop');
   const opt = (label, value, pressed, title) => {
     const b = el('button', 'menu-item', label);
@@ -2684,8 +2684,8 @@ function renderSpecBar() {
     b.addEventListener('click', () => { setSpecPref(value); menu.open = false; reloadPr(); });
     return b;
   };
-  if (!s.on && s.detected) pop.append(opt(`Review ${s.detected.name} in order`, s.detected.id, false, 'Read the artifacts as a sequence: spec, plan, tasks'));
-  pop.append(el('div', 'menu-head', 'Workflow'), opt('Auto-detect', 'auto', s.pref === 'auto'), opt('Spec Kit', 'speckit', s.pref === 'speckit'), opt('OpenSpec', 'openspec', s.pref === 'openspec'), opt('Superpowers', 'superpowers', s.pref === 'superpowers'), opt('Off: plain file list', 'off', s.pref === 'off'));
+  if (!s.on && s.detected) pop.append(opt(`Use the ${s.detected.name} review flow`, s.detected.id, false, 'Read the artifacts as a sequence: spec, plan, tasks'));
+  pop.append(el('div', 'menu-head', 'Review flow'), opt('Auto-detect', 'auto', s.pref === 'auto'), opt('Spec Kit', 'speckit', s.pref === 'speckit'), opt('OpenSpec', 'openspec', s.pref === 'openspec'), opt('Superpowers', 'superpowers', s.pref === 'superpowers'), opt('Off: plain file list', 'off', s.pref === 'off'));
   menu.append(sum, pop);
   bar.append(menu);
   if (!s.on) return;
@@ -2696,7 +2696,7 @@ function renderSpecBar() {
   prev.disabled = i <= 0;
   prev.addEventListener('click', () => goStep(-1));
   const st = s.steps[i];
-  const pos = el('span', 'spec-pos', i < 0 ? `${total} steps` : `Step ${i + 1} of ${total} · ${st.label}`);
+  const pos = el('span', 'spec-pos', i < 0 ? `${total} steps` : `Step ${i + 1} of ${total} · ${st.label}${st.sub ? ' · ' + st.sub : ''}`);
   pos.id = 'spec-pos';
   if (st && ROLE_HINT[st.role]) pos.title = ROLE_HINT[st.role];
   const nx = btn(i >= 0 && i === total - 1 ? 'Finish review' : 'Next ›', 'btn btn-primary', i >= 0 && i < total - 1 ? `Mark viewed and go to ${s.steps[i + 1].label}` : 'Open the review dialog');
@@ -2723,7 +2723,7 @@ function refreshFooters() {
     v.next.hidden = false;
     if (ROLE_HINT[st.role]) v.next.append(el('span', 'hint', ROLE_HINT[st.role]));
     const nx = s.steps[i + 1];
-    const b = btn(nx ? `Next: ${nx.label} · ${nx.path.split('/').pop()} →` : 'Finish review', 'btn');
+    const b = btn(nx ? `Next: ${nx.label} · ${nx.sub || nx.path.split('/').pop()} →` : 'Finish review', 'btn');
     b.addEventListener('click', () => goStep(1, st.path));
     v.next.append(b);
   });
@@ -2781,7 +2781,7 @@ function decorateSpec(v) {
         node.title = t.startsWith('[') ? 'An open question: someone has to settle this before the plan can go on' : 'Still to do';
       } else {
         const id = t.replace(/\s+/g, ' ');
-        const def = s.ids.get(id);
+        const def = idsFor(v.file.filename)?.get(id);
         if (!def) continue;
         const blk = n.parentElement.closest('[data-l]');
         if (def.path === v.file.filename && blk && overlaps(blockLines(blk), def.line, def.line)) continue; // this is where it is defined
@@ -2803,9 +2803,10 @@ function decorateSpec(v) {
 function afterViewLoad(v) {
   const s = state.spec;
   if (s?.on) {
-    const before = s.ids.size;
-    s.ids = buildIdIndex(s.steps.map((st) => ({ path: st.path, lines: views.get(st.path)?.lines })).filter((e) => e.lines?.length));
-    for (const o of views.values()) if (o.loaded && (o === v || s.ids.size !== before) && o.mode !== 'source') decorateSpec(o);
+    const count = () => [...s.idsByUnit.values()].reduce((a, m) => a + m.size, 0);
+    const before = count();
+    s.idsByUnit = buildIdIndexByUnit(s.steps.map((st) => ({ path: st.path, unit: st.unit, lines: views.get(st.path)?.lines })).filter((e) => e.lines?.length));
+    for (const o of views.values()) if (o.loaded && (o === v || count() !== before) && o.mode !== 'source') decorateSpec(o);
     for (const r of referencesFromText(s.info, v.file.filename, v.text)) fileExists(r.path).then((ok) => { if (ok && state.spec === s) addRefs([r]); });
     renderFiles();
     renderSpecBar();
@@ -2814,16 +2815,18 @@ function afterViewLoad(v) {
   reanchorThreads(v);
 }
 
-async function gotoId(id) {
-  const d = state.spec?.ids.get(id);
+/** The ids defined in the same feature / change / plan as this file: a "Task 1" means the plan it is written in. */
+const idsFor = (path) => state.spec?.idsByUnit.get(state.spec.steps.find((x) => x.path === path)?.unit || '');
+async function gotoId(id, from) {
+  const d = idsFor(from)?.get(id);
   if (!d) return status(`${id} is not defined in these files.`, true);
   await openFile(d.path);
   const v = views.get(d.path);
   const b = leafBlocks(v.doc).find((e) => !isRemoved(e) && overlaps(blockLines(e), d.line, d.line));
   if (b) { b.scrollIntoView({ block: 'center' }); flash(b); }
 }
-$('#cards').addEventListener('click', (e) => { const t = e.target.closest?.('.spec-id'); if (t) { e.preventDefault(); gotoId(t.dataset.id); } });
-$('#cards').addEventListener('keydown', (e) => { const t = e.target.closest?.('.spec-id'); if (t && e.key === 'Enter') { e.preventDefault(); gotoId(t.dataset.id); } });
+$('#cards').addEventListener('click', (e) => { const t = e.target.closest?.('.spec-id'); if (t) { e.preventDefault(); gotoId(t.dataset.id, t.closest('.file-card')?.dataset.path); } });
+$('#cards').addEventListener('keydown', (e) => { const t = e.target.closest?.('.spec-id'); if (t && e.key === 'Enter') { e.preventDefault(); gotoId(t.dataset.id, t.closest('.file-card')?.dataset.path); } });
 $('#tree-mode').addEventListener('click', (e) => { const b = e.target.closest('button[data-tree]'); if (b) { state.treeMode = b.dataset.tree; renderFiles(); } });
 
 function reloadPr() {

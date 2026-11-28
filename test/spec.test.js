@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, indexIds, buildIdIndex, summarize, ID_SRC } from '../public/spec.js';
+import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, indexIds, buildIdIndex, buildIdIndexByUnit, summarize, ID_SRC } from '../public/spec.js';
 
 const speckit = ['README.md', 'specs/002-search/tasks.md', 'specs/001-login/plan.md', 'specs/001-login/spec.md', 'specs/001-login/tasks.md', 'specs/001-login/research.md', 'specs/001-login/data-model.md', 'specs/001-login/contracts/api.yaml', 'specs/001-login/quickstart.md', 'specs/001-login/checklists/requirements.md', 'src/app.js'];
 
@@ -91,6 +91,19 @@ test('references: Spec Kit lists the feature folder and probes the constitution;
   assert.equal(referencePlan(null).probes.length, 0);
 });
 
+test('OpenSpec: each delta is followed by the current spec it changes, not all the current specs after all the deltas', () => {
+  const paths = ['openspec/changes/c/proposal.md', 'openspec/changes/c/specs/auth/spec.md', 'openspec/changes/c/specs/billing/spec.md', 'openspec/changes/c/tasks.md'];
+  const info = detectSpec(paths);
+  const refs = referencePlan(info, new Set(paths)).probes;
+  assert.deepEqual(refs.map((p) => p.path), ['openspec/specs/auth/spec.md', 'openspec/specs/billing/spec.md']);
+  const steps = buildSteps(info, new Set(paths), refs);
+  assert.deepEqual(steps.map((s) => s.path.replace('openspec/', '')), [
+    'changes/c/proposal.md', 'changes/c/specs/auth/spec.md', 'specs/auth/spec.md', 'changes/c/specs/billing/spec.md', 'specs/billing/spec.md', 'changes/c/tasks.md',
+  ]);
+  // every spec is called spec.md: the capability is what tells them apart
+  assert.deepEqual(steps.map((s) => s.sub), ['', 'auth', 'auth', 'billing', 'billing', '']);
+});
+
 test('references: a Superpowers plan names the design it implements', () => {
   const info = detectSpec(['docs/superpowers/plans/2026-11-02-export.md']);
   const text = '# Export Implementation Plan\n\n> **For agentic workers:** …\n\n**Goal:** x\n**Spec:** `docs/superpowers/specs/2026-11-02-export-design.md`\n';
@@ -129,4 +142,20 @@ test('the id index follows reading order: the first definition wins', () => {
   const idx = buildIdIndex([spec, plan]);
   assert.deepEqual(idx.get('FR-001'), { path: 'spec.md', line: 1, kind: 'requirement' });
   assert.equal(idx.get('FR-002').path, 'plan.md');
+});
+
+test('ids are scoped to their unit: two plans (or features) that both define Task 1 / FR-001 each keep their own', () => {
+  const idx = buildIdIndexByUnit([
+    { path: 'plans/a.md', unit: 'export', lines: ['### Task 1: Formatter', '### Task 2: Button'] },
+    { path: 'plans/b.md', unit: 'keys', lines: ['### Task 1: Handler'] },
+    { path: 'specs/001/spec.md', unit: 'specs/001', lines: ['- **FR-001**: one'] },
+    { path: 'specs/002/spec.md', unit: 'specs/002', lines: ['- **FR-001**: two'] },
+    { path: 'x.md', unit: '', lines: ['- **FR-009**: stray'] },
+  ]);
+  assert.equal(idx.get('export').get('Task 1').path, 'plans/a.md');
+  assert.equal(idx.get('keys').get('Task 1').path, 'plans/b.md');
+  assert.equal(idx.get('keys').has('Task 2'), false); // defined in the other plan only
+  assert.equal(idx.get('specs/001').get('FR-001').line, 1);
+  assert.equal(idx.get('specs/002').get('FR-001').path, 'specs/002/spec.md');
+  assert.equal(idx.get('').get('FR-009').path, 'x.md');
 });

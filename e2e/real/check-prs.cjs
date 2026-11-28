@@ -139,31 +139,66 @@ const SWEEP = () => {
     const ms = await page.evaluate(() => { const ps = [...document.querySelectorAll('#doc p')]; const p = ps[Math.floor(ps.length * 0.9)]; p.scrollIntoView(); const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); const n = w.nextNode(); const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, 20); const t = performance.now(); window.__rico.describeSelection(r); return performance.now() - t; });
     assert.ok(ms < 50, ms + 'ms');
   });
-  // ---------------- PR 12: a fake Spec Kit feature (the spec is already in the base branch) ----------------
-  await page.goto(`http://localhost:${process.env.PORT || 4317}/github.com/brianv0/rico/12`);
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-  await page.waitForFunction(() => window.__rico?.state.spec?.refs?.length >= 3, null, { timeout: 60000 });
-  await page.waitForTimeout(1500);
-  await step('PR12: recognised as Spec Kit, with the unchanged constitution, spec and checklist read beside the changed files', async () => {
-    const t = await page.evaluate(() => ({ pill: document.querySelector('#spec-menu summary').textContent, steps: window.__rico.state.spec.steps.map((x) => x.label + (x.ref ? '*' : '')) }));
-    assert.match(t.pill, /Spec review · Spec Kit/);
+  // ---------------- the review flows: three example PRs in brianv0/rico-examples (see examples/README.md) ----------------
+  const loadFlow = async (n) => {
+    await page.goto(`http://localhost:${process.env.PORT || 4317}/github.com/brianv0/rico-examples/${n}`);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await page.waitForFunction(() => window.__rico?.state.spec?.steps?.length > 0, null, { timeout: 60000 });
+    await page.waitForTimeout(3500); // the unchanged neighbours are looked up after the first paint
+  };
+  const flow = () => page.evaluate(() => { const s = window.__rico.state.spec; return { pill: document.querySelector('#spec-menu summary').textContent, steps: s.steps.map((x) => x.label + (x.sub ? ` (${x.sub})` : '') + (x.ref ? '*' : '')) }; });
+
+  await loadFlow(2);
+  await step('Spec Kit: recognised, with the unchanged constitution, spec and checklist read beside the changed files', async () => {
+    const t = await flow();
+    assert.match(t.pill, /Review flow · Spec Kit/);
     assert.deepEqual(t.steps, ['Constitution*', 'Spec*', 'Checklist*', 'Plan', 'Research', 'Data model', 'Quickstart', 'Tasks']);
   });
-  await step('PR12: the two open questions are found (the checklist line that only names the marker is not one), none inside code', async () => {
+  await step('Spec Kit: the two open questions are found (the checklist line that only names the marker is not one), none inside code', async () => {
     assert.equal(await page.locator('#cards .spec-q:not(.todo)').count(), 2);
     assert.equal(await page.locator('#cards pre .spec-q, #cards code .spec-q').count(), 0);
   });
-  await step('PR12: ids link across files (FR-001 in the plan goes to the spec) and open the reference', async () => {
+  await step('Spec Kit: ids link across files (FR-001 in the plan goes to the spec) and open the reference', async () => {
     await page.locator('#cards .file-card[data-path$="plan.md"] .spec-id[data-id="FR-001"]').first().click();
     await page.waitForFunction(() => window.__rico.state.file.filename.endsWith('/spec.md'));
     assert.equal(await page.locator('#cards .file-card[data-path$="spec.md"]').evaluate((c) => c.classList.contains('collapsed')), false);
   });
-  await step('PR12: the yaml contract is in the tree but not a review step', async () => {
+  await step('Spec Kit: the yaml contract is in the tree but not a step', async () => {
     await page.click('#tree-mode button[data-tree="files"]');
     assert.equal(await page.locator('#files .tree-file', { hasText: 'digest-api.yaml' }).count(), 1);
     assert.equal(await page.locator('#cards .file-card[data-path$=".yaml"]').count(), 0);
   });
+
+  await loadFlow(3);
+  await step('Superpowers: features grouped oldest first, the merged design found through the plan\'s Spec: line', async () => {
+    const t = await flow();
+    assert.match(t.pill, /Review flow · Superpowers/);
+    assert.deepEqual(t.steps, ['Design*', 'Plan', 'Design', 'Plan']);
+  });
+  await step('Superpowers: TBD is marked, a TODO inside code is not; each plan\'s "Task 1" goes to its own plan', async () => {
+    assert.equal(await page.locator('#cards .spec-q.todo').count(), 3);
+    assert.equal(await page.locator('#cards pre .spec-q, #cards code .spec-q').count(), 0);
+    const got = await page.evaluate(async () => {
+      const out = [];
+      for (const plan of ['export-review.md', 'keyboard-nav.md']) {
+        const card = [...document.querySelectorAll('#cards .file-card')].find((c) => c.dataset.path.endsWith(plan));
+        [...card.querySelectorAll('.spec-id')].find((e) => e.dataset.id === 'Task 1').click();
+        await new Promise((r) => setTimeout(r, 600));
+        out.push(window.__rico.state.file.filename.split('/').pop());
+      }
+      return out;
+    });
+    assert.deepEqual(got, ['2026-11-27-export-review.md', '2026-11-28-keyboard-nav.md']);
+  });
+
+  await loadFlow(1);
+  await step('OpenSpec: proposal, each spec change followed by the current spec it changes (unchanged), design, tasks', async () => {
+    const t = await flow();
+    assert.match(t.pill, /Review flow · OpenSpec/);
+    assert.deepEqual(t.steps, ['Proposal', 'Spec changes (audit)', 'Spec changes (auth)', 'Current spec (auth)*', 'Design', 'Tasks']);
+  });
+
   await step('no page errors across all PRs', async () => assert.deepEqual(errors, [], JSON.stringify(errors)));
   await browser.close();
   process.exit(failed ? 1 : 0);

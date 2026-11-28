@@ -107,13 +107,18 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
 - Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
   markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 
-## Reviewing AI spec-driven work
+## Review flows
 Spec-driven AI workflows write markdown into the repo (a spec, a plan, a task list) and ask a person to read it before the agent
-goes on. Rico recognises three of them from the files a PR changes and reviews them as a sequence. Everything below is a layer on top
+goes on. Rico calls these **review flows**: it recognises three of them from the files a PR changes and reviews them as a sequence. Everything below is a layer on top
 of normal review: comments still go to GitHub as before, and every feature falls back to plain markdown review when nothing matches.
 
-- **Spec review mode.** Detected from the changed paths, no setup (the pill in the toolbar says which, and switches it off or forces a
-  workflow: Spec Kit, OpenSpec, Superpowers; *Off* gives the plain file list).
+Try them: [Spec Kit](https://ricorico.dev/github.com/brianv0/rico-examples/2), [Superpowers](https://ricorico.dev/github.com/brianv0/rico-examples/3) and
+[OpenSpec](https://ricorico.dev/github.com/brianv0/rico-examples/1) are example pull requests in
+[`brianv0/rico-examples`](https://github.com/brianv0/rico-examples), built from the fixtures in [`examples/`](examples/README.md) by
+`node scripts/seed-examples.mjs owner/repo` (so you can make your own set, or add a second round of commits to one).
+
+- **The flow.** Detected from the changed paths, no setup (the *Review flow* pill in the toolbar says which, and switches it off or forces
+  one: Spec Kit, OpenSpec, Superpowers; *Off* gives the plain file list).
 
   | Workflow | Recognised by | Read in this order |
   |----------|---------------|--------------------|
@@ -205,7 +210,7 @@ headless tests missed: Submit hidden below the fold in a normal window, and the 
 the screen when the page was scrolled to the top.
 
 ### Against real GitHub
-`brianv0/rico` has five `[test]` pull requests (never meant to merge), each a different diff shape:
+`brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape (the review-flow examples are in [`brianv0/rico-examples`](https://github.com/brianv0/rico-examples), above):
 
 | PR | Covers |
 |----|--------|
@@ -213,7 +218,6 @@ the screen when the page was scrolled to the top.
 | [#2](https://github.com/brianv0/rico/pull/2) | a new file with a relative PNG, plus a modified file |
 | [#3](https://github.com/brianv0/rico/pull/3) | rename + edit, a pure rename (no patch at all), a deletion |
 | [#4](https://github.com/brianv0/rico/pull/4) | a 2,000-line document (scale) |
-| [#12](https://github.com/brianv0/rico/pull/12) | a fake Spec Kit feature: its plan, research, data model, contract, quickstart and tasks, with the spec, checklist and constitution already in the base branch (`test/spec-kit-spec`); for spec review |
 
 ```bash
 npm start                         # with GITHUB_TOKEN set
@@ -233,7 +237,7 @@ RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review 
 - The Conversation, Commits and Checks tabs open on GitHub; Rico only reviews files.
 - No expandable hidden context between hunks in the Source diff view yet, no emoji shortcodes or footnotes.
 - Mermaid element mapping covers flowcharts and sequence diagrams; other types comment on the whole block.
-- Spec review reads markdown only: non-markdown artifacts (Spec Kit's `contracts/*.yaml`) stay in the file tree and open on GitHub.
+- Review flows read markdown only: non-markdown artifacts (Spec Kit's `contracts/*.yaml`) stay in the file tree and open on GitHub.
   Presets and custom schemas can move artifacts; use the pill to force a workflow or switch the mode off. BMAD and GSD are not recognised yet.
 - Re-anchoring needs the comment's commit from GitHub and the old file to still exist (a force-push can remove it); the fuzzy step
   declines to guess when two places fit about equally. Changes-since is drawn from the files at two commits, so a baseline that has
