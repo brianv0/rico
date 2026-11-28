@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="186 104 1008 540" width="1008" height="540">
+  <defs>
+    <clipPath id="bodyClip">
+      <path d="M232,592 C218,470 300,300 418,176 L968,182 C1064,300 1150,462 1160,592 Q700,640 232,592 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- main pouch -->
+  <path d="M232,592 C218,470 300,300 418,176 L968,182 C1064,300 1150,462 1160,592 Q700,640 232,592 Z"
+        fill="#e2a34b" stroke="#a65f1f" stroke-width="7" stroke-linejoin="round"/>
+
+  <!-- pouch shading -->
+  <g clip-path="url(#bodyClip)">
+    <path d="M1160,330 C1080,470 860,585 520,600 L1200,660 Z" fill="#c9843a" opacity="0.75"/>
+    <path d="M300,200 L1050,205 L1060,250 C800,236 560,232 320,246 Z" fill="#c9843a" opacity="0.45"/>
+    <path d="M520,268 C620,244 720,244 800,262 C720,262 620,268 530,290 Z" fill="#f3c877" opacity="0.9"/>
+    <ellipse cx="655" cy="300" rx="20" ry="9" fill="#f3c877" opacity="0.9"/>
+    <g fill="#c98a3c">
+      <ellipse cx="470" cy="330" rx="13" ry="8"/>
+      <ellipse cx="520" cy="392" rx="18" ry="11"/>
+      <ellipse cx="478" cy="424" rx="16" ry="10"/>
+      <ellipse cx="800" cy="300" rx="11" ry="8"/>
+      <ellipse cx="872" cy="322" rx="12" ry="8"/>
+      <ellipse cx="848" cy="430" rx="17" ry="11"/>
+      <ellipse cx="906" cy="402" rx="9" ry="6"/>
+      <ellipse cx="640" cy="440" rx="7" ry="5"/>
+      <ellipse cx="690" cy="452" rx="6" ry="4"/>
+      <ellipse cx="700" cy="560" rx="8" ry="5"/>
+      <ellipse cx="560" cy="540" rx="7" ry="4"/>
+      <ellipse cx="890" cy="548" rx="12" ry="5"/>
+      <ellipse cx="960" cy="500" rx="6" ry="4"/>
+    </g>
+  </g>
+
+  <!-- left side fold: tapers to a point under the top flap -->
+  <path d="M408,150 C300,262 200,440 198,560 C198,612 252,628 294,602 C302,470 372,300 462,196 Z"
+        fill="#e9b25e" stroke="#a65f1f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M392,206 C318,300 250,430 236,540" fill="none" stroke="#f3c877" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+  <path d="M262,596 C236,588 226,566 240,548" fill="none" stroke="#a65f1f" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- right side fold: hangs down from beneath the top flap -->
+  <path d="M924,188 C1004,300 1066,460 1078,602 C1120,628 1182,616 1180,568 C1170,440 1092,272 1006,170 Z"
+        fill="#e9b25e" stroke="#a65f1f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M1010,236 C1074,330 1126,450 1146,556" fill="none" stroke="#f3c877" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+  <path d="M1112,596 C1120,560 1114,520 1100,484" fill="none" stroke="#a65f1f" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- shadow cast by the top flap -->
+  <path d="M400,186 C600,190 800,200 962,212 C1004,214 1030,204 1036,184 L1040,214 C1030,232 1004,238 962,234 C800,222 600,214 420,212 Z"
+        fill="#a65f1f" opacity="0.28"/>
+
+  <!-- top flap: folded down over both side folds, thicker at the right -->
+  <path d="M380,160 C384,128 420,116 468,118 L962,124 C1008,124 1044,140 1040,178 C1036,206 1006,214 962,210 C800,198 600,190 436,188 C402,188 376,182 380,160 Z"
+        fill="#ecb866" stroke="#a65f1f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M440,138 C600,136 800,140 968,146" fill="none" stroke="#f6d48e" stroke-width="9" stroke-linecap="round"/>
+  <g fill="#c98a3c">
+    <ellipse cx="520" cy="164" rx="10" ry="5"/>
+    <ellipse cx="600" cy="170" rx="6" ry="4"/>
+    <ellipse cx="760" cy="172" rx="11" ry="5"/>
+    <ellipse cx="880" cy="180" rx="8" ry="5"/>
+    <ellipse cx="990" cy="176" rx="7" ry="5"/>
+  </g>
+</svg>

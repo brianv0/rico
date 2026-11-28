@@ -3175,7 +3175,6 @@ $('#tree-toggle').addEventListener('click', () => {
   $('#tree-toggle').setAttribute('aria-expanded', String(!hidden));
   layoutAll();
 });
-$('#brand-mark').innerHTML = icon('comment-discussion');
 $('#rc-caret').innerHTML = icon('triangle-down');
 
 // ---------- theme: follow the system, or force light / dark ----------
