@@ -17,9 +17,9 @@ run_worker_first = ["/api/*", "/auth/*", "/github.com/*"]   # PR pages too: see 
 
 [vars]
 # GITHUB_CLIENT_ID (not secret; the OAuth app's client id) is set in the dashboard or here, e.g. GITHUB_CLIENT_ID = "Iv1.abc..."
-# What sign-in asks GitHub for. "public_repo" (the default) reaches public repositories only. Private repositories are an
-# explicit opt-in (/auth/login?private=1, the account menu), which asks for OAUTH_PRIVATE_SCOPE (default "repo").
-OAUTH_SCOPE = "public_repo"
+# What sign-in asks GitHub for: "repo" reaches public and private repositories (it is what GitHub needs to comment on private ones).
+# Use "public_repo" to limit Rico to public repositories.
+OAUTH_SCOPE = "repo"
 
 # Secrets (never commit them):
 #   npx wrangler secret put GITHUB_CLIENT_SECRET
@@ -67,7 +67,7 @@ routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
 
 [env.stage.vars]
 GITHUB_CLIENT_ID = "Ov23lijOuGwLW5Cqcg9L"   # the stage OAuth app (callback https://stage.ricorico.dev/auth/callback)
-OAUTH_SCOPE = "public_repo"
+OAUTH_SCOPE = "repo"
 
 [env.stage.observability]
 enabled = true

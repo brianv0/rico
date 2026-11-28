@@ -445,20 +445,10 @@ textarea { resize: vertical; padding: 8px 12px; }
 /* landing (the empty state) */
 .landing { max-width: 46em; margin: 32px 0 24px; color: var(--fg); }
 .landing h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
-.landing h3 { margin: 24px 0 4px; font-size: 16px; font-weight: 600; }
 .landing p, .landing li { color: var(--fg-muted); }
 .landing .steps { padding-left: 22px; }
 .landing .steps li { margin: 4px 0; }
 .landing code { padding: 1px 5px; font-size: 90%; background: var(--bg-inset); border: 1px solid var(--border-muted); border-radius: 6px; }
-.landing .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.landing .cta .btn { text-decoration: none; }
-/* what each sign-in state shows (body[data-auth] is set by showWho) */
-.for-hosted, .for-preview, .for-public, .for-private { display: none; }
-body[data-auth] .for-hosted { display: block; }
-body[data-auth="preview"] .for-preview.cta { display: flex; }
-body[data-auth="preview"] a.for-preview, body[data-auth="public"] a.for-public { display: inline; }
-body[data-auth="private"] .for-private { display: inline; }
-.menu-sub { margin-top: 2px; color: var(--fg-subtle); }
 a.menu-item { text-decoration: none; }
 #site-foot { max-width: 1760px; margin: 0 auto; padding: 24px; font-size: 12px; color: var(--fg-subtle); }
 #site-foot a { color: var(--fg-muted); }

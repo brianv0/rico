@@ -16,7 +16,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (u.pathname === '/login/oauth/access_token') {
     const b = JSON.parse(opts.body);
-    return Response.json(b.code === 'good' ? { access_token: 'gho_usertoken', scope: b.redirect_uri.includes('priv') ? 'repo' : 'public_repo' } : { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' });
+    return Response.json(b.code === 'good' ? { access_token: 'gho_usertoken' } : { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' });
   }
   if (u.hostname === 'api.github.com' && u.pathname === '/user') {
     return opts.headers.Authorization === 'Bearer gho_usertoken' ? Response.json({ login: 'octo', avatar_url: 'a' }) : Response.json({ message: 'Bad credentials' }, { status: 401 });
@@ -63,7 +63,7 @@ test('login redirects to GitHub with client id, callback url, scope and a state'
   assert.equal(u.origin + u.pathname, 'https://github.com/login/oauth/authorize');
   assert.equal(u.searchParams.get('client_id'), 'cid');
   assert.equal(u.searchParams.get('redirect_uri'), ORIGIN + '/auth/callback');
-  assert.equal(u.searchParams.get('scope'), 'public_repo', 'public repositories only by default');
+  assert.equal(u.searchParams.get('scope'), 'repo', 'public and private repositories');
   assert.match(l.headers.getSetCookie()[0], /rico_oauth=.*HttpOnly.*SameSite=Lax.*Secure/);
 });
 
@@ -94,7 +94,7 @@ test('api: signed out is preview mode; signed in reaches GitHub with the user to
   assert.deepEqual(await out.json(), { hosted: true, preview: true });
   const { cookie } = await signIn();
   const me = await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), env);
-  assert.deepEqual(await me.json(), { login: 'octo', avatar: 'a', hosted: true, private: false });
+  assert.deepEqual(await me.json(), { login: 'octo', avatar: 'a', hosted: true });
   assert.equal(calls.findLast((c) => c.url.endsWith('/user')).opts.headers.Authorization, 'Bearer gho_usertoken');
 });
 
@@ -309,30 +309,10 @@ test('/api/icon: signed-out preview can load a D2 icon from the icon host only, 
 
 // ---- narrow scope, private opt-in, revoke on sign-out, rate limits, error reports
 
-const scopeOf = async (path, e = env) => new URL((await worker.fetch(req(path), e)).headers.get('Location')).searchParams.get('scope');
-
-test('scope: public_repo by default; private=1 is the explicit opt-in; both are configurable', async () => {
-  assert.equal(await scopeOf('/auth/login'), 'public_repo');
-  assert.equal(await scopeOf('/auth/login?private=1'), 'repo');
-  assert.equal(await scopeOf('/auth/login?private=yes'), 'public_repo', 'only private=1 opts in');
-  assert.equal(await scopeOf('/auth/login?private=1', { ...env, OAUTH_PRIVATE_SCOPE: 'repo read:org' }), 'repo read:org');
-  assert.equal(await scopeOf('/auth/login', { ...env, OAUTH_SCOPE: 'repo' }), 'repo');
-});
-
-test('/api/me says whether private repositories are allowed, from the scope GitHub granted; a private PR hints at the opt-in', async () => {
-  const { cookie } = await signIn();
-  const me = await (await worker.fetch(req('/api/me', { headers: { Cookie: cookie } }), env)).json();
-  assert.equal(me.private, false);
-  const gone = await worker.fetch(req('/api/pr?ref=o/gone%231', { headers: { Cookie: cookie } }), env);
-  assert.equal(gone.status, 404);
-  assert.match((await gone.json()).error, /allow private repositories/i);
-  // a session that was granted `repo` (also: one made before the scope was recorded) is private-capable and gets no hint
-  const priv = await sealed({ t: 'gho_usertoken', s: 'repo' });
-  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: priv } }), env)).json()).private, true);
-  const legacy = await sealed({ t: 'gho_usertoken' });
-  assert.equal((await (await worker.fetch(req('/api/me', { headers: { Cookie: legacy } }), env)).json()).private, true);
-  const g2 = await worker.fetch(req('/api/pr?ref=o/gone%231', { headers: { Cookie: priv } }), env);
-  assert.doesNotMatch((await g2.json()).error, /allow private/i);
+test('scope: sign-in asks for repo (public and private) unless OAUTH_SCOPE says otherwise', async () => {
+  const scopeOf = async (e) => new URL((await worker.fetch(req('/auth/login'), e)).headers.get('Location')).searchParams.get('scope');
+  assert.equal(await scopeOf(env), 'repo');
+  assert.equal(await scopeOf({ ...env, OAUTH_SCOPE: 'public_repo' }), 'public_repo');
 });
 async function sealed(payload) { return 'rico_session=' + await seal(env.SESSION_SECRET, payload, 60000); }
 

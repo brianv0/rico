@@ -9,8 +9,7 @@ across several paragraphs. Comments are posted to GitHub as you, so they also ap
    read-only"). Paste a link such as `https://github.com/owner/repo/pull/123` or `owner/repo#123`; a commit link or a
    branch link works too (a branch opens as its latest commit). The address bar always names what you are looking at,
    so you can share it.
-2. **Sign in with GitHub** to comment. Rico asks only for GitHub's `public_repo` permission: it can comment on public
-   repositories and cannot see your private ones.
+2. **Sign in with GitHub** to comment, and to open private repositories. Rico asks for GitHub's `repo` permission.
 3. **Select text.** A small pill appears; **Comment** posts at once, **Start a review** keeps the comment pending on
    GitHub until you finish the review. The pill's second icon **suggests an edit** as a GitHub suggestion.
 4. **Finish.** *Review changes* (top right of the toolbar) lets you submit the pending comments as Comment, Approve or
@@ -18,16 +17,15 @@ across several paragraphs. Comments are posted to GitHub as you, so they also ap
 
 Replies, edits, deleting, resolving and emoji reactions work from the margin beside the text.
 
-### Private repositories
+### Permissions
 
 GitHub has no narrower permission for commenting on private repositories than its classic `repo` scope, which also
-allows writing code there. So Rico asks for it only when you choose: open your avatar menu and pick **Allow private
-repositories**, or follow the link Rico shows when a pull request cannot be found. Rico uses the permission only to load
-the pull request and post your comments. If your organisation restricts third-party OAuth apps, an organisation owner
-may need to approve Rico first (GitHub shows a *Request* button during sign-in).
+allows writing code there. Rico uses it only to load the pull request and post your comments. If your organisation
+restricts third-party OAuth apps, an organisation owner may need to approve Rico first (GitHub shows a *Request* button
+during sign-in).
 
-To go back to public-only access, remove Rico under **GitHub › Settings › Applications › Authorized OAuth Apps**, then
-sign in again. **Sign out** in the avatar menu deletes your session and revokes the token at GitHub.
+**Sign out** in the avatar menu deletes your session and revokes the token at GitHub. To remove Rico's access entirely, use
+**GitHub › Settings › Applications › Authorized OAuth Apps**.
 
 ### What Rico stores
 
@@ -52,7 +50,8 @@ steps in the README's *Deploy to Cloudflare* section.
 
 ## If something is wrong
 
-- **"Not found" on a pull request that exists:** it is probably private. Allow private repositories (above).
+- **"Not found" on a pull request that exists:** you may not have access to that repository, or an organisation may be
+  blocking third-party apps (see Permissions above).
 - **Comments say "Not posted":** GitHub refused them (a locked conversation, an archived repository, or a line that is no
   longer in the diff). The card shows GitHub's reason, with **Try again** and **Discard**.
 - **ricorico.dev will not open at work:** some company web filters block very new domains for the first weeks. Ask

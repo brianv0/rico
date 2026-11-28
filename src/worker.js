@@ -25,11 +25,11 @@ const randomState = () => Array.from(crypto.getRandomValues(new Uint8Array(16)),
 const b64u = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const rand = (n) => b64u(crypto.getRandomValues(new Uint8Array(n)));
 
-async function createSession(env, token, scope) {
-  if (!env.SESSIONS) return seal(env.SESSION_SECRET, { t: token, s: scope }, SESSION_TTL);
+async function createSession(env, token) {
+  if (!env.SESSIONS) return seal(env.SESSION_SECRET, { t: token }, SESSION_TTL);
   const sid = rand(16);
   const half = rand(32);
-  await env.SESSIONS.put('s:' + sid, await seal(`${env.SESSION_SECRET}:${half}`, { t: token, s: scope }, SESSION_TTL), { expirationTtl: SESSION_TTL / 1000 });
+  await env.SESSIONS.put('s:' + sid, await seal(`${env.SESSION_SECRET}:${half}`, { t: token }, SESSION_TTL), { expirationTtl: SESSION_TTL / 1000 });
   return `v2.${sid}.${half}`;
 }
 
@@ -42,13 +42,6 @@ async function readSession(env, cookieHeader) {
   const stored = await env.SESSIONS.get('s:' + m[1]);
   return stored ? open(`${env.SESSION_SECRET}:${m[2]}`, stored) : null;
 }
-
-// Rico asks for GitHub's narrow `public_repo` scope by default; `repo` (which GitHub needs for commenting on PRIVATE
-// repositories, and which also grants write access to their code) is an explicit opt-in: /auth/login?private=1.
-// The scope GitHub actually granted is kept in the session (it can be wider than requested if the user authorized
-// Rico before). Sessions made before this was recorded all had `repo`.
-const canPrivate = (sess) => sess?.s == null || /(^|[,\s])repo([,\s]|$)/.test(sess.s);
-const PRIVATE_HINT = ' If this repository is private, allow private repositories (account menu) and try again.';
 
 /** Revoke one OAuth token at GitHub so a copied cookie or leaked token is dead, not just forgotten. Best effort. */
 async function revoke(env, token) {
@@ -88,8 +81,7 @@ async function login(request, env, url) {
   const state = randomState();
   const sealed = await seal(env.SESSION_SECRET, { state, ret: safeReturn(url.searchParams.get('return')) }, OAUTH_TTL);
   const auth = new URL('/login/oauth/authorize', env.GITHUB_OAUTH_URL || 'https://github.com');
-  const scope = url.searchParams.get('private') === '1' ? env.OAUTH_PRIVATE_SCOPE || 'repo' : env.OAUTH_SCOPE || 'public_repo';
-  auth.search = new URLSearchParams({ client_id: env.GITHUB_CLIENT_ID, redirect_uri: url.origin + '/auth/callback', scope, state, allow_signup: 'false' });
+  auth.search = new URLSearchParams({ client_id: env.GITHUB_CLIENT_ID, redirect_uri: url.origin + '/auth/callback', scope: env.OAUTH_SCOPE || 'repo', state, allow_signup: 'false' });
   return new Response(null, { status: 302, headers: { Location: auth.toString(), 'Set-Cookie': setCookie(OAUTH, sealed, { maxAge: 600, secure: url.protocol === 'https:' }), 'Cache-Control': 'no-store' } });
 }
 
@@ -113,7 +105,7 @@ async function callback(request, env, url) {
     return page(502, 'Could not reach GitHub to finish signing in.');
   }
   if (!tok.access_token) return page(400, `GitHub did not grant access${tok.error_description ? ': ' + tok.error_description : ''}.`);
-  const session = await createSession(env, tok.access_token, typeof tok.scope === 'string' ? tok.scope : '');
+  const session = await createSession(env, tok.access_token);
   const headers = new Headers({ Location: flow.ret || '/', 'Cache-Control': 'no-store' });
   headers.append('Set-Cookie', setCookie(SESSION, session, { maxAge: SESSION_TTL / 1000, secure }));
   headers.append('Set-Cookie', clear);
@@ -179,14 +171,10 @@ async function api(request, env, url) {
     await destroySession(env, request.headers.get('Cookie')).catch(() => {});
     return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
   }
-  if (res.status === 404 && url.pathname === '/api/pr' && !canPrivate(sess)) { // a private repo looks like a missing one without the `repo` scope
-    const body = await res.json().catch(() => ({}));
-    return json(404, { error: (body.error || 'GitHub: Not Found.') + PRIVATE_HINT, private: true });
-  }
   if (url.pathname === '/api/me' && res.ok) {
     const me = await res.json();
     record(env, me.login, 'load');
-    return json(200, { ...me, hosted: true, private: canPrivate(sess) });
+    return json(200, { ...me, hosted: true });
   }
   if (request.method === 'POST' && res.ok && Object.hasOwn(COMMENT_KINDS, url.pathname)) {
     const out = await res.clone().json().catch(() => ({}));

@@ -260,9 +260,8 @@ local server and the Worker (`src/worker.js`).
    *Authorization callback URL* to `https://ricorico.dev/auth/callback` (for `wrangler dev`, make a second app with
    `http://localhost:8787/auth/callback`). The Worker is routed to `ricorico.dev` in `wrangler.toml`; the domain must be
    a zone in your Cloudflare account.
-2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Sign-in asks for `public_repo` (`OAUTH_SCOPE`);
-   private repositories are an opt-in from the account menu (`/auth/login?private=1`), which asks for `repo`
-   (`OAUTH_PRIVATE_SCOPE`). The scope GitHub actually granted is kept in the session and shown by `/api/me`.
+2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Sign-in asks for `repo` (`OAUTH_SCOPE`), which reaches
+   public and private repositories; set it to `public_repo` to limit Rico to public ones.
 3. Store the secrets:
    ```bash
    npx wrangler secret put GITHUB_CLIENT_SECRET
