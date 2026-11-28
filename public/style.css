@@ -587,3 +587,4 @@ body[data-auth="preview"] .brand-hero.for-preview { display: block; }
 .brand-hero .eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #a65f1f; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .brand-hero .eyebrow { color: #e2a34b; } }
 :root[data-theme="dark"] .brand-hero .eyebrow { color: #e2a34b; }
+.brand-hero .wordmark { margin: 0 0 6px; font-size: 44px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; color: var(--fg); }
