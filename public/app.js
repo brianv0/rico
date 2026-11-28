@@ -248,7 +248,8 @@ async function showWho() {
     state.me = me.login || null;
     state.meAvatar = me.avatar || null;
     state.preview = !!me.preview;
-    if (res.ok && me.preview) { // signed out, reading public PRs
+    if ((res.ok && me.preview) || (res.status === 401 && me.signin)) { // signed out (or the token was revoked at GitHub): reading public PRs
+      state.preview = true;
       document.body.dataset.auth = 'preview';
       who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
       const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));

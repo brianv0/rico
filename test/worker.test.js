@@ -137,6 +137,15 @@ test('api: a forged or tampered session cookie is just signed out; a revoked tok
   assert.equal((await res.json()).signin, true);
 });
 
+test('a revoked token also clears the session cookie, so the browser is signed out rather than stuck', async () => {
+  const { cookie } = await signIn();
+  const res = await worker.fetch(req('/api/me', { headers: { Cookie: await sealed({ t: 'gho_revoked' }) } }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).signin, true);
+  assert.match(res.headers.get('Set-Cookie'), /rico_session=;.*Max-Age=0/);
+  assert.ok(cookie);
+});
+
 test('api POSTs need the X-Rico header and a same-origin Origin', async () => {
   const { cookie } = await signIn();
   const body = JSON.stringify({ owner: 'o', repo: 'r', number: 1, review: { event: 'COMMENT', body: 'x' } });

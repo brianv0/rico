@@ -175,7 +175,9 @@ async function api(request, env, url) {
   const res = await github.route(request.method, url, () => request.json().catch(() => { throw new HttpError(400, 'invalid json'); }));
   if (res.status === 401) { // not signed in, or GitHub revoked the token: either way, sign in again
     const body = await res.json().catch(() => ({}));
-    return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true });
+    // the token is dead: drop the session too, so the browser is simply signed out (and can sign in again) instead of stuck
+    await destroySession(env, request.headers.get('Cookie')).catch(() => {});
+    return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
   }
   if (res.status === 404 && url.pathname === '/api/pr' && !canPrivate(sess)) { // a private repo looks like a missing one without the `repo` scope
     const body = await res.json().catch(() => ({}));
