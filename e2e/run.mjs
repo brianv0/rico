@@ -101,8 +101,17 @@ await step('start page, signed in: the PRs that may need your review are listed 
   assert.equal(await page.getAttribute('#needs-review li a', 'href'), '/github.com/acme/docs/7');
   assert.match(await page.textContent('#needs-review li a'), /Update the docs/);
   assert.equal(await page.isVisible('.hero'), false);
-  assert.equal(await page.isVisible('.shot'), false);
   assert.equal(await page.isVisible('#side'), false, 'no empty file tree before a PR is open');
+});
+await step('Explore is its own page: a list of public PRs that link to the PR, in place of the start page', async () => {
+  const p = await (await browser.newContext()).newPage();
+  await p.goto(`http://localhost:${PORT}/explore`);
+  await p.waitForSelector('#explore-list li a');
+  assert.equal(await p.locator('#explore-list li').count(), 6);
+  assert.equal(await p.getAttribute('#explore-list li a', 'href'), '/github.com/brianv0/rico-examples/3');
+  assert.equal(await p.isVisible('#needs-review'), false);
+  assert.equal(await p.title(), 'Explore · Rico');
+  await p.close();
 });
 await page.fill('#pr', 'https://github.com/acme/docs/pull/7');
 await page.click('#load button');

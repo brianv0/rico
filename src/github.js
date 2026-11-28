@@ -228,7 +228,11 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     const sort = 'sort:updated-desc';
     const needs = q.get('needs') === 'review'; // the start page: open PRs that may be waiting on the viewer
     let queries;
-    if (needs) queries = [`is:pr is:open draft:false review-requested:@me ${sort}`, `is:pr is:open draft:false involves:@me -author:@me -reviewed-by:@me ${sort}`];
+    if (needs) { // directly requested of the viewer (recent), then requested of one of the viewer's teams (more recent): not everything they ever touched
+      const since = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+      const base = 'is:pr is:open archived:false draft:false';
+      queries = [`${base} user-review-requested:@me updated:>=${since(60)} ${sort}`, `${base} review-requested:@me -user-review-requested:@me updated:>=${since(14)} ${sort}`];
+    }
     else if (repo) {
       const [o, r] = repo.split('/');
       if (!NAME_RE.test(o || '') || !NAME_RE.test(r || '')) throw new HttpError(400, 'bad repo');

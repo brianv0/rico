@@ -443,7 +443,10 @@ textarea { resize: vertical; padding: 8px 12px; }
 .c-kind code { font-size: 12px; }
 
 /* landing (the empty state) */
-.landing { max-width: 46em; margin: 32px 0 24px; color: var(--fg); }
+/* the start, Explore and sign-in pages: one centred column */
+.landing { max-width: 46em; margin: 40px auto 24px; color: var(--fg); }
+.landing h2, .landing .hero, .landing > p:first-of-type { text-align: center; }
+.landing .hero .cta, .landing > .cta { justify-content: center; }
 .landing h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
 .landing p, .landing li { color: var(--fg-muted); }
 .landing .steps { padding-left: 22px; }
@@ -556,16 +559,19 @@ body.since-on .rico-bars i:not(.since):not(.sgone) { opacity: .35; }
 .pr-picks a:hover, .pr-picks a:focus-visible { background: var(--bg-hover); }
 .pr-picks .sg-ic { display: inline-flex; }
 
-/* signed-out start page: Sign in or Explore, over a screenshot */
+/* signed-out start page: Sign in or Explore */
 .for-preview { display: none; }
 body[data-auth="preview"] .for-preview { display: block; }
+body[data-auth="preview"] a.for-preview { display: inline-flex; }
+.for-user { display: none; margin-top: 16px; }
+body[data-auth="user"] .for-user { display: block; }
 .hero { margin: 20px 0 8px; }
 .hero .cta { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn-lg { padding: 8px 20px; font-size: 16px; text-decoration: none; }
 .cta-note { margin: 10px 0 0; font-size: 13px; color: var(--fg-muted); }
-.shot { width: 100%; max-width: 1000px; height: auto; margin-top: 24px; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow, 0 8px 24px rgba(140, 149, 159, .2)); }
-.landing { max-width: 1000px; }
-.landing > p, .landing .steps, .needs-review { max-width: 46em; }
 
 /* before a PR is open there is no file tree or legend to show */
 #prhead[hidden] ~ #layout #side, #prhead[hidden] ~ #layout #legend { display: none; }
+.landing > .cta { display: flex; margin-top: 20px; }
+body[data-auth="user"] .landing > .cta { display: none; }
+#site-foot { text-align: center; }

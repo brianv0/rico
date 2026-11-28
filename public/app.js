@@ -3242,14 +3242,13 @@ if (here) {
   else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '', false, here.number ? '' : new URLSearchParams(location.search).get('branch') || '');
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
-showWho().then(async () => {
-  const $id = (i) => document.getElementById(i);
-  if (state.preview) { // signed out: Sign in or Explore
-    const reveal = () => { showExplore($id('explore')); $id('explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-    $id('explore-btn')?.addEventListener('click', (e) => { e.preventDefault(); history.replaceState(null, '', '#explore'); reveal(); });
-    if (location.hash === '#explore') reveal();
-  } else if ($id('needs-review') && !(await showNeedsReview($id('needs-review')))) showExplore($id('explore')); // nothing waiting on you: public PRs to look at
-});
+if (location.pathname === '/explore') { // the Explore page: public example PRs, in place of the start page
+  document.title = 'Explore · Rico';
+  $('#cards .landing:not(#explore-page)').hidden = true;
+  $('#explore-page').hidden = false;
+  showExplore($('#explore-list'));
+}
+showWho().then(() => { const nr = document.getElementById('needs-review'); if (nr && !state.preview && location.pathname !== '/explore') showNeedsReview(nr); });
 
 // test hook
 const setMergeWords = (on) => {

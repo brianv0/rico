@@ -219,13 +219,14 @@ test('GET /api/suggest: the viewer pool, repo scope with an exact number, and te
   assert.equal((await get(port, '/api/suggest?repo=../x')).status, 400);
 });
 
-test('GET /api/suggest?needs=review: open non-draft PRs awaiting the viewer, review requests first, each PR once', async () => {
+test('GET /api/suggest?needs=review: open non-draft PRs awaiting the viewer, direct review requests first, then team ones; recent only; each PR once', async () => {
   const r = await get(port, '/api/suggest?needs=review');
   assert.equal(r.status, 200);
   const q = fake.ops.filter((o) => o.op === 'search').at(-1).queries;
   assert.equal(q.length, 2);
-  assert.match(q[0], /^is:pr is:open draft:false review-requested:@me /);
-  assert.match(q[1], /involves:@me -author:@me -reviewed-by:@me /);
+  assert.match(q[0], /^is:pr is:open archived:false draft:false user-review-requested:@me updated:>=\d{4}-\d\d-\d\d /, 'asked of the viewer directly, and recent');
+  assert.match(q[1], /review-requested:@me -user-review-requested:@me updated:>=\d{4}-\d\d-\d\d /, 'then team requests');
+  assert.ok(!q.some((x) => x.includes('involves')), 'not everything the viewer ever touched');
   assert.deepEqual(JSON.parse(r.body).items.map((i) => i.number), [7], 'both searches return PR 7: listed once');
 });
 

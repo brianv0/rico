@@ -34,24 +34,21 @@ function rowHtml(p) {
     : `<span class="sg-ic sg-open">${icon('git-pull-request')}</span><span class="sg-main"><span class="sg-title">Open ${ref}</span></span>`;
 }
 
-// Public pull requests to explore without signing in. The first three are the review flows Rico understands.
+// Public pull requests on the Explore page. The first three are the review flows Rico understands.
 const EXPLORE = [
-  { owner: 'brianv0', repo: 'rico-examples', number: 2, title: 'Spec Kit: a feature spec, plan and tasks, in reading order' },
-  { owner: 'brianv0', repo: 'rico-examples', number: 3, title: 'Superpowers: a plan whose task ids link back to their definitions' },
-  { owner: 'brianv0', repo: 'rico-examples', number: 1, title: 'OpenSpec: a change, followed by the spec it modifies' },
-  { owner: 'brianv0', repo: 'rico', number: 6, title: 'D2 diagrams: click a node to comment on the line that defines it' },
-  { owner: 'brianv0', repo: 'rico', number: 5, title: 'Mermaid diagrams, mapped to their source lines' },
-  { owner: 'brianv0', repo: 'rico', number: 1, title: 'An architecture rewrite, with removed sections drawn in red' },
-].map((p) => ({ ...p, state: 'OPEN' }));
+  { owner: 'brianv0', repo: 'rico-examples', number: 3, title: 'Superpowers: a plan for a merged design, and a new design with its plan' },
+  { owner: 'brianv0', repo: 'rico-examples', number: 2, title: 'Spec Kit: plan, research, data model and tasks (spec already merged)' },
+  { owner: 'brianv0', repo: 'rico-examples', number: 1, title: 'OpenSpec: a change that adds a fresh sign-in and an audit trail' },
+  { owner: 'brianv0', repo: 'rico', number: 6, title: 'Test PR: D2 diagrams in the getting-started guide' },
+  { owner: 'brianv0', repo: 'rico', number: 5, title: 'Test PR: Mermaid diagrams in the getting-started guide' },
+  { owner: 'brianv0', repo: 'rico', number: 1, title: '[test] Expand architecture overview (multi-hunk edit)' },
+].map((p) => ({ ...p, state: 'OPEN', author: 'brianv0' }));
 
 const link = (p) => `<a href="/github.com/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/${p.number}">${rowHtml(p)}</a>`;
 
-/** Fill and show the start page's Explore list (static; it needs no sign-in and no network). */
-export function showExplore(section) {
-  if (!section?.isConnected) return;
-  const ul = section.querySelector('ul');
+/** Fill the Explore page's list (static: it needs no sign-in and no network). */
+export function showExplore(ul) {
   ul.innerHTML = EXPLORE.map((p) => `<li>${link(p)}</li>`).join('');
-  section.hidden = false;
 }
 
 /** Fill the start page's "may need your review" list (top 5) when signed in; stays hidden when there is nothing or no access. */
