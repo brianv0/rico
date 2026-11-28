@@ -237,6 +237,10 @@ RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review 
 - The Conversation, Commits and Checks tabs open on GitHub; Rico only reviews files.
 - No expandable hidden context between hunks in the Source diff view yet, no emoji shortcodes or footnotes.
 - Mermaid element mapping covers flowcharts and sequence diagrams; other types comment on the whole block.
+- A PR gets one review flow, found from paths at the repository root. A monorepo that runs several flows in different project directories
+  (`packages/a/specs/…`, `services/b/openspec/…`) is not handled yet: those paths get no flow, and a PR that mixes flows follows the one with
+  the most files and lists the rest under *Other files*. Detecting per project directory (and a file in the repo that declares the flow) is
+  the next step.
 - Review flows read markdown only: non-markdown artifacts (Spec Kit's `contracts/*.yaml`) stay in the file tree and open on GitHub.
   Presets and custom schemas can move artifacts; use the pill to force a workflow or switch the mode off. BMAD and GSD are not recognised yet.
 - Re-anchoring needs the comment's commit from GitHub and the old file to still exist (a force-push can remove it); the fuzzy step
