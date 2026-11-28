@@ -563,8 +563,6 @@ body.since-on .rico-bars i:not(.since):not(.sgone) { opacity: .35; }
 .for-preview { display: none; }
 body[data-auth="preview"] .for-preview { display: block; }
 body[data-auth="preview"] a.for-preview { display: inline-flex; }
-.for-user { display: none; margin-top: 16px; }
-body[data-auth="user"] .for-user { display: block; }
 .hero { margin: 20px 0 8px; }
 .hero .cta { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn-lg { padding: 8px 20px; font-size: 16px; text-decoration: none; }
@@ -575,3 +573,9 @@ body[data-auth="user"] .for-user { display: block; }
 .landing > .cta { display: flex; margin-top: 20px; }
 body[data-auth="user"] .landing > .cta { display: none; }
 #site-foot { text-align: center; }
+
+/* the screenshot: wider than the text column, centred, and only for signed-out visitors */
+.shot { width: min(1000px, calc(100vw - 48px)); height: auto; margin: 28px 0; position: relative; left: 50%; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(140, 149, 159, .2); }
+body[data-auth="preview"] .shot.for-preview { display: block; }
+.for-preview-inline { display: none; }
+body[data-auth="preview"] .for-preview-inline { display: inline; }

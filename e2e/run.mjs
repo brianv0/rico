@@ -103,15 +103,23 @@ await step('start page, signed in: the PRs that may need your review are listed 
   assert.equal(await page.isVisible('.hero'), false);
   assert.equal(await page.isVisible('#side'), false, 'no empty file tree before a PR is open');
 });
-await step('Explore is its own page: a list of public PRs that link to the PR, in place of the start page', async () => {
-  const p = await (await browser.newContext()).newPage();
-  await p.goto(`http://localhost:${PORT}/explore`);
-  await p.waitForSelector('#explore-list li a');
-  assert.equal(await p.locator('#explore-list li').count(), 6);
-  assert.equal(await p.getAttribute('#explore-list li a', 'href'), '/github.com/brianv0/rico-examples/3');
-  assert.equal(await p.isVisible('#needs-review'), false);
-  assert.equal(await p.title(), 'Explore · Rico');
-  await p.close();
+await step('Explore is for signed-out visitors: their own page of public PRs; signed in, /explore goes to the start page', async () => {
+  const out = await (await browser.newContext()).newPage();
+  await out.route('**/api/me', (r) => r.fulfill({ json: { hosted: true, preview: true } }));
+  await out.goto(`http://localhost:${PORT}/explore`);
+  await out.waitForSelector('#explore-list li a');
+  assert.equal(await out.locator('#explore-list li').count(), 6);
+  assert.equal(await out.getAttribute('#explore-list li a', 'href'), '/github.com/brianv0/rico-examples/3');
+  assert.equal(await out.title(), 'Explore · Rico');
+  await out.goto(`http://localhost:${PORT}/`);
+  await out.waitForSelector('.hero', { state: 'visible' });
+  assert.equal(await out.isVisible('.shot'), true, 'the signed-out start page keeps its screenshot');
+  await out.close();
+  const inn = await (await browser.newContext()).newPage(); // the local server is "signed in"
+  await inn.goto(`http://localhost:${PORT}/explore`);
+  await inn.waitForSelector('#needs-review li a');
+  assert.equal(new URL(inn.url()).pathname, '/');
+  await inn.close();
 });
 await page.fill('#pr', 'https://github.com/acme/docs/pull/7');
 await page.click('#load button');

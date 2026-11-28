@@ -54,8 +54,11 @@ export function showExplore(ul) {
 /** Fill the start page's "may need your review" list (top 5) when signed in; stays hidden when there is nothing or no access. */
 export async function showNeedsReview(section, getJson) {
   try {
-    const items = ((await (getJson || ((u) => fetch(u).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))))('/api/suggest?needs=review')).items || []).slice(0, 5);
+    let items = ((await (getJson || ((u) => fetch(u).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))))('/api/suggest?needs=review')).items || []).slice(0, 5);
     if (!items.length || !section.isConnected) return false;
+    const reviews = items.filter((p) => p.review);
+    if (reviews.length) items = reviews; // review requests only, never padded with other PRs
+    section.querySelector('h3').textContent = reviews.length ? 'May need your review' : 'Your recent pull requests';
     const ul = section.querySelector('ul');
     ul.innerHTML = '';
     for (const p of items) {
