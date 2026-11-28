@@ -190,7 +190,8 @@ let cur = null; // the active view
 
 // ---------- status / api ----------
 let needSignin = false;
-const signinUrl = () => '/auth/login?return=' + encodeURIComponent(location.pathname + location.search);
+let needPrivate = false; // the PR was not found and the session cannot see private repositories
+const signinUrl = (priv = false) => '/auth/login?' + (priv ? 'private=1&' : '') + 'return=' + encodeURIComponent(location.pathname + location.search);
 function status(msg, err = false) {
   const el = $('#status');
   el.textContent = msg || '';
@@ -200,7 +201,13 @@ function status(msg, err = false) {
     a.href = signinUrl();
     a.textContent = ' Sign in with GitHub';
   }
+  if (err && needPrivate) {
+    const a = el.appendChild(el.ownerDocument.createElement('a'));
+    a.href = signinUrl(true);
+    a.textContent = ' Allow private repositories';
+  }
   needSignin = false;
+  needPrivate = false;
 }
 
 async function api(path, opts) {
@@ -209,7 +216,7 @@ async function api(path, opts) {
   if (!res.ok) {
     let m = text;
     let signin = false;
-    try { const j = JSON.parse(text); m = j.error || m; if (j.signin) { needSignin = true; signin = true; } } catch { /* plain text */ }
+    try { const j = JSON.parse(text); m = j.error || m; if (j.signin) { needSignin = true; signin = true; } if (j.private) needPrivate = true; } catch { /* plain text */ }
     throw Object.assign(new Error(m), { signin, status: res.status });
   }
   return text;
@@ -233,13 +240,22 @@ async function showWho() {
     state.meAvatar = me.avatar || null;
     state.preview = !!me.preview;
     if (res.ok && me.preview) { // signed out, reading public PRs
+      document.body.dataset.auth = 'preview';
       who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
       const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
       a.href = signinUrl();
     } else if (res.ok && me.hosted) {
       // just the avatar; who you are and Sign out are in its menu
       who.innerHTML = `<details class="menu" id="account"><summary aria-label="Account: ${esc(me.login)}" title="${esc(me.login)}">${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : `<span class="btn">${esc(me.login)}</span>`}</summary><div class="menu-pop"><div class="menu-head">Signed in as <b>${esc(me.login)}</b></div></div></details>`;
-      const out = who.querySelector('.menu-pop').appendChild(el('button', 'menu-item'));
+      const pop = who.querySelector('.menu-pop');
+      document.body.dataset.auth = me.private === false ? 'public' : 'private';
+      pop.querySelector('.menu-head').insertAdjacentHTML('beforeend', `<div class="menu-sub">${me.private === false ? 'Public repositories only' : 'Public and private repositories'}</div>`);
+      if (me.private === false) { // opt in to GitHub's broad `repo` scope, only when the user asks for it
+        const a = pop.appendChild(el('a', 'menu-item', 'Allow private repositories'));
+        a.href = signinUrl(true);
+        a.title = 'Sign in again with GitHub\'s "repo" permission, needed to review private repositories';
+      }
+      const out = pop.appendChild(el('button', 'menu-item'));
       out.innerHTML = `${icon('sign-out')} Sign out`;
       out.type = 'button';
       out.addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }); location.reload(); });

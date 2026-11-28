@@ -40,6 +40,7 @@ function serveStatic(req, res) {
   let rel;
   try { rel = decodeURIComponent(url.pathname); } catch { rel = url.pathname; } // malformed escapes just 404 below
   if (rel === '/') rel = '/index.html';
+  else if (!path.extname(rel) && /^\/(privacy|terms)$/.test(rel)) rel += '.html'; // the legal pages, as the hosted app serves them
   const vendor = Object.hasOwn(VENDOR, rel) ? VENDOR[rel] : null;
   const file = vendor || path.normalize(path.join(ROOT, rel));
   const stream = (f) => fs.createReadStream(f).on('error', () => res.destroy()).pipe(res); // a vanished file must not crash the server

@@ -17,8 +17,9 @@ run_worker_first = ["/api/*", "/auth/*", "/github.com/*"]   # PR pages too: see 
 
 [vars]
 # GITHUB_CLIENT_ID (not secret; the OAuth app's client id) is set in the dashboard or here, e.g. GITHUB_CLIENT_ID = "Iv1.abc..."
-# "repo" is needed to comment on private repositories; use "public_repo" to limit Rico to public ones.
-OAUTH_SCOPE = "repo"
+# What sign-in asks GitHub for. "public_repo" (the default) reaches public repositories only. Private repositories are an
+# explicit opt-in (/auth/login?private=1, the account menu), which asks for OAUTH_PRIVATE_SCOPE (default "repo").
+OAUTH_SCOPE = "public_repo"
 
 # Secrets (never commit them):
 #   npx wrangler secret put GITHUB_CLIENT_SECRET
@@ -31,10 +32,29 @@ OAUTH_SCOPE = "repo"
 binding = "SESSIONS"
 id = "4cc5499ef6ed4dc5bc4ba5eff5c02ed3"
 
-# Distinct signed-in users (DAU / WAU / MAU) as pseudonymous ids, read with `npm run usage`. Created on first write.
+# Usage: each signed-in app load and posted comment is one data point with the user's GitHub login (see /privacy),
+# read with `npm run usage`. Kept by Cloudflare for about three months. Created on first write.
 [[analytics_engine_datasets]]
 binding = "AU"
 dataset = "active_users"
+
+# Logs and traces in the dashboard (Workers & Pages > rico > Observability), including the client errors that
+# public/report.js posts to /api/client-error.
+[observability]
+enabled = true
+
+# Per-IP request limits (fixed window). PREVIEW_LIMIT guards signed-out preview reads, which share one GitHub token and its
+# rate limit (cached reads do not count; a PR with many files makes one request per file, hence the headroom).
+# ERROR_LIMIT guards the browser error reports. namespace_id is any integer, unique within the account.
+[[ratelimits]]
+name = "PREVIEW_LIMIT"
+namespace_id = "1001"
+simple = { limit = 150, period = 60 }
+
+[[ratelimits]]
+name = "ERROR_LIMIT"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
 
 # Staging: the same Worker as its own deployment at https://stage.ricorico.dev (`npm run deploy:stage`).
 # It needs its own GitHub OAuth app (callback https://stage.ricorico.dev/auth/callback) and its own secrets:
@@ -47,7 +67,20 @@ routes = [{ pattern = "stage.ricorico.dev", custom_domain = true }]
 
 [env.stage.vars]
 GITHUB_CLIENT_ID = "Ov23lijOuGwLW5Cqcg9L"   # the stage OAuth app (callback https://stage.ricorico.dev/auth/callback)
-OAUTH_SCOPE = "repo"
+OAUTH_SCOPE = "public_repo"
+
+[env.stage.observability]
+enabled = true
+
+[[env.stage.ratelimits]]
+name = "PREVIEW_LIMIT"
+namespace_id = "2001"
+simple = { limit = 150, period = 60 }
+
+[[env.stage.ratelimits]]
+name = "ERROR_LIMIT"
+namespace_id = "2002"
+simple = { limit = 10, period = 60 }
 
 [[env.stage.kv_namespaces]]
 binding = "SESSIONS"

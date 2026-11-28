@@ -11,6 +11,7 @@ export const ASSETS = {
     let p = new URL(request.url).pathname;
     try { p = decodeURIComponent(p); } catch { /* keep as is */ }
     if (p.endsWith('/')) p += 'index.html';
+    if (!/\.[A-Za-z0-9]+$/.test(p) && Object.hasOwn(FILES, p + '.html')) p += '.html'; // /privacy is privacy.html, like Workers Assets
     let body = Object.hasOwn(FILES, p) ? FILES[p] : undefined;
     if (body && typeof body === 'object') body = bytes(body.b64);
     if (body === undefined && !/\.[A-Za-z0-9]+$/.test(p)) { p = '/index.html'; body = FILES[p]; } // a PR path is the app

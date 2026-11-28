@@ -8,6 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230969da'/%3E%3Cpath d='M8 9h16v10H15l-5 4v-4H8z' fill='white'/%3E%3C/svg%3E">
 <!-- GitHub's own markdown styles (github-markdown-css) and code colours (highlight.js github themes) -->
 <script src="/theme-init.js"></script>
+<script src="/report.js"></script>
 <link id="gmd" rel="stylesheet" href="/vendor/github-markdown.css">
 <link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
@@ -89,8 +90,30 @@
     </div>
     <div id="stale" class="banner" role="status" hidden><span class="msg-text"></span> <button id="stale-reload" class="btn" type="button">Reload</button></div>
     <section id="general" hidden aria-label="Comments on the pull request"></section>
-    <div id="cards"><p class="empty intro">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p>
-      <p class="empty intro examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p></div>
+    <div id="cards">
+      <section class="landing" aria-labelledby="landing-h">
+        <h2 id="landing-h">Review markdown the way it will be read</h2>
+        <p>Rico shows a GitHub pull request's markdown <em>rendered</em>, in a page built to look like <b>Files changed</b>. Select any text &mdash; across paragraphs, tables, even diagrams &mdash; and comment on it, like in Google Docs. Comments are posted to GitHub as you, so they appear on github.com too.</p>
+        <ol class="steps">
+          <li>Paste a pull request link in the box above: <code>owner/repo#123</code>, a PR, commit or branch URL.</li>
+          <li>Select text and choose <b>Comment</b>, or <b>Start a review</b> to batch your comments.</li>
+          <li>Finish with <b>Review changes</b>: Comment, Approve or Request changes.</li>
+        </ol>
+        <p class="examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p>
+
+        <div class="for-hosted">
+          <p class="for-preview cta"><a class="btn btn-primary" href="/auth/login">Sign in with GitHub</a> <span>to comment. You can read public pull requests without signing in.</span></p>
+
+          <h3>Why Rico asks for GitHub access</h3>
+          <p>To post comments and reviews <em>as you</em>, Rico signs you in with GitHub. By default it asks for GitHub's <code>public_repo</code> permission: enough to read and comment on <b>public</b> repositories, and nothing about your private ones.</p>
+          <p>To review a <b>private</b> repository, GitHub only offers the broad <code>repo</code> permission, which also allows writing code. Rico uses it solely to load the pull request and post your comments, and only if you choose to allow it:
+            <a class="for-preview" href="/auth/login?private=1">sign in with private repositories</a><a class="for-public" href="/auth/login?private=1">allow private repositories</a><span class="for-private">you have allowed private repositories (to go back to public only, remove Rico under <a href="https://github.com/settings/applications">GitHub &rsaquo; Applications</a> and sign in again)</span>.
+            If your organisation restricts third-party apps, an admin may need to approve Rico first.</p>
+
+          <h3>What Rico stores</h3>
+          <p>Your GitHub token lives in an encrypted cookie, and signing out revokes it at GitHub. Comment text and pull request contents are never stored on Rico's servers: everything lives on GitHub. Rico counts which GitHub accounts use it, and your theme and unsent drafts stay in your browser. Details: <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; <a href="https://github.com/brianv0/rico/blob/main/docs/guide/getting-started.md">Getting started</a></p>
+        </div>
+      </section></div>
     <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
       <button type="button" id="sb-comment" title="Comment (Ctrl/Cmd+Alt+M)" aria-label="Comment on the selection"></button>
       <button type="button" id="sb-suggest" title="Suggest an edit" aria-label="Suggest an edit"></button>
@@ -114,6 +137,8 @@
     </div>
   </main>
 </div>
+
+<footer id="site-foot"><a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; <a href="https://github.com/brianv0/rico">Source</a> &middot; <a href="https://github.com/brianv0/rico/issues">Feedback</a></footer>
 
 <script src="/vendor/hljs.js"></script>
 <script src="/vendor/purify.js"></script>

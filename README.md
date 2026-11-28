@@ -209,8 +209,9 @@ local server and the Worker (`src/worker.js`).
    *Authorization callback URL* to `https://ricorico.dev/auth/callback` (for `wrangler dev`, make a second app with
    `http://localhost:8787/auth/callback`). The Worker is routed to `ricorico.dev` in `wrangler.toml`; the domain must be
    a zone in your Cloudflare account.
-2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Set `OAUTH_SCOPE` to `public_repo` if Rico should
-   only touch public repositories (the default `repo` is needed for private ones).
+2. Put the app's **client id** in `wrangler.toml` (`GITHUB_CLIENT_ID`). Sign-in asks for `public_repo` (`OAUTH_SCOPE`);
+   private repositories are an opt-in from the account menu (`/auth/login?private=1`), which asks for `repo`
+   (`OAUTH_PRIVATE_SCOPE`). The scope GitHub actually granted is kept in the session and shown by `/api/me`.
 3. Store the secrets:
    ```bash
    npx wrangler secret put GITHUB_CLIENT_SECRET
@@ -238,7 +239,8 @@ short-lived upload key wrangler sends. A later `npm run deploy` switches back to
 stronger handling, bind a KV namespace named `SESSIONS` (see the commented block in `wrangler.toml`): the token is then
 encrypted with a key made of `SESSION_SECRET` *and* a random half carried only by the cookie, and the ciphertext lives in
 KV (like oauth2-proxy's Redis store). The cookie alone holds nothing, KV alone can't be decrypted, and **Sign out deletes
-the KV entry**, so a copied cookie stops working immediately. In the default mode a stolen cookie works until it expires
+the KV entry** and **revokes the token at GitHub** (`DELETE /applications/{client_id}/token`), so a copied cookie stops
+working immediately. In the default mode a stolen cookie works until it expires
 (30 days).
 
 **Active users and comments.** With the `AU` Analytics Engine binding (dataset `active_users`; Cloudflare creates it on the
@@ -247,6 +249,17 @@ review), records one data point with the user's **GitHub login**, so the most ac
 `CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run usage` (add `-- --stage` for stage) prints DAU, WAU, MAU,
 per-day / per-week history, comment totals by kind, and the top users by comments, with their app loads and last visit,
 for up to the 3 months Analytics Engine keeps. The token needs *Account Analytics: Read*.
+
+**Production deploys.** Every push to `main` runs `.github/workflows/deploy-prod.yml` (tests, `npm run deploy`, then a smoke
+test of the live site), like `stage` does for staging. Add required reviewers to the `production` environment in the repo
+settings if you want an approval step. Roll back with `npx wrangler rollback`.
+
+**Monitoring.** Workers Logs are on (`[observability]`). Uncaught browser errors are posted by `public/report.js` to
+`/api/client-error` and logged as one JSON line each (message, stack, script, user agent; no login or page address).
+`PREVIEW_LIMIT` and `ERROR_LIMIT` are per-IP rate limits (`[[ratelimits]]`) on signed-out preview reads and on error reports.
+
+**Legal pages.** `public/privacy.html` and `public/terms.html` are served at `/privacy` and `/terms`; update them whenever
+what Rico stores changes. Vulnerabilities: see `SECURITY.md`.
 
 **Preview mode.** Signed-out visitors can open public pull requests read-only (a "Preview · read-only" badge and a
 Sign in button show in the header); commenting, replying and posting a review need sign-in. Private repositories are
