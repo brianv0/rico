@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseCommitRef, parseBranchRef, parseBranchPath, commitPath, parseCommitPath, parsePrPath, patchPosition, positionLine,
+  commitMessageParts, parseCommitRef, parseBranchRef, parseBranchPath, commitPath, parseCommitPath, parsePrPath, patchPosition, positionLine,
   parsePrRef, resolveRepoPath, parsePatch, clampRange, wordCount, srcWords, lineForWord, trimBlock, locateLine, buildReview, rangeDetails, canSuggest, suggestionBody, lineDiff, parseSuggestion, mapPosition, positionSlope, buildLineComment, buildPrComment, parseQuote, normalizeWithMap, findQuote, formatQuote, plainQuote, coversWholeLines, clipMiddle, quoteText, parseD2Range, decodeD2Class, d2LineMaps, findMermaidLines, findDotLines, dotTokens, buildFileTree, statBlocks, diffAnchor, parsePatchRows, patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups
 } from '../public/lib.js';
 
@@ -668,4 +668,13 @@ test('parseBranchRef / parseBranchPath: branch links (slashes allowed), never do
   assert.deepEqual(parseBranchPath('/github.com/acme/docs/tree/feature/plan-v2'), { instance: 'github.com', owner: 'acme', repo: 'docs', branch: 'feature/plan-v2' });
   assert.equal(parseBranchPath('/github.com/acme/docs/tree/a/../b'), null);
   assert.equal(parseBranchPath('/github.com/acme/docs/7'), null);
+});
+
+test('commitMessageParts splits the body from trailing "Key: value" trailers and reads co-authors', () => {
+  const m = commitMessageParts('Body line one.\n\nNote: not a trailer, it is followed by text.\nMore.\n\nCo-authored-by: Carol <carol@x.org>\nCo-authored-by: Dan\nSigned-off-by: Bob <b@x.org>\n');
+  assert.equal(m.body, 'Body line one.\n\nNote: not a trailer, it is followed by text.\nMore.');
+  assert.deepEqual(m.coAuthors, [{ name: 'Carol', email: 'carol@x.org' }, { name: 'Dan', email: '' }]);
+  assert.deepEqual(m.trailers.map((t) => t.key), ['Co-authored-by', 'Co-authored-by', 'Signed-off-by']);
+  assert.deepEqual(commitMessageParts('Fixes: everything'), { body: 'Fixes: everything', coAuthors: [], trailers: [] }); // no blank line: body, not trailers
+  assert.deepEqual(commitMessageParts(''), { body: '', coAuthors: [], trailers: [] });
 });

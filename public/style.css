@@ -462,3 +462,98 @@ body[data-auth="private"] .for-private { display: inline; }
 a.menu-item { text-decoration: none; }
 #site-foot { max-width: 1760px; margin: 0 auto; padding: 24px; font-size: 12px; color: var(--fg-subtle); }
 #site-foot a { color: var(--fg-muted); }
+/* a commit's own details: author/committer, signature, message body */
+#pr-meta .person { display: inline-flex; align-items: center; gap: 4px; }
+#pr-meta .person .avatar, #pr-meta .person .av { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; display: inline-grid; place-items: center; color: #fff; }
+#pr-meta .copy { vertical-align: -3px; }
+.Label--success { color: var(--success); border-color: var(--success); }
+.btn-sm { padding: 0 10px; font-size: 12px; line-height: 22px; }
+.commit-info { margin: 10px 0 0; }
+.commit-info[hidden] { display: none; }
+.commit-body { margin: 0; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--border); border-radius: 6px; max-height: 20em; overflow: auto; }
+.commit-trailers { margin-top: 6px; white-space: pre-wrap; font-size: 12px; color: var(--fg-muted); }
+
+/* ---------- spec review, changes since, needs you ---------- */
+:root { --since: #bf8700; --since-bg: rgba(212, 167, 44, .13); --question: #8250df; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --since: #d29922; --since-bg: rgba(187, 128, 9, .16); --question: #ab7df8; } }
+:root[data-theme="dark"] { --since: #d29922; --since-bg: rgba(187, 128, 9, .16); --question: #ab7df8; }
+.toolbar-in .bar { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.toolbar-in .bar[hidden] { display: none; }
+.spec-pill { font-size: 12px; }
+.spec-pill::after { content: "▾"; margin-left: 6px; font-size: 10px; color: var(--fg-muted); }
+.spec-pop, .queue-pop { right: auto; left: 0; }
+.queue-pop { right: 0; left: auto; width: min(420px, 90vw); max-height: min(60vh, 480px); overflow: auto; }
+.menu-item[aria-pressed="true"]::before { content: "✓"; margin-left: -10px; color: var(--success); }
+.spec-pos { font-size: 12px; color: var(--fg-muted); white-space: nowrap; }
+.qlink { color: var(--question); font-weight: 500; white-space: nowrap; }
+.since-label { font-size: 12px; color: var(--fg-muted); white-space: nowrap; }
+.since-label select { width: auto; max-width: 230px; padding: 3px 6px; font-size: 12px; color: var(--fg); background: var(--btn-bg); border: 1px solid var(--btn-border); border-radius: 6px; }
+.since-count { font-size: 12px; color: var(--since); white-space: nowrap; }
+@media (max-width: 1100px) { .spec-pos, .since-count { display: none; } }
+
+/* the review steps in the sidebar */
+.tree-head #tree-mode { margin-top: 8px; }
+.step-unit { padding: 10px 8px 4px; font-size: 12px; font-weight: 600; color: var(--fg-muted); text-transform: none; }
+.tree-file.step { padding-left: 8px; }
+.tree-file.step .stepno { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; font-size: 11px; color: var(--fg-muted); border: 1px solid var(--border); border-radius: 50%; }
+.tree-file.step[aria-current="true"] .stepno { color: #fff; background: var(--accent); border-color: var(--accent); }
+.tree-file.step small { color: var(--fg-muted); font-size: 12px; }
+.tree-file.step.ref { font-style: italic; }
+.tree-file .reftag { font-size: 11px; color: var(--fg-muted); }
+.tree-file .qcount { font-size: 11px; font-weight: 600; color: var(--question); }
+.tree-file .tick.changed { color: var(--since); }
+.badge.ref { color: var(--fg-muted); }
+.thread .badge.changed { color: var(--since); border-color: var(--since); }
+.thread .badge.bot { color: var(--done); border-color: var(--done); }
+
+/* under each card: what to check, and the way on */
+.file-next { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg-inset); border-radius: 0 0 6px 6px; font-size: 13px; }
+.file-next[hidden], .file-card.collapsed .file-next { display: none; }
+.file-next .hint { color: var(--fg-muted); }
+
+/* open questions and ids inside the documents */
+mark.spec-q { padding: 0 3px; color: inherit; background: color-mix(in srgb, var(--question) 18%, transparent); border-bottom: 2px solid var(--question); border-radius: 3px; }
+mark.spec-q.todo { background: var(--since-bg); border-bottom-color: var(--since); }
+.spec-id { color: var(--accent); border-bottom: 1px dotted var(--accent); cursor: pointer; }
+.spec-id:hover { background: var(--accent-subtle); }
+.spec-flash { animation: spec-flash 1.6s ease-out; }
+@keyframes spec-flash { 0% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-subtle); } 100% { box-shadow: 0 0 0 4px transparent; } }
+#ticks .tick.q { background: var(--question); opacity: 1; }
+
+/* what changed since the baseline */
+.k.since { background: var(--since); }
+/* One clear signal: the amber column in the gutter (layoutBars) says which blocks changed, the words say how. While it is on the
+   PR's own marks step back: its bars fade and its green tint goes. */
+body.since-on .markdown-body [data-l].chg { background: none; }
+body.since-on .rico-bars i:not(.since):not(.sgone) { opacity: .35; }
+.rico-bars i.since, .rico-bars i.sgone { left: -9px; pointer-events: auto; }
+.rico-bars i.since { background: var(--since); }
+.rico-bars i.sgone { background: repeating-linear-gradient(to bottom, var(--danger) 0 3px, transparent 3px 5px); }
+.rico-bars i.since::before, .rico-bars i.sgone::before { content: ""; position: absolute; inset: 0 -4px; } /* a wider target for the tooltip */
+#ticks .tick.since { right: 11px; width: 4px; background: var(--since); opacity: .9; }
+.markdown-body .sa { text-decoration: underline; text-decoration-color: var(--since); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.markdown-body .sdel { user-select: none; pointer-events: none; text-decoration: none; }
+.markdown-body .sdel::before { content: attr(data-t); color: color-mix(in srgb, var(--danger) 70%, var(--fg-muted)); text-decoration: line-through; margin: 0 2px; font-size: .92em; }
+.markdown-body .since-gone { user-select: none; pointer-events: none; margin: 2px 0; font-size: 12px; font-style: italic; color: var(--fg-muted); }
+.markdown-body .since-gone::before { content: attr(data-t); }
+.file-card.since-new .file-header .fname::after { content: "new since then"; margin-left: 8px; font-size: 11px; color: var(--since); }
+
+/* comments that were outdated and have been found again */
+.thread.outdated.reanchored { opacity: .95; }
+.thread.outdated.reanchored:not(.fuzzy) .text blockquote { text-decoration: none; }
+.thread.flash { animation: spec-flash 1.8s ease-out; }
+.thennow { margin: 6px 12px 8px; font-size: 12px; }
+.thennow summary { cursor: pointer; color: var(--accent); }
+.thennow .tn { margin-top: 4px; padding: 6px 8px; background: var(--bg-inset); border-radius: 6px; line-height: 1.5; }
+.thennow del { color: var(--danger); background: var(--diff-del-bg); text-decoration: line-through; }
+.thennow ins { color: var(--success); background: var(--diff-add-bg); text-decoration: none; }
+.thennow .tn-then { color: var(--fg-muted); text-decoration: line-through; margin-bottom: 4px; }
+
+/* the needs-you list */
+.queue-item { flex-direction: column; align-items: flex-start; gap: 1px; white-space: normal; border-bottom: 1px solid var(--border-muted); }
+.queue-item:last-child { border-bottom: 0; }
+.queue-item .qwhere { font-weight: 600; }
+.queue-item .qwhy { font-size: 12px; color: var(--since); }
+.queue-item .qtext { font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.viewed[hidden] { display: none; }
+#tree-mode[hidden] { display: none; }

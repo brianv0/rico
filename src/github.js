@@ -1,6 +1,6 @@
 // The GitHub half of Rico, shared by the local Node server and the Cloudflare Worker.
 // Web-standard APIs only (fetch, Uint8Array): no Node built-ins, so it runs in both.
-import { parsePrRef, parseCommitRef, parseBranchRef, positionLine } from '../public/lib.js';
+import { parsePrRef, parseCommitRef, parseBranchRef, isBranchName, positionLine } from '../public/lib.js';
 import { fetchIcon } from './icon.js';
 
 const MD_RE = /\.(md|markdown|mdown|mdx)$/i;
@@ -28,6 +28,9 @@ const compact = (c) => ({
   originalStartLine: c.original_start_line ?? null,
   side: c.side || 'RIGHT',
   user: c.user?.login || 'ghost',
+  bot: c.user?.type === 'Bot' || /\[bot\]$/.test(c.user?.login || ''),
+  commit: c.commit_id || null,
+  originalCommit: c.original_commit_id || null,
   body: c.body || '',
   createdAt: c.created_at,
   url: c.html_url,
@@ -71,6 +74,11 @@ const THREADS_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String
       nodes{id path line originalLine startLine originalStartLine diffSide startDiffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
         comments(first:100){nodes{id databaseId state lastEditedAt body createdAt updatedAt url authorAssociation author{login avatarUrl} replyTo{databaseId} viewerCanUpdate viewerCanDelete viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
   }}}`;
+
+// Which files the viewer has ticked as "viewed" (GitHub keeps this per user and PR, and clears it when a file changes).
+// Kept apart from the thread query on purpose: if GitHub's schema differs from what we expect, only this feature goes quiet.
+const VIEWED_Q = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
+  repository(owner:$owner,name:$repo){pullRequest(number:$number){id files(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{path viewerViewedState}}}}}`;
 
 const COMMIT_CAPS_Q = `query($owner:String!,$repo:String!,$oid:GitObjectID!,$after:String){
   viewer{login}
@@ -242,6 +250,37 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     return { items };
   }
 
+  /**
+   * The commit the viewer last reviewed or commented at: the anchor for "what changed since you looked". REST only
+   * (a review's commit_id, a comment's original_commit_id), so it works wherever GraphQL does not.
+   */
+  function viewerBaseline(reviews, comments, viewer) {
+    if (!viewer) return null;
+    const mine = [];
+    for (const r of reviews || []) if (r.user?.login === viewer && r.commit_id && r.submitted_at && r.state !== 'PENDING') mine.push({ sha: r.commit_id, at: r.submitted_at, kind: 'review' });
+    for (const c of comments || []) if (c.user === viewer && !c.pending && (c.originalCommit || c.commit)) mine.push({ sha: c.originalCommit || c.commit, at: c.createdAt, kind: 'comment' });
+    mine.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    return mine[0] || null;
+  }
+
+  /** {path: 'VIEWED' | 'UNVIEWED' | 'DISMISSED'} for the viewer, or null when GitHub will not say. */
+  async function viewedStates(owner, repo, number) {
+    if (readOnly || !getToken()) return null;
+    try {
+      const out = {};
+      let after = null;
+      for (let i = 0; i < 10; i++) {
+        const f = (await gql(VIEWED_Q, { owner, repo, number, after })).repository.pullRequest.files;
+        for (const n of f.nodes) out[n.path] = n.viewerViewedState;
+        if (!f.pageInfo.hasNextPage) break;
+        after = f.pageInfo.endCursor;
+      }
+      return out;
+    } catch {
+      return null;
+    }
+  }
+
   /** Review comments (markdown files only), PR-level comments, and who may do what with them. */
   async function loadComments(owner, repo, number) {
     const base = `/repos/${owner}/${repo}`;
@@ -389,6 +428,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       message: nl < 0 ? '' : message.slice(nl + 1).trim(),
       url: commit.html_url,
       author: commit.author?.login || commit.commit?.author?.name || null,
+      // who wrote it and who committed it (GitHub shows both when they differ: a rebase, a web edit, a cherry-pick)
+      authorName: commit.commit?.author?.name || null,
+      committer: commit.committer?.login || commit.commit?.committer?.name || null,
+      committerName: commit.commit?.committer?.name || null,
+      committerAvatar: commit.committer?.avatar_url || null,
+      committedAt: commit.commit?.committer?.date || null,
+      verified: !!commit.commit?.verification?.verified,
+      verification: commit.commit?.verification?.reason || null,
       authorAvatar: commit.author?.avatar_url || null,
       createdAt: commit.commit?.author?.date || null,
       parents: (commit.parents || []).map((p) => p.sha),
@@ -432,7 +479,13 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
       if (cmp.merge_base_commit?.sha) baseSha = cmp.merge_base_commit.sha;
     } catch { /* fall back to the base sha */ }
     const loaded = await loadComments(owner, repo, number);
+    const [reviews, viewedFiles] = await Promise.all([
+      readOnly || !getToken() ? [] : pages(`${base}/reviews`).catch(() => []),
+      viewedStates(owner, repo, number),
+    ]);
     return {
+      viewerBaseline: viewerBaseline(reviews, loaded.comments, loaded.viewer),
+      viewedFiles,
       owner,
       repo,
       number,
@@ -479,6 +532,28 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     const ref = q.get('ref') || '';
     if (!file || file.includes('..') || !/^[0-9a-f]{7,64}$/i.test(ref)) throw new HttpError(400, 'bad path/ref');
     return gh(`/repos/${owner}/${repo}/contents/${encPath(file)}?ref=${ref}`, { accept: 'application/vnd.github.raw+json' });
+  }
+
+  /** A directory at a commit, for finding the unchanged files that sit beside a changed one: [{name, path, type}]. */
+  async function apiDir(q) {
+    const { owner, repo } = repoParams(q);
+    const dir = (q.get('path') || '').replace(/\/+$/, '');
+    const ref = q.get('ref') || '';
+    if (!dir || dir.split('/').some((s) => !s || s === '.' || s === '..') || !/^[0-9a-f]{7,64}$/i.test(ref)) throw new HttpError(400, 'bad path/ref');
+    const list = await ghJson(`/repos/${owner}/${repo}/contents/${encPath(dir)}?ref=${ref}`);
+    return Array.isArray(list) ? list.slice(0, 300).map((e) => ({ name: e.name, path: e.path, type: e.type })) : [];
+  }
+
+  /** Tick or untick a file as "viewed" on GitHub itself, so the mark follows the reviewer to github.com and across pushes. */
+  async function apiViewed(b) {
+    if (b?.sha != null) throw noReviews();
+    const { owner, repo, number } = b || {};
+    if (!NAME_RE.test(owner || '') || !NAME_RE.test(repo || '') || !Number.isInteger(number)) throw new HttpError(400, 'bad request');
+    if (typeof b.path !== 'string' || !b.path || b.path.length > 1024 || b.path.split('/').some((s) => s === '..')) throw new HttpError(400, 'bad path');
+    const { prId } = await pendingState(owner, repo, number);
+    const op = b.viewed ? 'markFileAsViewed' : 'unmarkFileAsViewed';
+    await gql(`mutation($id:ID!,$p:String!){${op}(input:{pullRequestId:$id,path:$p}){clientMutationId}}`, { id: prId, p: b.path });
+    return { ok: true };
   }
 
   // Images referenced by relative path from a markdown file, served from the PR's head commit.
@@ -681,15 +756,22 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
   async function apiRefresh(q) {
     const { owner, repo } = repoParams(q);
     const sha = q.get('sha');
-    if (sha != null) { // a commit never moves: only its comments can change
+    if (sha != null) { // a commit never moves: only its comments can change, and (opened from a branch) the branch can move on
       if (!SHA_RE.test(sha)) throw new HttpError(400, 'bad sha');
+      const branch = q.get('branch');
+      if (branch != null && !isBranchName(branch)) throw new HttpError(400, 'bad branch');
       let known = {};
       try { known = JSON.parse(q.get('etags') || '{}') || {}; } catch { /* first poll */ }
-      const r = await gh(`/repos/${owner}/${repo}/commits/${sha}/comments?per_page=100`, { raw: true, etag: typeof known.cc === 'string' ? known.cc : undefined });
-      const etags = { cc: r.etag || '' };
-      if (r.status === 304) return { unchanged: true, etags };
+      const tag = (k) => (typeof known[k] === 'string' ? known[k] : undefined);
+      const [r, b] = await Promise.all([
+        gh(`/repos/${owner}/${repo}/commits/${sha}/comments?per_page=100`, { raw: true, etag: tag('cc') }),
+        branch ? gh(`/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`, { raw: true, etag: tag('br') }).catch((e) => (e.status === 404 ? { status: 404 } : null)) : null,
+      ]);
+      const etags = { cc: r.etag || '', ...(b?.etag ? { br: b.etag } : {}) };
+      const tip = b?.status === 200 ? { headSha: JSON.parse(b.text).commit?.sha || null } : b?.status === 404 ? { branchGone: true } : {};
+      if (r.status === 304) return { unchanged: true, etags, ...tip };
       const { files } = await commitFiles(owner, repo, sha);
-      return { unchanged: false, etags, ...(await loadCommitComments(owner, repo, sha, files)) };
+      return { unchanged: false, etags, ...tip, ...(await loadCommitComments(owner, repo, sha, files)) };
     }
     const number = Number(q.get('number'));
     if (!Number.isInteger(number) || number < 1) throw new HttpError(400, 'bad number');
@@ -729,11 +811,12 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
         const { type, data } = await fetchIcon(url.searchParams.get('u'));
         return new Response(data, { status: 200, headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff' } });
       }
+      if (method === 'GET' && p === '/api/dir') return j(200, await apiDir(url.searchParams));
       if (method === 'GET' && p === '/api/file') return new Response(await apiFile(url.searchParams), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
       if (method === 'POST' && p === '/api/review') return j(200, await apiReview(await readBody()));
       if (method === 'POST' && p === '/api/reply') return j(200, await apiReply(await readBody()));
       if (method === 'GET' && p === '/api/comments') return j(200, await apiRefresh(url.searchParams));
-      const posts = { '/api/comment': apiComment, '/api/pr-comment': apiPrComment, '/api/comment/edit': apiEdit, '/api/comment/delete': apiDelete, '/api/thread/resolve': apiResolve, '/api/reaction': apiReact, '/api/pending/add': apiPendingAdd, '/api/pending/finish': apiPendingFinish, '/api/pending/discard': apiPendingDiscard };
+      const posts = { '/api/comment': apiComment, '/api/pr-comment': apiPrComment, '/api/comment/edit': apiEdit, '/api/comment/delete': apiDelete, '/api/thread/resolve': apiResolve, '/api/reaction': apiReact, '/api/pending/add': apiPendingAdd, '/api/pending/finish': apiPendingFinish, '/api/pending/discard': apiPendingDiscard, '/api/viewed': apiViewed };
       if (method === 'POST' && Object.hasOwn(posts, p)) return j(200, await posts[p](await readBody()));
       throw new HttpError(404, 'not found');
     } catch (e) {

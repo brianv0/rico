@@ -25,6 +25,7 @@ export function parseCommitRef(input) {
 // Branch names: what git allows that is safe in a URL path segment-by-segment, and never a dot segment or ".." anywhere.
 const BRANCH_RE = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*\/$)(?!\/)(?!.*(?:^|\/)\.)[\w./+-]{1,200}$/;
 const isBranch = (b) => BRANCH_RE.test(b) && !/\.lock$/.test(b);
+export const isBranchName = (b) => typeof b === 'string' && isBranch(b);
 
 /**
  * A branch: https://github.com/o/r/tree/<branch>, o/r/tree/<branch> or o/r@<branch> -> {owner, repo, branch} | null.
@@ -59,6 +60,24 @@ export function parseCommitPath(pathname) {
   const m = /^\/([\w.-]+\.[\w.-]+(?::\d+)?)\/([\w.-]+)\/([\w.-]+)\/commit\/([0-9a-f]{7,40})\/?$/i.exec(String(pathname || ''));
   if (!m || /^\.+$/.test(m[2]) || /^\.+$/.test(m[3])) return null;
   return { instance: m[1].toLowerCase(), owner: m[2], repo: m[3], sha: m[4].toLowerCase() };
+}
+
+/**
+ * A commit message's body, split from its trailers ("Co-authored-by: Name <email>", "Signed-off-by: …"), as GitHub shows them.
+ *   -> {body, coAuthors: [{name, email}], trailers: [{key, value}]}
+ */
+export function commitMessageParts(message) {
+  const lines = String(message || '').replace(/\r/g, '').replace(/\s+$/, '').split('\n');
+  let i = lines.length;
+  while (i > 0 && /^[A-Za-z][\w-]*: \S/.test(lines[i - 1])) i--; // the trailing block of "Key: value" lines
+  const trailerLines = i > 0 && i < lines.length && !lines[i - 1].trim() ? lines.slice(i) : [];
+  const body = (trailerLines.length ? lines.slice(0, i) : lines).join('\n').trim();
+  const trailers = trailerLines.map((l) => { const k = l.indexOf(': '); return { key: l.slice(0, k), value: l.slice(k + 2).trim() }; });
+  const coAuthors = trailers.filter((t) => /^co-authored-by$/i.test(t.key)).map((t) => {
+    const m = /^(.*?)\s*<([^>]*)>$/.exec(t.value);
+    return m ? { name: m[1], email: m[2] } : { name: t.value, email: '' };
+  });
+  return { body, coAuthors, trailers };
 }
 
 /** Shorten a long multi-line quote for display: the first `head` lines, a gap marker, the last `tail` lines. */

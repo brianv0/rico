@@ -32,6 +32,11 @@ try {
     assert.match(await page.textContent('#pr-state'), /Commit/);
     assert.equal(await page.isHidden('#review-btn'), true);
     assert.match(await page.textContent('#commit-note'), /single commit.*not in any pull request/s);
+    const meta = await page.textContent('#pr-meta');
+    assert.match(meta, /bob\s*and Carol authored .* and\s*web-flow\s*committed/s); // co-author from the trailer; a different committer
+    assert.match(meta, /Verified/);
+    assert.match(await page.textContent('#commit-info .commit-body'), /^And drop the old subtitle\.$/);
+    assert.match(await page.textContent('#commit-info .commit-trailers'), /Signed-off-by: Bob/);
     assert.equal(await page.getAttribute('#commit-note .cn-prs a', 'href'), '/github.com/acme/docs/7'); // the PR it belongs to, to review there instead
     assert.equal(new URL(page.url()).pathname, `/github.com/acme/docs/commit/${SHA}`);
     const s = await S();
@@ -101,9 +106,26 @@ try {
   await step('a branch link opens its tip commit, names the branch, and pins the commit in the address bar', async () => {
     await page.goto(`http://127.0.0.1:${PORT}/github.com/acme/docs/tree/feature/plan-v2`);
     await page.waitForFunction(() => window.__rico?.state.pr?.branch === 'feature/plan-v2', null, { timeout: 8000 });
-    assert.match(await page.textContent('#pr-meta'), /tip of feature\/plan-v2/);
+    assert.match(await page.textContent('#pr-meta'), /on feature\/plan-v2/);
     assert.match(await page.textContent('#commit-note'), /latest commit on feature\/plan-v2, not the whole branch/);
     await page.waitForFunction((sha) => location.pathname === `/github.com/acme/docs/commit/${sha}`, SHA, { timeout: 5000 });
+    assert.equal(new URL(page.url()).searchParams.get('branch'), 'feature/plan-v2'); // the pinned commit still follows its branch
+  });
+
+  await step('the pinned link reloads still following the branch; "Check for newer" finds a newer tip', async () => {
+    await page.reload();
+    await page.waitForFunction(() => window.__rico?.state.pr?.branch === 'feature/plan-v2' && document.querySelector('#margin .thread'), null, { timeout: 8000 });
+    await page.click('#branch-latest');
+    await page.waitForFunction(() => document.getElementById('branch-latest').textContent === 'Up to date', null, { timeout: 5000 });
+    assert.equal(await page.isHidden('#stale'), true);
+    fake.state.branchTip = 'f'.repeat(40); fake.state.version++;
+    await page.click('#branch-latest');
+    await page.waitForFunction(() => document.getElementById('branch-latest').textContent === 'Go to latest', null, { timeout: 5000 });
+    assert.match(await page.textContent('#stale'), /feature\/plan-v2 has moved on to ffffff/);
+    assert.equal(await page.textContent('#stale-reload'), 'Go to latest');
+    fake.state.branchTip = null; fake.state.version++;
+    await page.click('#stale-reload'); // opens the branch again: its tip (back at SHA in the fake)
+    await page.waitForFunction(() => window.__rico?.state.pr?.branch === 'feature/plan-v2' && !window.__rico.state.stale, null, { timeout: 8000 });
   });
   await step('no page errors', async () => assert.deepEqual(errors, []));
 } finally {
