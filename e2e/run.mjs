@@ -96,6 +96,14 @@ const iconAsks = [];
 await page.route(/\/api\/icon\?/, (route) => { iconAsks.push(new URL(route.request().url()).searchParams.get('u')); route.fulfill({ status: 200, contentType: 'image/svg+xml', body: ICON_SVG }); });
 page.on('response', (r) => { if (new URL(r.url()).hostname.endsWith('terrastruct.com')) external.push(r.url()); }); // anything that actually got an answer
 await page.goto(`http://localhost:${PORT}/`);
+await step('start page, signed in: the PRs that may need your review are listed (not the signed-out Sign in / Explore)', async () => {
+  await page.waitForSelector('#needs-review li a', { timeout: 8000 });
+  assert.equal(await page.getAttribute('#needs-review li a', 'href'), '/github.com/acme/docs/7');
+  assert.match(await page.textContent('#needs-review li a'), /Update the docs/);
+  assert.equal(await page.isVisible('.hero'), false);
+  assert.equal(await page.isVisible('.shot'), false);
+  assert.equal(await page.isVisible('#side'), false, 'no empty file tree before a PR is open');
+});
 await page.fill('#pr', 'https://github.com/acme/docs/pull/7');
 await page.click('#load button');
 await page.waitForSelector('#doc h1');

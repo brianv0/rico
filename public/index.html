@@ -103,14 +103,31 @@
       <section class="landing" aria-labelledby="landing-h">
         <h2 id="landing-h">Review markdown the way it will be read</h2>
         <p>Rico shows a GitHub pull request's markdown <em>rendered</em>, in a page built to look like <b>Files changed</b>. Select any text &mdash; across paragraphs, tables, even diagrams &mdash; and comment on it, like in Google Docs. Comments are posted to GitHub as you, so they appear on github.com too.</p>
+        <div class="hero for-preview">
+          <div class="cta">
+            <a class="btn btn-primary btn-lg" href="/auth/login">Sign in with GitHub</a>
+            <a class="btn btn-lg" id="explore-btn" href="#explore">Explore</a>
+          </div>
+          <p class="cta-note">Sign in to comment on your own pull requests. Explore opens public ones to read, no account needed.</p>
+        </div>
+
+        <section id="needs-review" class="needs-review" aria-labelledby="nr-h" hidden>
+          <h3 id="nr-h">May need your review</h3>
+          <ul class="pr-picks"></ul>
+        </section>
+
+        <section id="explore" class="needs-review" aria-labelledby="ex-h" hidden>
+          <h3 id="ex-h">Explore public pull requests</h3>
+          <ul class="pr-picks"></ul>
+        </section>
+
+        <img class="shot for-preview" src="/img/rico-spec-d2.webp" width="2000" height="1250" alt="Rico reviewing a Spec Kit pull request: the plan's rendered D2 architecture diagram, with a review thread in the margin asking whether the session store should be Redis or the main database">
+
         <ol class="steps">
           <li>Paste a pull request link in the box above: <code>owner/repo#123</code>, a PR, commit or branch URL.</li>
           <li>Select text and choose <b>Comment</b>, or <b>Start a review</b> to batch your comments.</li>
           <li>Finish with <b>Review changes</b>: Comment, Approve or Request changes.</li>
         </ol>
-        <p class="examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p>
-
-        <p class="empty intro examples">Review flows (AI spec-driven work): <a href="/github.com/brianv0/rico-examples/2">Spec Kit</a> &middot; <a href="/github.com/brianv0/rico-examples/3">Superpowers</a> &middot; <a href="/github.com/brianv0/rico-examples/1">OpenSpec</a></p>
       </section></div>
     <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
       <button type="button" id="sb-comment" title="Comment (Ctrl/Cmd+Alt+M)" aria-label="Comment on the selection"></button>

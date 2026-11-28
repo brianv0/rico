@@ -226,8 +226,10 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     const repo = q.get('repo');
     const owner = q.get('owner');
     const sort = 'sort:updated-desc';
+    const needs = q.get('needs') === 'review'; // the start page: open PRs that may be waiting on the viewer
     let queries;
-    if (repo) {
+    if (needs) queries = [`is:pr is:open draft:false review-requested:@me ${sort}`, `is:pr is:open draft:false involves:@me -author:@me -reviewed-by:@me ${sort}`];
+    else if (repo) {
       const [o, r] = repo.split('/');
       if (!NAME_RE.test(o || '') || !NAME_RE.test(r || '')) throw new HttpError(400, 'bad repo');
       queries = [`is:pr repo:${o}/${r} ${text} ${sort}`];
@@ -238,7 +240,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     else queries = [`is:pr involves:@me ${sort}`, `is:pr review-requested:@me ${sort}`];
     const vars = Object.fromEntries(queries.map((s, i) => ['q' + i, s]));
     const decl = queries.map((_, i) => `$q${i}:String!`).join(',');
-    const body = queries.map((_, i) => `s${i}:search(query:$q${i},type:ISSUE,first:${text || repo || owner ? 10 : 30}){nodes{${PR_FIELDS}}}`).join(' ');
+    const body = queries.map((_, i) => `s${i}:search(query:$q${i},type:ISSUE,first:${text || repo || owner || needs ? 10 : 30}){nodes{${PR_FIELDS}}}`).join(' ');
     const exact = repo && /^\d+$/.test(q.get('number') || '') ? Number(q.get('number')) : 0;
     const [d, one] = await Promise.all([
       gql(`query(${decl}){${body}}`, vars),
@@ -247,6 +249,10 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     const items = [];
     if (one?.repository?.pullRequest) items.push(prItem(one.repository.pullRequest));
     for (const k of Object.keys(d)) for (const n of d[k].nodes) if (n?.number) items.push(prItem(n));
+    if (needs) { // review requests first, then the rest, each PR once
+      const seen = new Set();
+      return { items: items.filter((i) => { const key = `${i.owner}/${i.repo}#${i.number}`.toLowerCase(); return !seen.has(key) && seen.add(key); }) };
+    }
     return { items };
   }
 

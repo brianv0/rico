@@ -3,7 +3,7 @@
 import worker from './worker.js';
 import FILES from '../dist-embed/files.js';
 
-const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', json: 'application/json', ttf: 'font/ttf', txt: 'text/plain; charset=utf-8' };
+const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', webp: 'image/webp', png: 'image/png', json: 'application/json', ttf: 'font/ttf', txt: 'text/plain; charset=utf-8' };
 const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); // binary files (fonts) are embedded as base64
 
 export const ASSETS = {

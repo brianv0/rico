@@ -30,7 +30,7 @@ function token() {
 
 const github = createGithub({ getToken: token, apiUrl: API });
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.png': 'image/png', '.json': 'application/json', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
 
 // Diagram renderers are optional dependencies, served from node_modules when installed.
 const VENDOR = vendorFiles(path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules'));

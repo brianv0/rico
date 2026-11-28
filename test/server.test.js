@@ -219,6 +219,16 @@ test('GET /api/suggest: the viewer pool, repo scope with an exact number, and te
   assert.equal((await get(port, '/api/suggest?repo=../x')).status, 400);
 });
 
+test('GET /api/suggest?needs=review: open non-draft PRs awaiting the viewer, review requests first, each PR once', async () => {
+  const r = await get(port, '/api/suggest?needs=review');
+  assert.equal(r.status, 200);
+  const q = fake.ops.filter((o) => o.op === 'search').at(-1).queries;
+  assert.equal(q.length, 2);
+  assert.match(q[0], /^is:pr is:open draft:false review-requested:@me /);
+  assert.match(q[1], /involves:@me -author:@me -reviewed-by:@me /);
+  assert.deepEqual(JSON.parse(r.body).items.map((i) => i.number), [7], 'both searches return PR 7: listed once');
+});
+
 test('GET /api/suggest?name=…: the exact PR from whichever candidate owner has that repo; missing repos are not errors', async () => {
   const r = await get(port, '/api/suggest?name=formwork&number=47&owners=' + encodeURIComponent('nobody,acme'));
   assert.equal(r.status, 200, r.body);

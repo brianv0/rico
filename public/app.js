@@ -4,7 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
-import { initSuggest, rememberPr } from './suggest.js';
+import { initSuggest, rememberPr, showNeedsReview, showExplore } from './suggest.js';
 import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
 import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, buildIdIndexByUnit, ID_SRC, ROLE_HINT, ROLE_LABEL } from './spec.js';
 import { sinceChanges, reanchor, inlineDiff, pairBlocks } from './anchor.js';
@@ -241,6 +241,7 @@ async function showWho() {
     state.me = me.login || null;
     state.meAvatar = me.avatar || null;
     state.preview = !!me.preview;
+    document.body.dataset.auth = (res.ok && me.preview) || (res.status === 401 && me.signin) ? 'preview' : 'user'; // what the start page offers
     if ((res.ok && me.preview) || (res.status === 401 && me.signin)) { // signed out (or the token was revoked at GitHub): reading public PRs
       state.preview = true;
       who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
@@ -3241,7 +3242,14 @@ if (here) {
   else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '', false, here.number ? '' : new URLSearchParams(location.search).get('branch') || '');
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
-showWho();
+showWho().then(async () => {
+  const $id = (i) => document.getElementById(i);
+  if (state.preview) { // signed out: Sign in or Explore
+    const reveal = () => { showExplore($id('explore')); $id('explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    $id('explore-btn')?.addEventListener('click', (e) => { e.preventDefault(); history.replaceState(null, '', '#explore'); reveal(); });
+    if (location.hash === '#explore') reveal();
+  } else if ($id('needs-review') && !(await showNeedsReview($id('needs-review')))) showExplore($id('explore')); // nothing waiting on you: public PRs to look at
+});
 
 // test hook
 const setMergeWords = (on) => {
