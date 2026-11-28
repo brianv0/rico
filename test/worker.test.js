@@ -11,6 +11,9 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, opts = {}) => {
   const u = new URL(String(url));
   calls.push({ url: u.toString(), opts });
+  if (u.hostname === 'api.github.com' && opts.method === 'DELETE' && u.pathname === '/applications/cid/token') {
+    return JSON.parse(opts.body).access_token === 'gho_usertoken' ? new Response(null, { status: 204 }) : Response.json({ message: 'Not Found' }, { status: 404 });
+  }
   if (u.pathname === '/login/oauth/access_token') {
     const b = JSON.parse(opts.body);
     return Response.json(b.code === 'good' ? { access_token: 'gho_usertoken' } : { error: 'bad_verification_code', error_description: 'The code passed is incorrect or expired.' });
@@ -60,7 +63,7 @@ test('login redirects to GitHub with client id, callback url, scope and a state'
   assert.equal(u.origin + u.pathname, 'https://github.com/login/oauth/authorize');
   assert.equal(u.searchParams.get('client_id'), 'cid');
   assert.equal(u.searchParams.get('redirect_uri'), ORIGIN + '/auth/callback');
-  assert.equal(u.searchParams.get('scope'), 'repo');
+  assert.equal(u.searchParams.get('scope'), 'repo', 'public and private repositories');
   assert.match(l.headers.getSetCookie()[0], /rico_oauth=.*HttpOnly.*SameSite=Lax.*Secure/);
 });
 
@@ -132,6 +135,15 @@ test('api: a forged or tampered session cookie is just signed out; a revoked tok
   const res = await worker.fetch(req('/api/me', { headers: { Cookie: 'rico_session=' + revoked } }), env);
   assert.equal(res.status, 401);
   assert.equal((await res.json()).signin, true);
+});
+
+test('a revoked token also clears the session cookie, so the browser is signed out rather than stuck', async () => {
+  const { cookie } = await signIn();
+  const res = await worker.fetch(req('/api/me', { headers: { Cookie: await sealed({ t: 'gho_revoked' }) } }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).signin, true);
+  assert.match(res.headers.get('Set-Cookie'), /rico_session=;.*Max-Age=0/);
+  assert.ok(cookie);
 });
 
 test('api POSTs need the X-Rico header and a same-origin Origin', async () => {
@@ -293,4 +305,81 @@ test('/api/icon: signed-out preview can load a D2 icon from the icon host only, 
     assert.equal(bad.status, 400);
     assert.equal(asked.length, 1); // the other host was never contacted
   } finally { globalThis.fetch = real; }
+});
+
+// ---- narrow scope, private opt-in, revoke on sign-out, rate limits, error reports
+
+test('scope: sign-in asks for repo (public and private) unless OAUTH_SCOPE says otherwise', async () => {
+  const scopeOf = async (e) => new URL((await worker.fetch(req('/auth/login'), e)).headers.get('Location')).searchParams.get('scope');
+  assert.equal(await scopeOf(env), 'repo');
+  assert.equal(await scopeOf({ ...env, OAUTH_SCOPE: 'public_repo' }), 'public_repo');
+});
+async function sealed(payload) { return 'rico_session=' + await seal(env.SESSION_SECRET, payload, 60000); }
+
+test('logout revokes the token at GitHub (best effort) and still clears the session when GitHub fails', async () => {
+  const { cookie } = await signIn();
+  const before = calls.length;
+  const out = await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1', Cookie: cookie } }), env);
+  assert.deepEqual(await out.json(), { ok: true, revoked: true });
+  const del = calls.slice(before).find((c) => c.opts.method === 'DELETE');
+  assert.equal(del.url, 'https://api.github.com/applications/cid/token');
+  assert.equal(del.opts.headers.Authorization, 'Basic ' + btoa('cid:csecret'));
+  assert.equal(JSON.parse(del.opts.body).access_token, 'gho_usertoken');
+  assert.match(out.headers.get('Set-Cookie'), /rico_session=;.*Max-Age=0/);
+  // signed out already: nothing to revoke, no call
+  const n = calls.length;
+  assert.deepEqual(await (await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }), env)).json(), { ok: true, revoked: false });
+  assert.equal(calls.length, n);
+  // GitHub unreachable: still signed out locally
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, o) => { if (o?.method === 'DELETE') throw new Error('network down'); return real(u, o); };
+  try {
+    const out2 = await worker.fetch(req('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1', Cookie: cookie } }), env);
+    assert.deepEqual(await out2.json(), { ok: true, revoked: false });
+    assert.match(out2.headers.get('Set-Cookie'), /Max-Age=0/);
+  } finally { globalThis.fetch = real; }
+});
+
+const limiter = (okCount) => { const seen = []; return { seen, limit: async ({ key }) => { seen.push(key); return { success: seen.length <= okCount }; } }; };
+
+test('preview: a rate-limited visitor gets 429 with a sign-in hint; the limiter is keyed by IP; a missing limiter means no limit', async () => {
+  const PREVIEW_LIMIT = limiter(1);
+  const e = { ...env, PREVIEW_LIMIT };
+  const hdr = { headers: { 'CF-Connecting-IP': '203.0.113.9' } };
+  assert.equal((await worker.fetch(req('/api/pr?ref=o/pub%231', hdr), e)).status, 200);
+  const limited = await worker.fetch(req('/api/pr?ref=o/pub%232', hdr), e);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('Retry-After'), '60');
+  const body = await limited.json();
+  assert.equal(body.signin, true);
+  assert.deepEqual(PREVIEW_LIMIT.seen, ['203.0.113.9', '203.0.113.9']);
+  assert.equal((await worker.fetch(req('/api/pr?ref=o/pub%231'), env)).status, 200, 'no binding: unlimited');
+  const broken = { ...env, PREVIEW_LIMIT: { limit: async () => { throw new Error('boom'); } } };
+  assert.equal((await worker.fetch(req('/api/pr?ref=o/pub%231'), broken)).status, 200, 'a failing limiter must not take preview down');
+});
+
+test('client errors: POST /api/client-error logs one structured line; it needs X-Rico and the same origin, is size-capped and rate limited', async () => {
+  const lines = [];
+  const orig = console.error;
+  console.error = (m) => lines.push(m);
+  try {
+    const post = (body, init = {}) => worker.fetch(req('/api/client-error', { method: 'POST', headers: { 'X-Rico': '1', 'User-Agent': 'UA/1', ...init.headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }), init.env || env);
+    const ok = await post({ message: 'x is not a function', stack: 's'.repeat(5000), source: 'https://rico.example.dev/app.js', line: 12, login: 'octo', cookie: 'secret' });
+    assert.equal(ok.status, 204);
+    assert.equal(lines.length, 1);
+    const rec = JSON.parse(lines[0]);
+    assert.equal(rec.event, 'client_error');
+    assert.equal(rec.message, 'x is not a function');
+    assert.equal(rec.stack.length, 1500, 'stack is clipped');
+    assert.equal(rec.ua, 'UA/1');
+    assert.deepEqual(Object.keys(rec).sort(), ['event', 'line', 'message', 'source', 'stack', 'ua'], 'nothing else the page sent is logged');
+    assert.equal((await worker.fetch(req('/api/client-error', { method: 'POST', body: '{}' }), env)).status, 403, 'needs X-Rico');
+    assert.equal((await post({ message: 'm' }, { headers: { Origin: 'https://evil.example' } })).status, 403);
+    assert.equal((await post('not json')).status, 400);
+    assert.equal((await worker.fetch(req('/api/client-error'), env)).status, 405);
+    assert.equal(lines.length, 1);
+    const ERROR_LIMIT = limiter(0);
+    assert.equal((await post({ message: 'm' }, { env: { ...env, ERROR_LIMIT } })).status, 429);
+    assert.equal(lines.length, 1, 'a limited report is dropped');
+  } finally { console.error = orig; }
 });

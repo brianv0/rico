@@ -226,8 +226,14 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     const repo = q.get('repo');
     const owner = q.get('owner');
     const sort = 'sort:updated-desc';
+    const needs = q.get('needs') === 'review'; // the start page: open PRs that may be waiting on the viewer
     let queries;
-    if (repo) {
+    if (needs) { // review requests of the viewer (direct: 60 days, via a team: 14), then their own recent PRs as a fallback
+      const since = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+      const base = 'is:pr is:open archived:false draft:false';
+      queries = [`${base} user-review-requested:@me updated:>=${since(60)} ${sort}`, `${base} review-requested:@me -user-review-requested:@me updated:>=${since(14)} ${sort}`, `is:pr is:open archived:false involves:@me updated:>=${since(60)} ${sort}`];
+    }
+    else if (repo) {
       const [o, r] = repo.split('/');
       if (!NAME_RE.test(o || '') || !NAME_RE.test(r || '')) throw new HttpError(400, 'bad repo');
       queries = [`is:pr repo:${o}/${r} ${text} ${sort}`];
@@ -238,7 +244,7 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     else queries = [`is:pr involves:@me ${sort}`, `is:pr review-requested:@me ${sort}`];
     const vars = Object.fromEntries(queries.map((s, i) => ['q' + i, s]));
     const decl = queries.map((_, i) => `$q${i}:String!`).join(',');
-    const body = queries.map((_, i) => `s${i}:search(query:$q${i},type:ISSUE,first:${text || repo || owner ? 10 : 30}){nodes{${PR_FIELDS}}}`).join(' ');
+    const body = queries.map((_, i) => `s${i}:search(query:$q${i},type:ISSUE,first:${text || repo || owner || needs ? 10 : 30}){nodes{${PR_FIELDS}}}`).join(' ');
     const exact = repo && /^\d+$/.test(q.get('number') || '') ? Number(q.get('number')) : 0;
     const [d, one] = await Promise.all([
       gql(`query(${decl}){${body}}`, vars),
@@ -246,7 +252,11 @@ export function createGithub({ getToken, apiUrl = 'https://api.github.com', read
     ]);
     const items = [];
     if (one?.repository?.pullRequest) items.push(prItem(one.repository.pullRequest));
-    for (const k of Object.keys(d)) for (const n of d[k].nodes) if (n?.number) items.push(prItem(n));
+    for (const k of Object.keys(d)) for (const n of d[k].nodes) if (n?.number) items.push(needs ? { ...prItem(n), review: k !== 's2' } : prItem(n));
+    if (needs) { // review requests first, then the fallback; each PR once (a PR that is also in the fallback stays a review request)
+      const seen = new Set();
+      return { items: items.filter((i) => { const key = `${i.owner}/${i.repo}#${i.number}`.toLowerCase(); return !seen.has(key) && seen.add(key); }) };
+    }
     return { items };
   }
 

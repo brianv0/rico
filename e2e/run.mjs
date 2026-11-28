@@ -96,6 +96,31 @@ const iconAsks = [];
 await page.route(/\/api\/icon\?/, (route) => { iconAsks.push(new URL(route.request().url()).searchParams.get('u')); route.fulfill({ status: 200, contentType: 'image/svg+xml', body: ICON_SVG }); });
 page.on('response', (r) => { if (new URL(r.url()).hostname.endsWith('terrastruct.com')) external.push(r.url()); }); // anything that actually got an answer
 await page.goto(`http://localhost:${PORT}/`);
+await step('start page, signed in: the PRs that may need your review are listed (not the signed-out Sign in / Explore)', async () => {
+  await page.waitForSelector('#needs-review li a', { timeout: 8000 });
+  assert.equal(await page.getAttribute('#needs-review li a', 'href'), '/github.com/acme/docs/7');
+  assert.match(await page.textContent('#needs-review li a'), /Update the docs/);
+  assert.equal(await page.isVisible('.hero'), false);
+  assert.equal(await page.isVisible('#side'), false, 'no empty file tree before a PR is open');
+});
+await step('Explore is for signed-out visitors: their own page of public PRs; signed in, /explore goes to the start page', async () => {
+  const out = await (await browser.newContext()).newPage();
+  await out.route('**/api/me', (r) => r.fulfill({ json: { hosted: true, preview: true } }));
+  await out.goto(`http://localhost:${PORT}/explore`);
+  await out.waitForSelector('#explore-list li a');
+  assert.equal(await out.locator('#explore-list li').count(), 6);
+  assert.equal(await out.getAttribute('#explore-list li a', 'href'), '/github.com/brianv0/rico-examples/3');
+  assert.equal(await out.title(), 'Explore · Rico');
+  await out.goto(`http://localhost:${PORT}/`);
+  await out.waitForSelector('.hero', { state: 'visible' });
+  assert.equal(await out.isVisible('.shot'), true, 'the signed-out start page keeps its screenshot');
+  await out.close();
+  const inn = await (await browser.newContext()).newPage(); // the local server is "signed in"
+  await inn.goto(`http://localhost:${PORT}/explore`);
+  await inn.waitForSelector('#needs-review li a');
+  assert.equal(new URL(inn.url()).pathname, '/');
+  await inn.close();
+});
 await page.fill('#pr', 'https://github.com/acme/docs/pull/7');
 await page.click('#load button');
 await page.waitForSelector('#doc h1');

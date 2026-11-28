@@ -25,6 +25,52 @@ const stateOf = (p) => (p.state === 'MERGED' ? 'merged' : p.state === 'CLOSED' ?
 const ICON = { open: 'git-pull-request', merged: 'git-merge', closed: 'git-pull-request-closed', draft: 'git-pull-request-draft' };
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** One PR as the dropdown and the start page draw it: state icon, title, then "owner/repo#7 · author · 2d". */
+function rowHtml(p) {
+  const st = stateOf(p);
+  const ref = `${esc(p.owner)}/${esc(p.repo)}#${p.number}`;
+  return p.title
+    ? `<span class="sg-ic sg-${st}">${icon(ICON[st])}</span><span class="sg-main"><span class="sg-title">${esc(p.title)}</span><span class="sg-meta">${ref}${p.author ? ' · ' + esc(p.author) : ''}${p.updatedAt ? ' · ' + shortAge(p.updatedAt) : ''}</span></span>`
+    : `<span class="sg-ic sg-open">${icon('git-pull-request')}</span><span class="sg-main"><span class="sg-title">Open ${ref}</span></span>`;
+}
+
+// Public pull requests on the Explore page. The first three are the review flows Rico understands.
+const EXPLORE = [
+  { owner: 'brianv0', repo: 'rico-examples', number: 3, title: 'Superpowers: a plan for a merged design, and a new design with its plan' },
+  { owner: 'brianv0', repo: 'rico-examples', number: 2, title: 'Spec Kit: plan, research, data model and tasks (spec already merged)' },
+  { owner: 'brianv0', repo: 'rico-examples', number: 1, title: 'OpenSpec: a change that adds a fresh sign-in and an audit trail' },
+  { owner: 'brianv0', repo: 'rico', number: 6, title: 'Test PR: D2 diagrams in the getting-started guide' },
+  { owner: 'brianv0', repo: 'rico', number: 5, title: 'Test PR: Mermaid diagrams in the getting-started guide' },
+  { owner: 'brianv0', repo: 'rico', number: 1, title: '[test] Expand architecture overview (multi-hunk edit)' },
+].map((p) => ({ ...p, state: 'OPEN', author: 'brianv0' }));
+
+const link = (p) => `<a href="/github.com/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/${p.number}">${rowHtml(p)}</a>`;
+
+/** Fill the Explore page's list (static: it needs no sign-in and no network). */
+export function showExplore(ul) {
+  ul.innerHTML = EXPLORE.map((p) => `<li>${link(p)}</li>`).join('');
+}
+
+/** Fill the start page's "may need your review" list (top 5) when signed in; stays hidden when there is nothing or no access. */
+export async function showNeedsReview(section, getJson) {
+  try {
+    let items = ((await (getJson || ((u) => fetch(u).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))))('/api/suggest?needs=review')).items || []).slice(0, 5);
+    if (!items.length || !section.isConnected) return false;
+    const reviews = items.filter((p) => p.review);
+    if (reviews.length) items = reviews; // review requests only, never padded with other PRs
+    section.querySelector('h3').textContent = reviews.length ? 'May need your review' : 'Your recent pull requests';
+    const ul = section.querySelector('ul');
+    ul.innerHTML = '';
+    for (const p of items) {
+      const li = document.createElement('li');
+      li.innerHTML = link(p);
+      ul.appendChild(li);
+    }
+    section.hidden = false;
+    return true;
+  } catch { /* signed out, offline or no GraphQL: the start page just has no list */ }
+}
+
 /**
  * @param {{input: HTMLInputElement, list: HTMLElement, onPick: (ref: string) => void, fetchJson?: (url: string, signal?: AbortSignal) => Promise<any>}} o
  */
@@ -69,11 +115,7 @@ export function initSuggest({ input, list, onPick, fetchJson }) {
       li.id = `pr-opt-${i}`;
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === active ? 'true' : 'false');
-      const st = stateOf(p);
-      const ref = `${esc(p.owner)}/${esc(p.repo)}#${p.number}`;
-      li.innerHTML = p.title
-        ? `<span class="sg-ic sg-${st}">${icon(ICON[st])}</span><span class="sg-main"><span class="sg-title">${esc(p.title)}</span><span class="sg-meta">${ref}${p.author ? ' · ' + esc(p.author) : ''}${p.updatedAt ? ' · ' + shortAge(p.updatedAt) : ''}</span></span>`
-        : `<span class="sg-ic sg-open">${icon('git-pull-request')}</span><span class="sg-main"><span class="sg-title">Open ${ref}</span></span>`;
+      li.innerHTML = rowHtml(p);
       li.addEventListener('mousedown', (e) => { e.preventDefault(); pick(p); }); // before blur, so the list is still there
       list.appendChild(li);
     });

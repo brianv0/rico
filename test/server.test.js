@@ -101,7 +101,7 @@ test('requests with a foreign Host header are refused (DNS rebinding)', async ()
 test('static files are served and cannot escape public/', async () => {
   const idx = await get(port, '/');
   assert.equal(idx.status, 200);
-  assert.match(idx.body, /<title>Rico<\/title>/);
+  assert.match(idx.body, /<title>Rico · Rich comments &amp; reviews<\/title>/);
   assert.equal((await get(port, '/lib.js')).status, 200);
   assert.equal((await get(port, '/..%2fserver.js')).status, 404);
   assert.equal((await get(port, '/%2e%2e/package.json')).status, 404);
@@ -217,6 +217,19 @@ test('GET /api/suggest: the viewer pool, repo scope with an exact number, and te
   await get(port, '/api/suggest?text=' + encodeURIComponent('fix user:evil "x"'));
   assert.ok(!searches()[0].includes(':evil') && !searches()[0].includes('"'), searches()[0]); // no qualifier smuggling
   assert.equal((await get(port, '/api/suggest?repo=../x')).status, 400);
+});
+
+test('GET /api/suggest?needs=review: open non-draft PRs awaiting the viewer, direct review requests first, then team ones; recent only; each PR once', async () => {
+  const r = await get(port, '/api/suggest?needs=review');
+  assert.equal(r.status, 200);
+  const q = fake.ops.filter((o) => o.op === 'search').at(-1).queries;
+  assert.equal(q.length, 3);
+  assert.match(q[0], /^is:pr is:open archived:false draft:false user-review-requested:@me updated:>=\d{4}-\d\d-\d\d /, 'asked of the viewer directly, and recent');
+  assert.match(q[1], /review-requested:@me -user-review-requested:@me updated:>=\d{4}-\d\d-\d\d /, 'then team requests');
+  assert.match(q[2], /^is:pr is:open archived:false involves:@me updated:>=\d{4}-\d\d-\d\d /, 'the fallback: the viewer\'s own recent PRs');
+  const items = JSON.parse(r.body).items;
+  assert.deepEqual(items.map((i) => i.number), [7], 'every search returns PR 7: listed once');
+  assert.equal(items[0].review, true, 'and it stays a review request');
 });
 
 test('GET /api/suggest?name=…: the exact PR from whichever candidate owner has that repo; missing repos are not errors', async () => {

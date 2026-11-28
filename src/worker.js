@@ -43,6 +43,31 @@ async function readSession(env, cookieHeader) {
   return stored ? open(`${env.SESSION_SECRET}:${m[2]}`, stored) : null;
 }
 
+/** Revoke one OAuth token at GitHub so a copied cookie or leaked token is dead, not just forgotten. Best effort. */
+async function revoke(env, token) {
+  try {
+    const r = await fetch(`${env.GITHUB_API_URL || 'https://api.github.com'}/applications/${encodeURIComponent(env.GITHUB_CLIENT_ID)}/token`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Basic ' + btoa(`${env.GITHUB_CLIENT_ID}:${env.GITHUB_CLIENT_SECRET}`), Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'rico', 'X-GitHub-Api-Version': '2022-11-28' },
+      body: JSON.stringify({ access_token: token }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return r.status === 204 || r.status === 404; // 404: GitHub no longer knows the token, which is as good
+  } catch {
+    return false;
+  }
+}
+
+// Fixed-window rate limits (Workers Rate Limiting bindings; absent locally and in tests, then unlimited), per client IP.
+async function allowed(binding, request) {
+  if (!binding) return true;
+  try {
+    return (await binding.limit({ key: request.headers.get('CF-Connecting-IP') || 'anonymous' })).success;
+  } catch {
+    return true; // a limiter failure must not take the app down
+  }
+}
+
 async function destroySession(env, cookieHeader) {
   const m = /^v2\.([\w-]+)\.[\w-]+$/.exec(readCookie(cookieHeader, SESSION) || '');
   if (env.SESSIONS && m) await env.SESSIONS.delete('s:' + m[1]);
@@ -99,6 +124,9 @@ async function preview(env, request, url) {
   const cache = typeof caches !== 'undefined' ? caches.default : null;
   const key = new Request(url.toString(), { method: 'GET' });
   if (cache) { const hit = await cache.match(key); if (hit) return hit; }
+  if (!(await allowed(env.PREVIEW_LIMIT, request))) { // protects the shared PREVIEW_TOKEN (and GitHub's rate limit) from one visitor
+    return json(429, { error: 'Too many requests from this network. Wait a minute, or sign in with GitHub to use your own rate limit.', signin: true }, { 'Retry-After': '60' });
+  }
   const github = createGithub({ apiUrl: env.GITHUB_API_URL || 'https://api.github.com', getToken: () => env.PREVIEW_TOKEN || '', readOnly: true });
   const res = await github.route('GET', url, async () => ({}));
   if (!res.ok) {
@@ -139,7 +167,9 @@ async function api(request, env, url) {
   const res = await github.route(request.method, url, () => request.json().catch(() => { throw new HttpError(400, 'invalid json'); }));
   if (res.status === 401) { // not signed in, or GitHub revoked the token: either way, sign in again
     const body = await res.json().catch(() => ({}));
-    return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true });
+    // the token is dead: drop the session too, so the browser is simply signed out (and can sign in again) instead of stuck
+    await destroySession(env, request.headers.get('Cookie')).catch(() => {});
+    return json(401, { error: body.error || 'Sign in with GitHub to continue.', signin: true }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
   }
   if (url.pathname === '/api/me' && res.ok) {
     const me = await res.json();
@@ -169,6 +199,21 @@ function record(env, login, event, kind = '') {
   } catch { /* usage counting must never break the app */ }
 }
 
+// ---- client errors ----------------------------------------------------------------------------------
+// public/report.js posts uncaught browser errors here; they are written to Workers Logs (observability) as one JSON
+// line each: message, stack, script location and user agent. No login, cookie, IP or page address is logged.
+async function clientError(request, env, url) {
+  if (request.method !== 'POST') return json(405, { error: 'method not allowed' });
+  const origin = request.headers.get('Origin');
+  if (request.headers.get('X-Rico') !== '1' || (origin && origin !== url.origin)) return json(403, { error: 'forbidden' });
+  if (!(await allowed(env.ERROR_LIMIT, request))) return json(429, { error: 'slow down' }, { 'Retry-After': '60' });
+  let r;
+  try { r = JSON.parse((await request.text()).slice(0, 8192)); } catch { return json(400, { error: 'invalid json' }); }
+  const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : undefined);
+  console.error(JSON.stringify({ event: 'client_error', message: str(r?.message, 300), stack: str(r?.stack, 1500), source: str(r?.source, 200), line: Number.isFinite(r?.line) ? r.line : undefined, ua: str(request.headers.get('User-Agent'), 200) }));
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
 const worker = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -180,9 +225,12 @@ const worker = {
       if (p === '/auth/callback' && request.method === 'GET') return callback(request, env, url);
       if (p === '/auth/logout' && request.method === 'POST') {
         if (request.headers.get('X-Rico') !== '1') return json(403, { error: 'forbidden' });
+        const sess = await readSession(env, request.headers.get('Cookie')).catch(() => null);
+        const revoked = sess?.t ? await revoke(env, sess.t) : false; // the token dies at GitHub too, not just here
         await destroySession(env, request.headers.get('Cookie'));
-        return json(200, { ok: true }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
+        return json(200, { ok: true, revoked }, { 'Set-Cookie': setCookie(SESSION, '', { maxAge: 0, secure: url.protocol === 'https:' }) });
       }
+      if (p === '/api/client-error') return clientError(request, env, url);
       if (p.startsWith('/api/')) return api(request, env, url);
       return json(404, { error: 'not found' });
     }

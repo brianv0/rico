@@ -4,7 +4,7 @@ import {
 } from './lib.js';
 import { diagramLang, renderDiagram, frameDoc } from './diagrams.js';
 import { icon } from './icons.js';
-import { initSuggest, rememberPr } from './suggest.js';
+import { initSuggest, rememberPr, showNeedsReview, showExplore } from './suggest.js';
 import { patchHunkRanges, patchDeletions, oldToNewMap, wordDiff, diffGroups } from './lib.js';
 import { detectSpec, buildSteps, referencePlan, referencesFromListing, referencesFromText, findMarkers, buildIdIndexByUnit, ID_SRC, ROLE_HINT, ROLE_LABEL } from './spec.js';
 import { sinceChanges, reanchor, inlineDiff, pairBlocks } from './anchor.js';
@@ -241,14 +241,17 @@ async function showWho() {
     state.me = me.login || null;
     state.meAvatar = me.avatar || null;
     state.preview = !!me.preview;
-    if (res.ok && me.preview) { // signed out, reading public PRs
+    document.body.dataset.auth = (res.ok && me.preview) || (res.status === 401 && me.signin) ? 'preview' : 'user'; // what the start page offers
+    if ((res.ok && me.preview) || (res.status === 401 && me.signin)) { // signed out (or the token was revoked at GitHub): reading public PRs
+      state.preview = true;
       who.innerHTML = '<span class="chip" title="You can read public pull requests. Sign in to comment, reply and post reviews.">Preview · read-only</span>';
       const a = who.appendChild(el('a', 'btn btn-primary', 'Sign in with GitHub'));
       a.href = signinUrl();
     } else if (res.ok && me.hosted) {
       // just the avatar; who you are and Sign out are in its menu
       who.innerHTML = `<details class="menu" id="account"><summary aria-label="Account: ${esc(me.login)}" title="${esc(me.login)}">${me.avatar ? `<img alt="" src="${esc(me.avatar)}">` : `<span class="btn">${esc(me.login)}</span>`}</summary><div class="menu-pop"><div class="menu-head">Signed in as <b>${esc(me.login)}</b></div></div></details>`;
-      const out = who.querySelector('.menu-pop').appendChild(el('button', 'menu-item'));
+      const pop = who.querySelector('.menu-pop');
+      const out = pop.appendChild(el('button', 'menu-item'));
       out.innerHTML = `${icon('sign-out')} Sign out`;
       out.type = 'button';
       out.addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', headers: { 'X-Rico': '1' } }); location.reload(); });
@@ -3172,7 +3175,6 @@ $('#tree-toggle').addEventListener('click', () => {
   $('#tree-toggle').setAttribute('aria-expanded', String(!hidden));
   layoutAll();
 });
-$('#brand-mark').innerHTML = icon('comment-discussion');
 $('#rc-caret').innerHTML = icon('triangle-down');
 
 // ---------- theme: follow the system, or force light / dark ----------
@@ -3239,7 +3241,19 @@ if (here) {
   else loadPr(ref, new URLSearchParams(location.search).get('file'), here.number ? here.sha : '', false, here.number ? '' : new URLSearchParams(location.search).get('branch') || '');
 } else if (h.get('pr')) { $('#pr').value = h.get('pr'); loadPr(h.get('pr'), h.get('f')); } // older #pr=… links
 renderPanel();
-showWho();
+const onExplore = location.pathname === '/explore';
+if (onExplore) $('#cards .landing:not(#explore-page)').hidden = true; // no flash of the start page while we find out who is looking
+showWho().then(() => {
+  if (onExplore) { // Explore is for signed-out visitors: the signed-in start page has their own PRs
+    if (!state.preview) return location.replace('/');
+    document.title = 'Explore · Rico';
+    $('#explore-page').hidden = false;
+    showExplore($('#explore-list'));
+  } else {
+    const nr = document.getElementById('needs-review');
+    if (nr && !state.preview) showNeedsReview(nr);
+  }
+});
 
 // test hook
 const setMergeWords = (on) => {

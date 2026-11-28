@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · Rico</title>
+<link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+<main>
+<a class="back" href="/">&larr; Rico</a>
+<h1>Privacy</h1>
+<p class="updated">Last updated 28 November 2026</p>
+
+<p>Rico (<code>ricorico.dev</code>) is a free tool for reviewing the markdown in GitHub pull requests. It is run by Brian Van Klaveren as an open-source project (<a href="https://github.com/brianv0/rico">source</a>). This page says what the hosted service collects and why. Running Rico yourself with <code>npm start</code> collects nothing: it never contacts anyone but GitHub.</p>
+
+<h2>What Rico handles</h2>
+<table>
+<tr><th>Data</th><th>Why</th><th>Where, and how long</th></tr>
+<tr><td>Your <b>GitHub access token</b>, issued when you sign in</td><td>To read pull requests and post your comments to GitHub as you</td><td>Encrypted, in a cookie in your browser and (as ciphertext only) in Cloudflare KV. Up to 30 days, or until you sign out, which deletes it and revokes the token at GitHub.</td></tr>
+<tr><td><b>Your GitHub username</b>, plus the time, for each app load and each comment you post through Rico (not the comment text, repository or pull request)</td><td>To count how many people use Rico and how much, and to see which accounts use it most</td><td>Cloudflare Analytics Engine. Deleted automatically after about three months.</td></tr>
+<tr><td><b>Error reports</b>: when Rico's page hits an unexpected error, its message, stack trace and your browser's user-agent. No username, page address or comment text.</td><td>To find and fix bugs</td><td>Cloudflare Workers Logs, up to seven days.</td></tr>
+<tr><td><b>Request logs</b>: pages and API paths requested (these include owner, repository and pull request number), status and timing, plus your IP address as seen by Cloudflare</td><td>To run, secure and debug the service, and to limit abuse</td><td>Cloudflare, per its own retention (Workers Logs: up to seven days).</td></tr>
+<tr><td><b>Page statistics</b> from Cloudflare Web Analytics (page views, country, browser, performance)</td><td>To see how the site is used</td><td>Cloudflare. It sets no cookies and does not track you across sites.</td></tr>
+</table>
+
+<h2>What Rico does not store</h2>
+<p>Pull request contents, file contents and comment text pass through Rico's server to and from GitHub and are not kept. The one exception is a one-minute copy of <em>public</em> pull request data, cached at Cloudflare's edge so many visitors can share one request to GitHub. Comments you post live on GitHub, under GitHub's terms and privacy statement, not here. Rico sells nothing, shows no ads and shares nothing with anyone except the service providers named here.</p>
+
+<h2>Cookies and local storage</h2>
+<ul>
+<li><code>rico_session</code>: your encrypted sign-in, described above. Set only when you sign in.</li>
+<li><code>rico_oauth</code>: a random value that protects the sign-in handshake. Lasts ten minutes.</li>
+<li>Your browser's local storage keeps your theme choice, files you marked <em>Viewed</em>, the comment display mode and any unsent comment text. It never leaves your browser.</li>
+</ul>
+<p>These are strictly necessary for the features you use, so Rico shows no cookie banner. There are no advertising or tracking cookies.</p>
+
+<h2>The GitHub permission</h2>
+<p>To read pull requests and comment on them for you, Rico asks GitHub for the <code>repo</code> permission. GitHub offers nothing narrower that allows commenting on private repositories, and it also covers write access to code. Rico uses it only to read the pull request you open and post the comments you write. You can remove Rico's access at any time under <a href="https://github.com/settings/applications">GitHub &rsaquo; Settings &rsaquo; Applications</a>.</p>
+
+<h2>Where it runs</h2>
+<p>Rico runs on Cloudflare's global network, so your requests may be handled in other countries than your own. Cloudflare is the only service provider that processes data for Rico, under its own <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">data processing terms</a>, which include standard contractual clauses for transfers.</p>
+
+<h2>Your choices and rights</h2>
+<p>Whether you are in the EU/UK (GDPR) or California (CCPA/CPRA) or elsewhere, you can ask what Rico holds about you, ask for it to be corrected or deleted, or object to its use. In practice: sign out to delete your session and revoke your token; usage records disappear on their own after about three months; and you can ask for them to be removed sooner by <a href="https://github.com/brianv0/rico/issues">opening an issue</a> (do not include anything private) or, for something sensitive, using the contact in <a href="https://github.com/brianv0/rico/blob/main/SECURITY.md">SECURITY.md</a>. Rico does not sell or share personal information for advertising and does no automated decision-making. You may also complain to your data protection authority.</p>
+<p>The legal basis for the above is legitimate interest in running, securing and improving the service, and, for sign-in, performing the service you asked for. Rico is not directed at children under 13, and GitHub's own minimum age applies.</p>
+
+<h2>Changes</h2>
+<p>If this changes in a way that matters, the date at the top changes and the previous versions stay in the <a href="https://github.com/brianv0/rico/commits/main/public/privacy.html">repository history</a>.</p>
+</main>
+</body>
+</html>
