@@ -101,7 +101,7 @@ test('requests with a foreign Host header are refused (DNS rebinding)', async ()
 test('static files are served and cannot escape public/', async () => {
   const idx = await get(port, '/');
   assert.equal(idx.status, 200);
-  assert.match(idx.body, /<title>Rico<\/title>/);
+  assert.match(idx.body, /<title>Rico · Rich Comments &amp; Reviews<\/title>/);
   assert.equal((await get(port, '/lib.js')).status, 200);
   assert.equal((await get(port, '/..%2fserver.js')).status, 404);
   assert.equal((await get(port, '/%2e%2e/package.json')).status, 404);

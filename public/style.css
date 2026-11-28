@@ -579,3 +579,11 @@ body[data-auth="user"] .landing > .cta { display: none; }
 body[data-auth="preview"] .shot.for-preview { display: block; }
 .for-preview-inline { display: none; }
 body[data-auth="preview"] .for-preview-inline { display: inline; }
+
+/* signed-out brand moment: the empanada and what Rico stands for */
+.brand-hero { text-align: center; margin: 0 0 4px; }
+.brand-hero img { display: block; margin: 0 auto 8px; height: 60px; width: auto; }
+body[data-auth="preview"] .brand-hero.for-preview { display: block; }
+.brand-hero .eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #a65f1f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .brand-hero .eyebrow { color: #e2a34b; } }
+:root[data-theme="dark"] .brand-hero .eyebrow { color: #e2a34b; }
