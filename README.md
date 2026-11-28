@@ -107,6 +107,51 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
 - Threads show avatars, the author association (Owner / Member / …), "commented 2 days ago", and GitHub-flavoured
   markdown bodies; replies post straight to GitHub. In the rendered view they sit in a margin beside their text.
 
+## Review flows
+Spec-driven AI workflows write markdown into the repo (a spec, a plan, a task list) and ask a person to read it before the agent
+goes on. Rico calls these **review flows**: it recognises three of them from the files a PR changes and reviews them as a sequence. Everything below is a layer on top
+of normal review: comments still go to GitHub as before, and every feature falls back to plain markdown review when nothing matches.
+
+Try them: [Spec Kit](https://ricorico.dev/github.com/brianv0/rico-examples/2), [Superpowers](https://ricorico.dev/github.com/brianv0/rico-examples/3) and
+[OpenSpec](https://ricorico.dev/github.com/brianv0/rico-examples/1) are example pull requests in
+[`brianv0/rico-examples`](https://github.com/brianv0/rico-examples), built from the fixtures in [`examples/`](examples/README.md) by
+`node scripts/seed-examples.mjs owner/repo` (so you can make your own set, or add a second round of commits to one).
+
+- **The flow.** Detected from the changed paths, no setup (the *Review flow* pill in the toolbar says which, and switches it off or forces
+  one: Spec Kit, OpenSpec, Superpowers; *Off* gives the plain file list).
+
+  | Workflow | Recognised by | Read in this order |
+  |----------|---------------|--------------------|
+  | [Spec Kit](https://github.com/github/spec-kit) | `specs/<feature>/{spec,plan,tasks,…}.md`, the constitution | constitution, spec, checklists, plan, research, data model, quickstart, tasks |
+  | [OpenSpec](https://github.com/Fission-AI/OpenSpec) | `openspec/changes/<name>/{proposal,design,tasks}.md`, `…/specs/<domain>/spec.md`, `openspec/specs/` | proposal, spec changes, design, tasks; main specs and archived changes last |
+  | [Superpowers](https://github.com/obra/superpowers) | `docs/superpowers/{specs,plans}/…` | design, then its plan, oldest first |
+
+  - The sidebar becomes **Review steps** (grouped by feature or change; *All files* gets the plain tree back). **Next** marks the
+    file viewed and opens the next step; the last step opens *Finish review*. Under each card: what to look for in that kind of file.
+  - **Unchanged neighbours join as steps**: `spec.md` beside a changed `plan.md`, the constitution, the current spec next to each
+    OpenSpec change, the design a Superpowers plan names. They are read from the PR's head commit, start collapsed, say *Unchanged ·
+    for reference*, and a comment on one goes on the pull request (like any text outside the diff).
+  - **Open questions** (`[NEEDS CLARIFICATION: …]`, TBD, TODO) are marked in the text, counted in the sidebar and the toolbar
+    (*N open questions* jumps to the next) and ticked on the scrollbar. **Ids** (`FR-001`, `SC-001`, `T010`, `US1`, `Task 3`) link to
+    the line that defines them, in whichever file it is. Both only wrap text, so selecting and commenting work as before.
+- **Changes since you looked.** When a push lands after your last review, the *Changes* menu in the toolbar marks what changed since then
+  (or since your last visit, or any commit: `?since=<sha>` in the link): changed blocks get an amber bar in the gutter, beside the text and
+  apart from the PR's own green/blue/grey bars (a dashed red bar where a paragraph was removed), with a matching mark on the scrollbar
+  strip so a long file shows where to look; inserted words are underlined, removed words shown as ghost text and removed paragraphs
+  as a one-line note. A paragraph that was only re-wrapped is not marked, and a file that is new since then is said once on its header. While this is on the PR's own bars and green tint fade, so the amber is the one clear signal. Ghost text
+  is not part of the document, so selecting and anchoring never see it. Commenting is unchanged: it is still against the PR's diff.
+  A baseline that was force-pushed away is dropped with a message.
+- **Outdated comments, found again.** GitHub files a comment as *outdated* when its lines change, and shows it where they used to be.
+  Rico fetches the file at the commit the comment was made on, takes the lines it was about, and looks for that text in the current
+  file: the same lines elsewhere, the same words wrapped differently, the words the comment quoted, then (only when one place is
+  clearly the best) the paragraph that shares most of its words. The thread moves beside that text, badged *Outdated · moved* or
+  *probably here*, and a *What changed here* fold shows the passage then and now. Text that cannot be found is badged *text not found*.
+  This is only how Rico shows it: on github.com the thread stays outdated.
+- **Needs you.** *Needs you · N* in the toolbar lists the threads you are part of (or, on your own PR, all of them) where someone
+  answered last (agents are badged) or the text you commented on changed. Press `]` and `[` to step through them.
+- **Viewed marks** are GitHub's own when GitHub answers (they follow you to github.com, and a file that changed since you ticked it is
+  marked *changed since*); otherwise they are kept per PR in this browser, no longer lost when a push lands.
+
 ## How it works
 - markdown-it stamps every rendered block with its source line range (`token.map`).
 - A selection is mapped to source lines; inside a hard-wrapped paragraph the line is refined by word position.
@@ -151,7 +196,7 @@ Behind an HTTP(S) proxy? Node's `fetch` ignores `HTTPS_PROXY` unless you start w
 ```bash
 npm test         # pure logic + server integration (security checks, GitHub proxying) against a fake GitHub API
 npx playwright install chromium   # once
-npm run e2e      # headless Chromium with real mouse drags against the same fake; writes e2e/*.png
+npm run e2e      # headless Chromium with real mouse drags against the same fake (the PR, a commit, and spec review: e2e/spec.mjs); writes e2e/*.png
 ```
 
 ### Real browser, real input (Linux)
@@ -165,7 +210,7 @@ headless tests missed: Submit hidden below the fold in a normal window, and the 
 the screen when the page was scrolled to the top.
 
 ### Against real GitHub
-`brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape:
+`brianv0/rico` has four `[test]` pull requests (never meant to merge), each a different diff shape (the review-flow examples are in [`brianv0/rico-examples`](https://github.com/brianv0/rico-examples), above):
 
 | PR | Covers |
 |----|--------|
@@ -192,6 +237,16 @@ RICO_POST=1 REAL_PR=1 bash e2e/desktop/run.sh   # same, but posts a real review 
 - The Conversation, Commits and Checks tabs open on GitHub; Rico only reviews files.
 - No expandable hidden context between hunks in the Source diff view yet, no emoji shortcodes or footnotes.
 - Mermaid element mapping covers flowcharts and sequence diagrams; other types comment on the whole block.
+- A PR gets one review flow, found from paths at the repository root. A monorepo that runs several flows in different project directories
+  (`packages/a/specs/…`, `services/b/openspec/…`) is not handled yet: those paths get no flow, and a PR that mixes flows follows the one with
+  the most files and lists the rest under *Other files*. Detecting per project directory (and a file in the repo that declares the flow) is
+  the next step.
+- Review flows read markdown only: non-markdown artifacts (Spec Kit's `contracts/*.yaml`) stay in the file tree and open on GitHub.
+  Presets and custom schemas can move artifacts; use the pill to force a workflow or switch the mode off. BMAD and GSD are not recognised yet.
+- Re-anchoring needs the comment's commit from GitHub and the old file to still exist (a force-push can remove it); the fuzzy step
+  declines to guess when two places fit about equally. Changes-since is drawn from the files at two commits, so a baseline that has
+  been garbage-collected shows nothing.
+- GitHub's viewed state is read and written through GraphQL, in its own request: if GitHub does not answer it, marks stay in the browser.
 
 ## Development
 `public/icons.js` is generated from `@primer/octicons` (`node scripts/gen-icons.mjs`); the vendored page styles and

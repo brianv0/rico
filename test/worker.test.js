@@ -25,6 +25,7 @@ globalThis.fetch = async (url, opts = {}) => {
     return Response.json({ id: 77, user: { login: 'octo' }, body: 'x', created_at: 't', html_url: 'h' }, { status: 201 });
   }
   if (u.hostname === 'api.github.com' && /\/pulls\/1\/(files|comments)$/.test(u.pathname)) return Response.json([]);
+  if (u.hostname === 'api.github.com' && u.pathname === '/repos/o/pub/contents/specs/001-x') return Response.json([{ name: 'spec.md', path: 'specs/001-x/spec.md', type: 'file', sha: 'zz' }]);
   if (u.hostname === 'api.github.com' && u.pathname.startsWith('/repos/o/gone')) return Response.json({ message: 'Not Found' }, { status: 404 });
   if (u.hostname === 'api.github.com' && u.pathname === '/repos/o/r/pulls/1/reviews') return Response.json({ id: 9, html_url: 'h', state: 'COMMENTED' });
   return Response.json({ message: 'Not Found' }, { status: 404 });
@@ -230,6 +231,13 @@ test('preview: signed-out visitors read public PRs anonymously (or with PREVIEW_
   assert.equal((await review.json()).signin, true);
 });
 
+test('preview: a directory listing (for spec review) is readable signed out, and trimmed to name, path and type', async () => {
+  const d = await worker.fetch(req('/api/dir?owner=o&repo=pub&path=specs/001-x&ref=abc1234'), env);
+  assert.equal(d.status, 200);
+  assert.deepEqual(await d.json(), [{ name: 'spec.md', path: 'specs/001-x/spec.md', type: 'file' }]);
+  assert.equal((await worker.fetch(req('/api/dir?owner=o&repo=pub&path=specs/001-x&ref=abc1234', { method: 'POST', headers: { 'X-Rico': '1', Origin: ORIGIN }, body: '{}' }), env)).status, 401);
+});
+
 test('preview: private or missing repositories are not shown and point to sign-in', async () => {
   const priv = await worker.fetch(req('/api/pr?ref=o/priv%231'), env);
   assert.equal(priv.status, 404);
@@ -242,7 +250,7 @@ test('preview: private or missing repositories are not shown and point to sign-i
   assert.equal((await gone.json()).signin, true);
 });
 
-const WRITE_ROUTES = ['/api/comment', '/api/pr-comment', '/api/comment/edit', '/api/comment/delete', '/api/thread/resolve', '/api/reaction', '/api/pending/add', '/api/pending/finish', '/api/pending/discard', '/api/reply', '/api/review'];
+const WRITE_ROUTES = ['/api/viewed', '/api/comment', '/api/pr-comment', '/api/comment/edit', '/api/comment/delete', '/api/thread/resolve', '/api/reaction', '/api/pending/add', '/api/pending/finish', '/api/pending/discard', '/api/reply', '/api/review'];
 
 test('comment routes: signed out is 401 signin:true; every write needs X-Rico and the same Origin, whatever the method', async () => {
   for (const p of WRITE_ROUTES) {

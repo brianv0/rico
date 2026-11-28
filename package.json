@@ -8,14 +8,14 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test --test-timeout=30000 test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js test/icon.test.js",
+    "test": "node --test --test-timeout=30000 test/lib.test.js test/server.test.js test/worker.test.js test/comments.test.js test/frame.test.js test/icon.test.js test/anchor.test.js test/spec.test.js test/seed.test.js",
     "test:d2": "node --test --test-timeout=120000 test/d2lib.test.js test/d2svg.test.js test/tala-*.test.js",
     "build": "node scripts/build.mjs",
     "usage": "node scripts/usage.mjs",
     "dev:cf": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "deploy:stage": "npm run build && wrangler deploy --env stage",
-    "e2e": "node e2e/run.mjs && node e2e/commit.mjs",
+    "e2e": "node e2e/run.mjs && node e2e/commit.mjs && node e2e/spec.mjs",
     "deploy:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml",
     "deploy:stage:embed": "npm run build && node scripts/build-embed.mjs && wrangler deploy -c wrangler.embed.toml --env stage"
   },

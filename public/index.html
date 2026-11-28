@@ -38,6 +38,7 @@
   <div class="container">
     <h1 class="gh-title"><span id="pr-title"></span> <span class="gh-num" id="pr-num"></span></h1>
     <div class="gh-meta"><span id="pr-state" class="State"></span><span id="pr-meta"></span></div>
+    <div id="commit-info" class="commit-info" hidden></div>
     <div id="commit-note" class="commit-note" hidden></div>
     <nav class="tabnav" id="tabs" aria-label="Pull request tabs"></nav>
   </div>
@@ -47,7 +48,10 @@
   <div class="toolbar-in">
     <button id="tree-toggle" class="btn btn-icon" type="button" title="Toggle file tree" aria-label="Toggle file tree" aria-expanded="true"></button>
     <span id="totals"></span>
+    <span id="spec-bar" class="bar" hidden></span>
+    <span id="since-bar" class="bar" hidden></span>
     <span class="spacer"></span>
+    <span id="queue-bar" class="bar" hidden></span>
     <div class="review-wrap">
       <button id="review-btn" class="btn btn-primary" type="button" aria-haspopup="dialog" aria-expanded="false"><span id="rc-label">Review changes</span> <span id="rc-count" class="Counter" hidden></span><span id="rc-caret"></span></button>
       <div id="review-pop" class="Popover" role="dialog" aria-label="Finish your review" hidden>
@@ -74,6 +78,10 @@
   <aside id="side">
     <div class="tree-head">
       <input id="tree-filter" type="search" aria-label="Filter changed files" placeholder="Filter changed files">
+      <div id="tree-mode" class="seg" role="group" aria-label="Sidebar" hidden>
+        <button type="button" data-tree="steps" aria-pressed="true">Review steps</button>
+        <button type="button" data-tree="files" aria-pressed="false">All files</button>
+      </div>
       <div id="viewed-count"></div>
     </div>
     <nav id="files" aria-label="Changed files"></nav>
@@ -85,12 +93,14 @@
       <span><i class="k del"></i>removed</span>
       <span><i class="k ctx"></i>commentable context</span>
       <span><i class="k out"></i>outside the diff (posted on the <span id="legend-where">pull request</span>)</span>
+      <span id="legend-since" hidden><i class="k since"></i>changed since <span id="legend-since-what">your review</span></span>
       <button id="merge-toggle" class="linkish" type="button" aria-pressed="true" title="Show removed and inserted words together in one paragraph, like GitHub, or as separate red and green blocks">Inline word diff</button>
     </div>
     <div id="stale" class="banner" role="status" hidden><span class="msg-text"></span> <button id="stale-reload" class="btn" type="button">Reload</button></div>
     <section id="general" hidden aria-label="Comments on the pull request"></section>
     <div id="cards"><p class="empty intro">Paste a PR link above. Then select any text &mdash; across as many paragraphs as you like &mdash; and a comment box appears over it.</p>
-      <p class="empty intro examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p></div>
+      <p class="empty intro examples">Try a public PR: <a href="/github.com/brianv0/rico/5">Mermaid diagrams</a> &middot; <a href="/github.com/brianv0/rico/6">D2 diagrams</a> &middot; <a href="/github.com/brianv0/rico/1">architecture rewrite</a></p>
+      <p class="empty intro examples">Review flows (AI spec-driven work): <a href="/github.com/brianv0/rico-examples/2">Spec Kit</a> &middot; <a href="/github.com/brianv0/rico-examples/3">Superpowers</a> &middot; <a href="/github.com/brianv0/rico-examples/1">OpenSpec</a></p></div>
     <div id="selbar" role="toolbar" aria-label="Comment on selection" hidden>
       <button type="button" id="sb-comment" title="Comment (Ctrl/Cmd+Alt+M)" aria-label="Comment on the selection"></button>
       <button type="button" id="sb-suggest" title="Suggest an edit" aria-label="Suggest an edit"></button>

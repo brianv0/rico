@@ -1,0 +1,4 @@
+schema: spec-driven
+context: |
+  Rico is a web app for reviewing markdown in GitHub pull requests.
+  Specs are written for behaviour a reviewer can see, not for code.
